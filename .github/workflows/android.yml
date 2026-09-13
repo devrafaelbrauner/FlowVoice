@@ -38,6 +38,9 @@ jobs:
       - name: Build desktop app (F13)
         run: ./gradlew :desktopApp:desktopJar --stacktrace
 
+      - name: Run desktop app tests
+        run: ./gradlew :desktopApp:desktopTest --stacktrace
+
       - name: Desktop runtime includes java.net.http
         run: |
           ./gradlew :desktopApp:createRuntimeImage --stacktrace
