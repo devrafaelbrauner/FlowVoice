@@ -76,7 +76,7 @@ class FlowVoiceAccessibilityService : AccessibilityService() {
             ?: return InsertResult(false, "commitText", "currentInputConnection nulo")
 
         try {
-            connection.commitText(text, 0, null)
+            connection.commitText(text, 1, null)
         } catch (error: Throwable) {
             Log.e(TAG, "commitText falhou", error)
             return InsertResult(false, "commitText", "commitText falhou: ${error.message}")
