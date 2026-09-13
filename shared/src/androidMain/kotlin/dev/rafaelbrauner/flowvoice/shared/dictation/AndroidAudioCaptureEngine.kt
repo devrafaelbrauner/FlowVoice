@@ -30,12 +30,17 @@ class AndroidAudioCaptureEngine(
     override val isRunning: Boolean
         get() = captureActive.get() && (recordingHandle?.isRecording() ?: false)
 
-    override suspend fun start(onFrame: suspend (AudioFrame) -> Unit) {
+    override suspend fun start(onFrame: suspend (AudioFrame) -> Unit) = start(onFrame, onError = {})
+
+    override suspend fun start(
+        onFrame: suspend (AudioFrame) -> Unit,
+        onError: suspend (AudioCaptureException) -> Unit
+    ) {
         if (!captureActive.compareAndSet(false, true)) {
             throw AudioCaptureException("audio capture is already running")
         }
         try {
-            startCapture(onFrame)
+            startCapture(onFrame, onError)
         } catch (error: CancellationException) {
             stop()
             throw error
@@ -48,7 +53,10 @@ class AndroidAudioCaptureEngine(
         }
     }
 
-    private suspend fun startCapture(onFrame: suspend (AudioFrame) -> Unit) {
+    private suspend fun startCapture(
+        onFrame: suspend (AudioFrame) -> Unit,
+        onError: suspend (AudioCaptureException) -> Unit
+    ) {
         if (appContext.checkSelfPermission(Manifest.permission.RECORD_AUDIO) !=
             PackageManager.PERMISSION_GRANTED
         ) {
@@ -88,6 +96,7 @@ class AndroidAudioCaptureEngine(
         val startSignal = CompletableDeferred<Unit>()
         val thread = Thread(
             {
+                var failure: AudioCaptureException? = null
                 try {
                     audioRecord.startRecording()
                     startSignal.complete(Unit)
@@ -101,7 +110,9 @@ class AndroidAudioCaptureEngine(
                             runBlocking { onFrame(AudioFrame(readBuffer.copyOf(bytesRead), format)) }
                         } else {
                             Log.e(TAG, "audio capture read failed: code=$bytesRead, format=$format")
-                            captureActive.set(false)
+                            if (captureActive.getAndSet(false)) {
+                                failure = AudioCaptureException("audio capture read failed: code=$bytesRead")
+                            }
                         }
                     }
                 } catch (error: CancellationException) {
@@ -112,13 +123,16 @@ class AndroidAudioCaptureEngine(
                     }
                 } catch (error: Throwable) {
                     Log.e(TAG, "audio capture failed", error)
-                    captureActive.set(false)
+                    val wasActive = captureActive.getAndSet(false)
                     if (!startSignal.isCompleted) {
                         startSignal.completeExceptionally(error)
+                    } else if (wasActive) {
+                        failure = AudioCaptureException("audio capture failed", error)
                     }
                 } finally {
                     handle.release()
                 }
+                failure?.let { runBlocking { onError(it) } }
             },
             THREAD_NAME
         )

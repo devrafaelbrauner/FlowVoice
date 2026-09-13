@@ -10,7 +10,8 @@ import javax.sound.sampled.AudioFormat as JavaSoundFormat
 
 class JavaSoundAudioCaptureEngine(
     override val format: AudioFormat = AudioFormat.DEFAULT,
-    private val openLine: (JavaSoundFormat) -> TargetDataLine = ::defaultTargetDataLine
+    private val openLine: (JavaSoundFormat) -> TargetDataLine = ::defaultTargetDataLine,
+    private val stalledReadTimeoutMs: Long = DEFAULT_STALLED_READ_TIMEOUT_MS
 ) : AudioCaptureEngine {
     private val captureActive = AtomicBoolean(false)
 
@@ -20,12 +21,18 @@ class JavaSoundAudioCaptureEngine(
 
     init {
         require(format.sampleBits == 16) { "sampleBits must be 16" }
+        require(stalledReadTimeoutMs > 0L) { "stalledReadTimeoutMs must be positive" }
     }
 
     override val isRunning: Boolean
         get() = captureActive.get() && (line?.isActive ?: false)
 
-    override suspend fun start(onFrame: suspend (AudioFrame) -> Unit) {
+    override suspend fun start(onFrame: suspend (AudioFrame) -> Unit) = start(onFrame, onError = {})
+
+    override suspend fun start(
+        onFrame: suspend (AudioFrame) -> Unit,
+        onError: suspend (AudioCaptureException) -> Unit
+    ) {
         if (!captureActive.compareAndSet(false, true)) {
             throw AudioCaptureException("audio capture is already running")
         }
@@ -45,7 +52,7 @@ class JavaSoundAudioCaptureEngine(
             throw wrapStartFailure(error)
         }
         line = target
-        val thread = Thread({ captureLoop(target, onFrame) }, THREAD_NAME).apply { isDaemon = true }
+        val thread = Thread({ captureLoop(target, onFrame, onError) }, THREAD_NAME).apply { isDaemon = true }
         captureThread = thread
         thread.start()
     }
@@ -63,24 +70,50 @@ class JavaSoundAudioCaptureEngine(
         captureThread = null
     }
 
-    private fun captureLoop(target: TargetDataLine, onFrame: suspend (AudioFrame) -> Unit) {
+    private fun captureLoop(
+        target: TargetDataLine,
+        onFrame: suspend (AudioFrame) -> Unit,
+        onError: suspend (AudioCaptureException) -> Unit
+    ) {
         val buffer = ByteArray(readBufferBytes())
+        var failure: AudioCaptureException? = null
+        var silentSinceNanos: Long? = null
         try {
             while (captureActive.get()) {
                 val bytesRead = target.read(buffer, 0, buffer.size)
-                if (bytesRead > 0) {
-                    runBlocking { onFrame(AudioFrame(buffer.copyOf(bytesRead), format)) }
-                } else if (!target.isOpen) {
-                    captureActive.set(false)
+                when {
+                    bytesRead > 0 -> {
+                        silentSinceNanos = null
+                        runBlocking { onFrame(AudioFrame(buffer.copyOf(bytesRead), format)) }
+                    }
+                    !target.isOpen -> {
+                        if (captureActive.getAndSet(false)) {
+                            failure = AudioCaptureException("microphone line closed unexpectedly")
+                        }
+                    }
+                    else -> {
+                        val now = System.nanoTime()
+                        val silentSince = silentSinceNanos ?: now.also { silentSinceNanos = it }
+                        if (now - silentSince >= stalledReadTimeoutMs * NANOS_PER_MILLI) {
+                            if (captureActive.getAndSet(false)) {
+                                failure = AudioCaptureException("microphone delivered no audio for $stalledReadTimeoutMs ms")
+                            }
+                        } else {
+                            Thread.sleep(STALLED_READ_PAUSE_MS)
+                        }
+                    }
                 }
             }
         } catch (error: Throwable) {
-            captureActive.set(false)
+            if (captureActive.getAndSet(false)) {
+                failure = AudioCaptureException("audio capture failed", error)
+            }
             System.err.println("$TAG: audio capture failed: ${error::class.simpleName}: ${error.message}")
         } finally {
             runCatching { target.stop() }
             runCatching { target.close() }
         }
+        failure?.let { runBlocking { onError(it) } }
     }
 
     private fun readBufferBytes(): Int =
@@ -93,12 +126,15 @@ class JavaSoundAudioCaptureEngine(
         else -> AudioCaptureException("failed to start audio capture", error)
     }
 
-    private companion object {
+    companion object {
+        const val DEFAULT_STALLED_READ_TIMEOUT_MS = 2_000L
         private const val TAG = "FlowVoiceDictation"
         private const val THREAD_NAME = "flowvoice-audio-capture"
         private const val READS_PER_SECOND = 10
         private const val LINE_BUFFER_MULTIPLIER = 4
         private const val STOP_JOIN_TIMEOUT_MS = 1_000L
+        private const val STALLED_READ_PAUSE_MS = 20L
+        private const val NANOS_PER_MILLI = 1_000_000L
     }
 }
 

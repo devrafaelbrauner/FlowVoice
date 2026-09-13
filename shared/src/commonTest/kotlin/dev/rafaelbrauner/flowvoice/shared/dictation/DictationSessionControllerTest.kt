@@ -156,6 +156,21 @@ class DictationSessionControllerTest {
         runCurrent()
     }
 
+    @Test
+    fun captureErrorAfterStartMovesSessionToError() = runTest {
+        val engine = ErrorReportingAudioCaptureEngine()
+        val controller = DictationSessionController(engine)
+
+        controller.start()
+        assertEquals(DictationSessionState.Capturing, controller.state.value)
+        engine.reportError(AudioCaptureException("microphone removed"))
+
+        val state = controller.state.value
+        assertTrue(state is DictationSessionState.Error, "expected Error but was $state")
+        assertEquals("audio capture failed: microphone removed", (state as DictationSessionState.Error).message)
+        assertEquals(1, engine.stopCount)
+    }
+
     private suspend inline fun <reified T : Throwable> assertSuspendFailsWith(block: suspend () -> Unit): T {
         try {
             block()
@@ -209,5 +224,34 @@ private class FakeAudioCaptureEngine(
     override fun stop() {
         stopCount++
         running = false
+    }
+}
+
+private class ErrorReportingAudioCaptureEngine : AudioCaptureEngine {
+    var stopCount = 0
+        private set
+
+    private var onError: (suspend (AudioCaptureException) -> Unit)? = null
+
+    override val format: AudioFormat = AudioFormat.DEFAULT
+    override val isRunning: Boolean
+        get() = onError != null
+
+    override suspend fun start(onFrame: suspend (AudioFrame) -> Unit) = start(onFrame, onError = {})
+
+    override suspend fun start(
+        onFrame: suspend (AudioFrame) -> Unit,
+        onError: suspend (AudioCaptureException) -> Unit
+    ) {
+        this.onError = onError
+    }
+
+    suspend fun reportError(error: AudioCaptureException) {
+        checkNotNull(onError) { "engine was not started" }.invoke(error)
+    }
+
+    override fun stop() {
+        stopCount++
+        onError = null
     }
 }
