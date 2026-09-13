@@ -29,6 +29,8 @@ compose.desktop {
 
         nativeDistributions {
             targetFormats(TargetFormat.Msi, TargetFormat.Exe)
+            // Sugestão de :desktopApp:suggestRuntimeModules; o motor Ktor Java exige java.net.http.
+            modules("java.instrument", "java.management", "java.net.http", "jdk.unsupported")
             packageName = "FlowVoice"
             packageVersion = "0.3.0"
         }
