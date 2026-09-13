@@ -14,6 +14,7 @@ import dev.rafaelbrauner.flowvoice.shared.transcription.SecretStoreUnavailableEx
 import dev.rafaelbrauner.flowvoice.shared.transcription.TranscriptionClient
 import dev.rafaelbrauner.flowvoice.shared.transcription.TranscriptionSegment
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
@@ -21,6 +22,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
@@ -47,6 +49,7 @@ class DesktopDictationController : KoinComponent {
     private val statusFlow = MutableStateFlow("Pronto.")
     private val keyConfiguredFlow = MutableStateFlow(false)
     private val finalTextFlow = MutableStateFlow("")
+    private val submittedWindows = MutableStateFlow(0)
 
     val status: StateFlow<String> = statusFlow.asStateFlow()
     val keyConfigured: StateFlow<Boolean> = keyConfiguredFlow.asStateFlow()
@@ -60,9 +63,11 @@ class DesktopDictationController : KoinComponent {
 
     init {
         keyConfiguredFlow.value = currentKey() != null
-        // Unconfined: a última janela, emitida dentro do finalize, entra na fila antes do awaitIdle.
-        scope.launch(Dispatchers.Unconfined) {
-            session.windows.collect { transcription.submit(it) }
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            session.windows.collect {
+                transcription.submit(it)
+                submittedWindows.value += 1
+            }
         }
     }
 
@@ -81,6 +86,7 @@ class DesktopDictationController : KoinComponent {
 
     fun startDictation() {
         transcription.reset()
+        submittedWindows.value = 0
         finalTextFlow.value = ""
         scope.launch {
             try {
@@ -97,6 +103,7 @@ class DesktopDictationController : KoinComponent {
             try {
                 session.finalize()
                 statusFlow.value = "Transcrevendo o trecho final…"
+                submittedWindows.first { it >= session.emittedWindowCount }
                 transcription.awaitIdle()
                 val preview = LivePreviewAssembler.assemble(transcription.segments.value, sessionComplete = true)
                 finalTextFlow.value = preview.finalized
