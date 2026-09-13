@@ -49,7 +49,9 @@ class AndroidAudioCaptureEngine(
     }
 
     private suspend fun startCapture(onFrame: suspend (AudioFrame) -> Unit) {
-        if (!hasRecordPermission()) {
+        if (appContext.checkSelfPermission(Manifest.permission.RECORD_AUDIO) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
             throw AudioCaptureException("RECORD_AUDIO permission is not granted")
         }
         val channelMask = resolveChannelMask(format.channels)
@@ -150,10 +152,6 @@ class AndroidAudioCaptureEngine(
             Log.i(TAG, "audio capture stopped")
         }
     }
-
-    private fun hasRecordPermission(): Boolean =
-        appContext.checkSelfPermission(Manifest.permission.RECORD_AUDIO) ==
-            PackageManager.PERMISSION_GRANTED
 
     private fun resolveChannelMask(channels: Int): Int = when (channels) {
         1 -> PlatformAudioFormat.CHANNEL_IN_MONO

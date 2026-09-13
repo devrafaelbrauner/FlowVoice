@@ -25,7 +25,7 @@ class FlowVoiceAccessibilityService : AccessibilityService() {
         super.onServiceConnected()
         instance = this
         val current = serviceInfo ?: AccessibilityServiceInfo()
-        val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+        val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             current.flags or AccessibilityServiceInfo.FLAG_INPUT_METHOD_EDITOR
         } else {
             current.flags
@@ -66,8 +66,8 @@ class FlowVoiceAccessibilityService : AccessibilityService() {
     }
 
     fun insertDirect(text: String): InsertResult {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
-            return InsertResult(false, "commitText", "requer Android 11+ (API 30)")
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            return InsertResult(false, "commitText", "requer Android 13+ (API 33)")
         }
 
         val inputMethod = inputMethod
