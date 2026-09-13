@@ -18,9 +18,11 @@ App de ditado **voz → texto** em nuvem (**OpenRouter**), com:
 
 1. **Inserção de texto** (com teclado atual mantido):
    - Serviço de **Acessibilidade** com `AccessibilityServiceInfo.FLAG_INPUT_METHOD_EDITOR`.
-   - `AccessibilityService.getInputMethod()` → `InputMethod.getCurrentInputConnection()`.
-   - `InputMethod.AccessibilityInputConnection.commitText(...)` para inserir.
-   - **Fallback secundário**: `ACTION_SET_TEXT` no nó editável focado.
+   - **Rota principal** (decidida no F02, Galaxy S26 Ultra):
+     `AccessibilityService.getInputMethod()` → `InputMethod.getCurrentInputConnection()`
+     → `InputMethod.AccessibilityInputConnection.commitText(...)`.
+   - **Fallback secundário**: `ACTION_SET_TEXT` no nó editável focado quando
+     `currentInputConnection` for nulo ou em Android < 11.
    - **Área de transferência é opcional**, não obrigatória.
 2. **Texto durante a fala** (limitação real):
    - A documentação da OpenRouter **não** comprova entrada contínua de
@@ -68,6 +70,11 @@ App de ditado **voz → texto** em nuvem (**OpenRouter**), com:
     `AccessibilityInputConnection.commitText(...)`.
   - Fallback `ACTION_SET_TEXT` e diagnóstico do porquê de cada escolha.
   - **Validar no Galaxy S26 Ultra** nos apps-alvo.
+  - **Decisão de rota:** `commitText` como rota principal e
+    `ACTION_SET_TEXT` como fallback.
+  - **Validado em app alvo real:** Google Messages
+    (`com.google.android.apps.messaging`) no aparelho real `RXGL10CHB5E`;
+    detalhes em [`docs/tasks/F02.md`](tasks/F02.md).
 - **F03 — Captura de áudio contínua + sessão de ditado**
   - Captura contínua, buffer por janela de áudio, detecção de fim de fala,
     cancelamento, indicador de status.
@@ -154,5 +161,7 @@ App de ditado **voz → texto** em nuvem (**OpenRouter**), com:
 ## Pendências / decisões abertas
 
 - Confirmação da **licença MIT** do FlowVoice.
-- Dados de aparelho (Android/One UI, apps-alvo, microfone) e **limite de gasto**.
+- Novos **apps-alvo adicionais**, se houver, para regressão extra do F02 no
+  Galaxy S26 Ultra.
+- Dados de aparelho (Android/One UI, microfone) e **limite de gasto**.
 - Escolha final de modelo (após F05).
