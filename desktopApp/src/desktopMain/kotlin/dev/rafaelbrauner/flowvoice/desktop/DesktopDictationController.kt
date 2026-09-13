@@ -49,11 +49,16 @@ class DesktopDictationController : KoinComponent {
     private val statusFlow = MutableStateFlow("Pronto.")
     private val keyConfiguredFlow = MutableStateFlow(false)
     private val finalTextFlow = MutableStateFlow("")
+    private val finalizingFlow = MutableStateFlow(false)
     private val submittedWindows = MutableStateFlow(0)
+
+    @Volatile
+    private var sessionToken = 0
 
     val status: StateFlow<String> = statusFlow.asStateFlow()
     val keyConfigured: StateFlow<Boolean> = keyConfiguredFlow.asStateFlow()
     val finalText: StateFlow<String> = finalTextFlow.asStateFlow()
+    val finalizing: StateFlow<Boolean> = finalizingFlow.asStateFlow()
     val sessionState: StateFlow<DictationSessionState>
         get() = session.state
     val segments: StateFlow<List<TranscriptionSegment>>
@@ -85,6 +90,8 @@ class DesktopDictationController : KoinComponent {
     }
 
     fun startDictation() {
+        if (finalizingFlow.value) return
+        sessionToken++
         transcription.reset()
         submittedWindows.value = 0
         finalTextFlow.value = ""
@@ -99,27 +106,38 @@ class DesktopDictationController : KoinComponent {
     }
 
     fun finalizeDictation() {
+        if (!finalizingFlow.compareAndSet(expect = false, update = true)) return
+        val token = sessionToken
         scope.launch {
             try {
                 session.finalize()
-                statusFlow.value = "Transcrevendo o trecho final…"
+                publishIfCurrent(token) { statusFlow.value = "Transcrevendo o trecho final…" }
                 submittedWindows.first { it >= session.emittedWindowCount }
                 transcription.awaitIdle()
                 val preview = LivePreviewAssembler.assemble(transcription.segments.value, sessionComplete = true)
-                finalTextFlow.value = preview.finalized
-                statusFlow.value = if (preview.finalized.isBlank()) {
-                    "Nada transcrito."
-                } else {
-                    "Texto final pronto (${preview.finalized.length} caracteres)."
+                publishIfCurrent(token) {
+                    finalTextFlow.value = preview.finalized
+                    statusFlow.value = if (preview.finalized.isBlank()) {
+                        "Nada transcrito."
+                    } else {
+                        "Texto final pronto (${preview.finalized.length} caracteres)."
+                    }
                 }
             } catch (error: Exception) {
-                statusFlow.value = "Falha ao finalizar: ${error.message ?: error::class.simpleName}"
+                publishIfCurrent(token) {
+                    statusFlow.value = "Falha ao finalizar: ${error.message ?: error::class.simpleName}"
+                }
+            } finally {
+                publishIfCurrent(token) { finalizingFlow.value = false }
             }
         }
     }
 
     fun cancelDictation() {
+        sessionToken++
         transcription.cancel()
+        finalTextFlow.value = ""
+        finalizingFlow.value = false
         scope.launch {
             try {
                 session.cancel()
@@ -131,6 +149,7 @@ class DesktopDictationController : KoinComponent {
     }
 
     fun insertIntoActiveApp(hideWindow: () -> Unit) {
+        if (finalizingFlow.value) return
         val text = finalTextFlow.value.trim()
         if (text.isEmpty()) {
             statusFlow.value = "Sem texto final para inserir."
@@ -157,6 +176,10 @@ class DesktopDictationController : KoinComponent {
                 .onFailure { System.err.println("FlowVoiceDesktop: falha ao encerrar a captura (${it::class.simpleName})") }
         }
         scope.cancel()
+    }
+
+    private inline fun publishIfCurrent(token: Int, publish: () -> Unit) {
+        if (token == sessionToken) publish()
     }
 
     private fun storeKey(rawKey: String): String = try {

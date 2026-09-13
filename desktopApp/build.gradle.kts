@@ -20,6 +20,10 @@ kotlin {
             implementation(libs.kotlinx.coroutines.core)
             implementation(libs.kotlinx.coroutines.swing)
         }
+        val desktopTest by getting
+        desktopTest.dependencies {
+            implementation(kotlin("test"))
+        }
     }
 }
 
