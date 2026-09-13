@@ -30,6 +30,17 @@ O que falta para o produto ficar completo está em
 - Religar o botão flutuante depois que o processo morre, sem violar a regra de
   microfone "while-in-use" (por exemplo, pela ação da notificação).
 - Cofre de chave no desktop para macOS (Keychain) e Linux (Secret Service).
+- O `DictationPipeline` roda em `Dispatchers.Main.immediate`: `engine.stop()`
+  (espera a thread de áudio por até 1 s), criação do `AudioRecord` e
+  WAV/base64/JSON de cada janela ficam na thread principal. Mover para
+  `Dispatchers.Default`/`IO`, publicando o estado na main.
+- Desktop: `close()` usa `runBlocking` na thread da UI e pode congelar a janela
+  por até 1 s ao fechar.
+- `SendInput` manda o texto inteiro numa só chamada; em Electron/RDP ou com
+  hooks de teclado lentos, enviar em lotes menores.
+- `commitText` da conexão de acessibilidade não devolve confirmação: "sucesso"
+  hoje significa só "não lançou exceção". Avaliar conferir o texto do nó focado
+  depois da inserção.
 
 ## Build e dependências
 
