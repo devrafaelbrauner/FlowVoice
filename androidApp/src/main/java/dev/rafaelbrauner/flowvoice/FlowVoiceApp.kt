@@ -2,6 +2,7 @@ package dev.rafaelbrauner.flowvoice
 
 import android.app.Application
 import dev.rafaelbrauner.flowvoice.shared.dictation.AndroidAudioCaptureEngine
+import dev.rafaelbrauner.flowvoice.shared.dictation.AudioCaptureEngine
 import dev.rafaelbrauner.flowvoice.shared.dictation.DictationSessionController
 import dev.rafaelbrauner.flowvoice.shared.di.sharedModule
 import org.koin.android.ext.koin.androidContext
@@ -20,6 +21,6 @@ class FlowVoiceApp : Application() {
 }
 
 private val dictationModule = module {
-    single { AndroidAudioCaptureEngine(androidContext()) }
+    single<AudioCaptureEngine> { AndroidAudioCaptureEngine(androidContext()) }
     factory { DictationSessionController(get()) }
 }

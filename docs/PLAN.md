@@ -43,6 +43,15 @@ App de ditado **voz → texto** em nuvem (**OpenRouter**), com:
    - **Supabase Auth + PostgreSQL** (RLS) para sincronizar notas, dicionário
      aprovado e preferências.
    - A **chave OpenRouter fica local e cifrada**; **nunca** sincronizada.
+5. **Política de captura / janelas / silêncio** (F03):
+   - Captura: `16 kHz`, `PCM 16-bit mono`.
+   - Janela alvo fixa: `DEFAULT_TARGET_DURATION_MS = 4_000L` (`~4 s`); a última
+     janela pode ser parcial.
+   - **Sem sobreposição de contexto** nesta versão.
+   - Silêncio: `RMS < 300f` por `800 ms`; finalização automática
+     (`autoFinalizeOnSilence`) vem **desativada** por padrão em
+     `DictationSessionController`.
+   - Detalhes em [`docs/tasks/F03.md`](tasks/F03.md).
 
 ## Modelo de dados / estado
 
