@@ -35,6 +35,8 @@ kotlin {
         val desktopMain by getting
         desktopMain.dependencies {
             implementation(libs.ktor.client.java)
+            implementation(libs.jna)
+            implementation(libs.jna.platform)
         }
     }
 }

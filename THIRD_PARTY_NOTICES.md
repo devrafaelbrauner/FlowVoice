@@ -17,13 +17,14 @@ dependência adicionada deve ter sua licença registrada aqui.
 | androidx.security:security-crypto | 1.0.0 | Apache-2.0 | Chave OpenRouter cifrada (F04). |
 | androidx.credentials | 1.3.0 | Apache-2.0 | Google Sign-In (F10). |
 | googleid | 1.1.1 | Apache-2.0 | Google ID token (F10). |
+| JNA (`net.java.dev.jna:jna`) | 5.19.1 | Apache-2.0 OR LGPL-2.1-or-later (dupla; usada sob Apache-2.0) | Interop nativa no desktop (F13). |
+| JNA Platform (`net.java.dev.jna:jna-platform`) | 5.19.1 | Apache-2.0 OR LGPL-2.1-or-later (dupla; usada sob Apache-2.0) | Win32 `SendInput` e DPAPI (`Crypt32Util`) (F13). |
 
 ## Bibliotecas previstas
 
 | Biblioteca | Licença esperada | Observação |
 | --- | --- | --- |
 | SQLDelight | Apache-2.0 | Persistência local. |
-| JNA (Windows, F13) | LGPL-2.1 / MPL-2.0 (dual) | Interop Win32 / `SendInput`. |
 | Supabase SDK | MIT (agora) | Auth + Postgres. |
 
 ## Serviços remotos (nenhum código no repo; sujeito aos Termos do provedor)
