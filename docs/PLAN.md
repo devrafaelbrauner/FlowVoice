@@ -22,7 +22,8 @@ App de ditado **voz → texto** em nuvem (**OpenRouter**), com:
      `AccessibilityService.getInputMethod()` → `InputMethod.getCurrentInputConnection()`
      → `InputMethod.AccessibilityInputConnection.commitText(...)`.
    - **Fallback secundário**: `ACTION_SET_TEXT` no nó editável focado quando
-     `currentInputConnection` for nulo ou em Android < 11.
+     `currentInputConnection` for nulo ou em Android < 13 (API 33, onde
+     `getInputMethod()` foi introduzido).
    - **Área de transferência é opcional**, não obrigatória.
 2. **Texto durante a fala** (limitação real):
    - A documentação da OpenRouter **não** comprova entrada contínua de
