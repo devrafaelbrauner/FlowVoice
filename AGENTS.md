@@ -17,16 +17,13 @@ Fonte de verdade do roadmap: [`docs/PLAN.md`](docs/PLAN.md).
 - **GitHub Actions** (CI).
 - Windows: Compose Desktop + JNA / `SendInput` (fase F13).
 
-> Através da fase **F01**, ainda não há código; os comandos abaixo são os
-> **alvo** da scaffold Gradle e devem ser verificados na criação dos builds.
+## Comandos (JDK 17 + Android SDK)
 
-## Comandos (alvo, após F01)
-
-- Build:      `./gradlew build`
-- Testes:     `./gradlew test` (ou `testDebug`)
-- Lint:       `./gradlew lint` / `./gradlew detekt` (se adotado)
 - Build App:  `./gradlew :androidApp:assembleDebug`
-- CI: GitHub Actions em `main` e em PRs.
+- Testes:     `./gradlew :shared:desktopTest`
+- Lint:       `./gradlew :androidApp:lintDebug`
+- Completo:   `./gradlew build` (assemble + testes + lint)
+- CI: GitHub Actions em `main` e em PRs roda assembleDebug, desktopTest e lintDebug.
 
 ## Convenções de código
 
