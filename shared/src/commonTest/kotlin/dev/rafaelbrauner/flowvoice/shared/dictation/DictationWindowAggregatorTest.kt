@@ -4,6 +4,8 @@ import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class DictationWindowAggregatorTest {
@@ -94,5 +96,44 @@ class DictationWindowAggregatorTest {
         assertFailsWith<IllegalArgumentException> {
             DictationWindow(index = 0, pcm = ByteArray(0), format = AudioFormat.DEFAULT, startedAtMs = 10L, finishedAtMs = 0L)
         }
+    }
+
+    @Test
+    fun flushEmitsBufferedTailAsFinalWindow() {
+        val aggregator = DictationWindowAggregator(targetDurationMs = 100L)
+
+        aggregator.onFrame(frameOf(100L))
+        aggregator.onFrame(frameOf(50L))
+        val window = aggregator.flush()
+
+        assertNotNull(window)
+        assertEquals(1, window.index)
+        assertEquals(100L, window.startedAtMs)
+        assertEquals(150L, window.finishedAtMs)
+        assertContentEquals(ByteArray(1_600), window.pcm)
+    }
+
+    @Test
+    fun timelineContinuesAfterFlush() {
+        val aggregator = DictationWindowAggregator(targetDurationMs = 100L)
+
+        aggregator.onFrame(frameOf(50L))
+        val flushed = aggregator.flush()
+        val next = aggregator.onFrame(frameOf(100L)).single()
+
+        assertNotNull(flushed)
+        assertEquals(0, flushed.index)
+        assertEquals(0L, flushed.startedAtMs)
+        assertEquals(50L, flushed.finishedAtMs)
+        assertEquals(1, next.index)
+        assertEquals(50L, next.startedAtMs)
+        assertEquals(150L, next.finishedAtMs)
+    }
+
+    @Test
+    fun flushWithoutBufferedAudioReturnsNull() {
+        val aggregator = DictationWindowAggregator(targetDurationMs = 100L)
+
+        assertNull(aggregator.flush())
     }
 }

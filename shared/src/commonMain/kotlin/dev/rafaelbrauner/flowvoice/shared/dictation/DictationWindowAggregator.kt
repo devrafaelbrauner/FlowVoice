@@ -29,6 +29,11 @@ class DictationWindowAggregator(
         }
     }
 
+    fun flush(): DictationWindow? {
+        if (bufferedBytes == 0) return null
+        return buildWindow()
+    }
+
     fun clear() {
         chunks.clear()
         bufferedBytes = 0
