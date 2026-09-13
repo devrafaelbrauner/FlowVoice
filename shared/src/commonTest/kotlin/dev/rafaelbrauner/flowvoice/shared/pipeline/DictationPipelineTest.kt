@@ -19,9 +19,12 @@ import dev.rafaelbrauner.flowvoice.shared.transcription.TranscriptionError
 import dev.rafaelbrauner.flowvoice.shared.transcription.TranscriptionResult
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -221,6 +224,81 @@ class DictationPipelineTest {
         assertTrue(env.inserter.inserted.isEmpty())
     }
 
+    @Test
+    fun twoConsecutiveSessionsInSamePipelineUseFreshTextAndCounters() = runTest {
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = listOf(frame(100L), frame(50L)),
+            texts = mapOf(0 to "primeira", 1 to "sessão")
+        )
+
+        env.pipeline.start()
+        runCurrent()
+        val first = assertIs<DictationPipelineStatus.Completed>(env.pipeline.finalize())
+        env.client.texts = mapOf(0 to "segunda", 1 to "fala")
+        env.pipeline.start()
+        runCurrent()
+        val second = assertIs<DictationPipelineStatus.Completed>(env.pipeline.finalize())
+
+        assertEquals("primeira sessão", first.text)
+        assertEquals("segunda fala", second.text)
+        assertEquals(listOf("primeira sessão", "segunda fala"), env.inserter.inserted)
+        assertEquals(2, env.pipeline.sessionWindows.value.size)
+    }
+
+    @Test
+    fun failingInserterCompletesWithoutSuccess() = runTest {
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = listOf(frame(50L)),
+            texts = mapOf(0 to "texto"),
+            inserterSucceeds = false
+        )
+
+        env.pipeline.start()
+        runCurrent()
+        val completed = assertIs<DictationPipelineStatus.Completed>(env.pipeline.finalize())
+
+        assertEquals("texto", completed.text)
+        assertFalse(completed.insertion.success)
+        assertEquals(listOf("texto"), env.inserter.inserted)
+    }
+
+    @Test
+    fun captureErrorWhileRecordingReportsFailed() = runTest {
+        val manual = ManualAudioCaptureEngine()
+        val env = PipelineEnv(scope = backgroundScope, frames = emptyList(), captureEngine = manual)
+
+        env.pipeline.start()
+        assertEquals(DictationPipelineStatus.Recording, env.pipeline.status.value)
+        manual.push(AudioFrame(ByteArray(3_200), AudioFormat(sampleRate = 8_000)))
+        runCurrent()
+
+        val failed = assertIs<DictationPipelineStatus.Failed>(env.pipeline.status.value)
+        assertTrue(failed.message.contains("frame does not match capture format"), failed.message)
+        assertFalse(manual.isRunning)
+        assertTrue(env.inserter.inserted.isEmpty())
+    }
+
+    @Test
+    fun framesDeliveredFromAnotherThreadAfterStartStillIncludeLastWindow() = runTest {
+        val threaded = BackgroundAudioCaptureEngine(listOf(frame(100L), frame(100L), frame(50L)))
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = emptyList(),
+            texts = mapOf(0 to "o médico", 1 to "pediu o exame", 2 to "de sangue"),
+            captureEngine = threaded
+        )
+
+        env.pipeline.start()
+        threaded.awaitDelivered()
+        val completed = assertIs<DictationPipelineStatus.Completed>(env.pipeline.finalize())
+
+        assertEquals("o médico pediu o exame de sangue", completed.text)
+        assertEquals(3, env.pipeline.sessionWindows.value.size)
+        assertEquals(listOf("o médico pediu o exame de sangue"), env.inserter.inserted)
+    }
+
     private fun frame(durationMs: Long): AudioFrame =
         AudioFrame(ByteArray((durationMs * 16).toInt() * 2), AudioFormat.DEFAULT)
 }
@@ -235,15 +313,17 @@ private class PipelineEnv(
     startError: Throwable? = null,
     failures: Map<Int, Throwable> = emptyMap(),
     apiKey: String? = "sk-or-v1-testkey123456",
-    captureEngine: AudioCaptureEngine? = null
+    captureEngine: AudioCaptureEngine? = null,
+    inserterSucceeds: Boolean = true
 ) {
     val engine = ScriptedAudioCaptureEngine(frames, startError)
     val dictionary = InMemoryPersonalDictionary()
-    val inserter = RecordingInserter()
+    val inserter = RecordingInserter(inserterSucceeds)
     val proofreader = FakeProofreader(proofreadingFails)
+    val client = ScriptedTranscriptionClient(texts, transcriptionDelayMs, failures)
     val pipeline = DictationPipeline(
         controller = DictationSessionController(captureEngine ?: engine, windowTargetDurationMs = 100L),
-        client = ScriptedTranscriptionClient(texts, transcriptionDelayMs, failures),
+        client = client,
         config = OpenRouterConfig(),
         dictionary = dictionary,
         proofreading = proofreader,
@@ -254,14 +334,18 @@ private class PipelineEnv(
     )
 }
 
-private class RecordingInserter : TextInserter {
+private class RecordingInserter(private val succeeds: Boolean = true) : TextInserter {
     val inserted = mutableListOf<String>()
 
     override val isAvailable: Boolean = true
 
     override fun insert(text: String): TextInsertionResult {
         inserted += text
-        return TextInsertionResult(success = true, route = "teste", message = "ok")
+        return if (succeeds) {
+            TextInsertionResult(success = true, route = "teste", message = "ok")
+        } else {
+            TextInsertionResult(success = false, route = "teste", message = "campo indisponível")
+        }
     }
 }
 
@@ -276,7 +360,7 @@ private class FakeProofreader(private val fails: Boolean) : ProofreadingClient {
 }
 
 private class ScriptedTranscriptionClient(
-    private val texts: Map<Int, String>,
+    var texts: Map<Int, String>,
     private val delayMs: Long,
     private val failures: Map<Int, Throwable> = emptyMap()
 ) : TranscriptionClient {
@@ -338,5 +422,54 @@ private class GatedAudioCaptureEngine : AudioCaptureEngine {
 
     fun release() {
         gate.complete(Unit)
+    }
+}
+
+private class ManualAudioCaptureEngine : AudioCaptureEngine {
+    override val format: AudioFormat = AudioFormat.DEFAULT
+    private var sink: (suspend (AudioFrame) -> Unit)? = null
+    private var running = false
+
+    override val isRunning: Boolean
+        get() = running
+
+    override suspend fun start(onFrame: suspend (AudioFrame) -> Unit) {
+        sink = onFrame
+        running = true
+    }
+
+    override fun stop() {
+        running = false
+    }
+
+    suspend fun push(frame: AudioFrame) {
+        checkNotNull(sink) { "engine not started" }.invoke(frame)
+    }
+}
+
+private class BackgroundAudioCaptureEngine(private val frames: List<AudioFrame>) : AudioCaptureEngine {
+    override val format: AudioFormat = AudioFormat.DEFAULT
+    private var delivery: Job? = null
+    private var running = false
+
+    override val isRunning: Boolean
+        get() = running
+
+    override suspend fun start(onFrame: suspend (AudioFrame) -> Unit) {
+        running = true
+        delivery = CoroutineScope(Dispatchers.Default).launch {
+            for (frame in frames) {
+                if (!running) break
+                onFrame(frame)
+            }
+        }
+    }
+
+    override fun stop() {
+        running = false
+    }
+
+    suspend fun awaitDelivered() {
+        checkNotNull(delivery) { "engine not started" }.join()
     }
 }
