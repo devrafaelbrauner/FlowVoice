@@ -57,7 +57,10 @@ class DictationSessionController(
             observedState.value = session.state
         }
         try {
-            engine.start { frame -> handleFrame(frame) }
+            engine.start(
+                onFrame = { frame -> handleFrame(frame) },
+                onError = { error -> failSession("audio capture failed: ${error.message}") }
+            )
         } catch (error: Throwable) {
             failSession("failed to start audio capture: ${error.message}")
             throw error
