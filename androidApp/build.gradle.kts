@@ -46,5 +46,8 @@ dependencies {
     implementation(libs.activity.compose)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation(libs.androidx.credentials)
+    implementation(libs.androidx.credentials.play)
+    implementation(libs.google.id)
     debugImplementation(libs.compose.ui.tooling)
 }
