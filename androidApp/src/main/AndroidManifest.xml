@@ -33,10 +33,6 @@
                 android:resource="@xml/accessibility_flowvoice" />
         </service>
 
-        <receiver
-            android:name=".FlowVoiceAdbReceiver"
-            android:exported="true" />
-
         <service
             android:name=".service.FlowVoiceOverlayService"
             android:exported="false" />
