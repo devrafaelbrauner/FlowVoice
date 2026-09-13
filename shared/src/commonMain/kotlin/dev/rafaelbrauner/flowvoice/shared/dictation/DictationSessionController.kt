@@ -31,6 +31,9 @@ class DictationSessionController(
     var capturedDurationMs: Long = 0L
         private set
 
+    var emittedWindowCount: Int = 0
+        private set
+
     suspend fun start() {
         sessionMutex.withLock {
             when (session.state) {
@@ -50,6 +53,7 @@ class DictationSessionController(
             windowAggregator.clear()
             capturedDurationMs = 0L
             lastVoiceAtMs = 0L
+            emittedWindowCount = 0
             observedState.value = session.state
         }
         try {
@@ -104,7 +108,7 @@ class DictationSessionController(
         sessionMutex.withLock {
             if (session.state is DictationSessionState.Capturing) {
                 try {
-                    windowAggregator.onFrame(frame).forEach { windowEvents.emit(it) }
+                    windowAggregator.onFrame(frame).forEach { emitWindow(it) }
                     capturedDurationMs += frame.durationMs
                     silenceTimedOut = updateSilenceState(frame)
                 } catch (error: IllegalArgumentException) {
@@ -139,9 +143,14 @@ class DictationSessionController(
                 return
             }
             session.completeFinalization()
-            windowAggregator.flush()?.let { windowEvents.emit(it) }
+            windowAggregator.flush()?.let { emitWindow(it) }
             observedState.value = session.state
         }
+    }
+
+    private suspend fun emitWindow(window: DictationWindow) {
+        emittedWindowCount++
+        windowEvents.emit(window)
     }
 
     private fun updateSilenceState(frame: AudioFrame): Boolean {
