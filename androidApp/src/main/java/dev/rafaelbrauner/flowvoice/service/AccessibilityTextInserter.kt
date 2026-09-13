@@ -10,8 +10,13 @@ object AccessibilityTextInserter : TextInserter {
     override fun insert(text: String): TextInsertionResult {
         val service = FlowVoiceAccessibilityService.service
             ?: return TextInsertionResult(false, "acessibilidade", "serviço inativo — nada inserido")
-        val direct = service.insertDirect(text)
-        val result = if (direct.success) direct else service.insertFallback(text)
+        val ownPackage = service.packageName
+        val direct = service.insertDirect(text, excludedPackage = ownPackage)
+        val result = if (direct.success || direct.blocked) {
+            direct
+        } else {
+            service.insertFallback(text, excludedPackage = ownPackage)
+        }
         return TextInsertionResult(result.success, result.route, result.message)
     }
 }
