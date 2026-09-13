@@ -26,6 +26,12 @@ Correções dos achados da verificação de `9d527d7` (ver `TAREFAS_PENDENTES.md
   misturava o texto de outra sessão.
 - P47 e P41: falha de captura depois do início (desktop e Android) deixava a
   sessão "gravando" sem áudio.
+- P36: com a chave-mestra do Keystore inutilizável o app caía em loop ao abrir, e
+  uma falha passageira apagava a chave salva; o cofre agora só é recriado em
+  corrupção real e, fora isso, fica "indisponível" sem derrubar o app.
+- P37: o botão flutuante derrubava o app quando a sobreposição falhava
+  (permissão revogada ou Android 7); a permissão é conferida de novo e a falha é
+  tratada.
 
 ### Changed
 

@@ -37,7 +37,7 @@ Itens concluídos são marcados, não apagados.
 | P22 | Desktop: atalho global e janela flutuante que não rouba o foco (hoje minimiza e insere após 3 s) | pendente | F13 |
 | P23 | Definir `upgradeUuid` e `menuGroup` do MSI antes do primeiro instalador | pendente | F13 |
 | P24 | Onboarding: tratar recusa de `POST_NOTIFICATIONS` (a notificação do serviço de microfone some) | pendente | F12.4 |
-| P25 | `TYPE_APPLICATION_OVERLAY` exige API 26 com minSdk 24: proteger por versão ou subir o minSdk | em andamento (junto com P37) | lint |
+| P25 | `TYPE_APPLICATION_OVERLAY` exige API 26 com minSdk 24: proteger por versão ou subir o minSdk | concluída (0.3.1, com P37): sem overlay e sem crash abaixo do Android 8; o aviso `InlinedApi` do lint continua | lint |
 | P26 | `stopService` com instância nova em `MainActivity` (`ImplicitSamInstance` no lint) pode não parar o overlay | pendente | lint |
 
 ## Baixa
@@ -60,8 +60,8 @@ Itens concluídos são marcados, não apagados.
 | P33 | Média | A inserção não conferia o destino: ditado pela `MainActivity` gravava nos campos do próprio app | concluída (0.3.1) | /corrigir |
 | P34 | Média | F12.4 marcada `[x]` sem aceite ponta a ponta | concluída (0.3.1): volta para `[~]` até P20 | /corrigir |
 | P35 | Média | Testes do pipeline sem sessões seguidas, start duplo, falha de trecho, inserção falha, erro de captura e frames de outra thread | concluída (0.3.1) | /corrigir |
-| P36 | Média | `EncryptedSecretStore`: com a chave-mestra inutilizável o app cai em loop ao abrir (`InstanceCreationException`); uma falha passageira do Keystore apaga a chave. Diagnóstico /debugar: confirmado (hipóteses 1 e 2a; 2b refutada) | em andamento | /corrigir |
-| P37 | Média | Overlay: `addView` sem proteção lança `BadTokenException` sem permissão de sobreposição (ou na API 24–25), e `onDestroy` remove view não anexada. Diagnóstico /debugar: hipótese do `stopSelf` refutada, `addView` confirmado | em andamento | /corrigir |
+| P36 | Média | `EncryptedSecretStore`: com a chave-mestra inutilizável o app caía em loop ao abrir (`InstanceCreationException`); uma falha passageira do Keystore apagava a chave. Diagnóstico /debugar: confirmado (hipóteses 1 e 2a; 2b refutada) | concluída (0.3.1): `SecretVaultOpener`; a checagem da chave-mestra no Keystore não tem teste automatizado | /corrigir |
+| P37 | Média | Overlay: `addView` sem proteção lançava `BadTokenException` sem permissão de sobreposição (ou na API 24–25), e `onDestroy` removia view não anexada. Diagnóstico /debugar: hipótese do `stopSelf` refutada, `addView` confirmado | concluída (0.3.1): `OverlayStartGuard`; caminho de exceção do `addView` só com teste manual (F12.md) | /corrigir |
 | P38 | Baixa | Finalize cancelado continua: com a revisão ligada, o texto vai à OpenRouter mesmo depois de cancelar | pendente | /corrigir |
 | P39 | Baixa | `POST_NOTIFICATIONS` só é pedida quando falta o microfone; complementa P24 | pendente | /corrigir |
 | P40 | Baixa | `startedHere` nunca volta a `false` no overlay: ocultar o botão cancela um ditado iniciado pela `MainActivity` | pendente | /corrigir |
