@@ -4,6 +4,7 @@ import dev.rafaelbrauner.flowvoice.shared.dictation.AudioCaptureEngine
 import dev.rafaelbrauner.flowvoice.shared.dictation.AudioFormat
 import dev.rafaelbrauner.flowvoice.shared.dictation.AudioFrame
 import dev.rafaelbrauner.flowvoice.shared.dictation.DictationSessionController
+import dev.rafaelbrauner.flowvoice.shared.dictation.DictationSessionState
 import dev.rafaelbrauner.flowvoice.shared.dictation.DictationWindow
 import dev.rafaelbrauner.flowvoice.shared.dictionary.InMemoryPersonalDictionary
 import dev.rafaelbrauner.flowvoice.shared.insertion.TextInserter
@@ -16,6 +17,7 @@ import dev.rafaelbrauner.flowvoice.shared.transcription.OpenRouterConfig
 import dev.rafaelbrauner.flowvoice.shared.transcription.TranscriptionClient
 import dev.rafaelbrauner.flowvoice.shared.transcription.TranscriptionError
 import dev.rafaelbrauner.flowvoice.shared.transcription.TranscriptionResult
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
@@ -25,6 +27,7 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
@@ -182,6 +185,42 @@ class DictationPipelineTest {
         assertEquals("microfone indisponível", failed.message)
     }
 
+    @Test
+    fun secondStartWhileStartingIsIgnored() = runTest {
+        val gated = GatedAudioCaptureEngine()
+        val env = PipelineEnv(scope = backgroundScope, frames = emptyList(), captureEngine = gated)
+
+        val starting = async { env.pipeline.start() }
+        runCurrent()
+        assertEquals(DictationPipelineStatus.Starting, env.pipeline.status.value)
+        env.pipeline.start()
+        assertEquals(DictationPipelineStatus.Starting, env.pipeline.status.value)
+        gated.release()
+        starting.await()
+
+        assertEquals(DictationPipelineStatus.Recording, env.pipeline.status.value)
+        assertEquals(1, gated.startCount)
+    }
+
+    @Test
+    fun cancelWhileStartingEndsCancelledAndStopsCapture() = runTest {
+        val gated = GatedAudioCaptureEngine()
+        val env = PipelineEnv(scope = backgroundScope, frames = emptyList(), captureEngine = gated)
+
+        val starting = async { env.pipeline.start() }
+        runCurrent()
+        assertEquals(DictationPipelineStatus.Starting, env.pipeline.status.value)
+        env.pipeline.cancel()
+        gated.release()
+        starting.await()
+        advanceUntilIdle()
+
+        assertEquals(DictationPipelineStatus.Cancelled, env.pipeline.status.value)
+        assertIs<DictationSessionState.Cancelled>(env.pipeline.sessionState.value)
+        assertFalse(gated.isRunning)
+        assertTrue(env.inserter.inserted.isEmpty())
+    }
+
     private fun frame(durationMs: Long): AudioFrame =
         AudioFrame(ByteArray((durationMs * 16).toInt() * 2), AudioFormat.DEFAULT)
 }
@@ -195,14 +234,15 @@ private class PipelineEnv(
     transcriptionDelayMs: Long = 0L,
     startError: Throwable? = null,
     failures: Map<Int, Throwable> = emptyMap(),
-    apiKey: String? = "sk-or-v1-testkey123456"
+    apiKey: String? = "sk-or-v1-testkey123456",
+    captureEngine: AudioCaptureEngine? = null
 ) {
     val engine = ScriptedAudioCaptureEngine(frames, startError)
     val dictionary = InMemoryPersonalDictionary()
     val inserter = RecordingInserter()
     val proofreader = FakeProofreader(proofreadingFails)
     val pipeline = DictationPipeline(
-        controller = DictationSessionController(engine, windowTargetDurationMs = 100L),
+        controller = DictationSessionController(captureEngine ?: engine, windowTargetDurationMs = 100L),
         client = ScriptedTranscriptionClient(texts, transcriptionDelayMs, failures),
         config = OpenRouterConfig(),
         dictionary = dictionary,
@@ -273,5 +313,30 @@ private class ScriptedAudioCaptureEngine(
     override fun stop() {
         stopCount++
         running = false
+    }
+}
+
+private class GatedAudioCaptureEngine : AudioCaptureEngine {
+    override val format: AudioFormat = AudioFormat.DEFAULT
+    private val gate = CompletableDeferred<Unit>()
+    var startCount = 0
+        private set
+    private var running = false
+
+    override val isRunning: Boolean
+        get() = running
+
+    override suspend fun start(onFrame: suspend (AudioFrame) -> Unit) {
+        startCount++
+        running = true
+        gate.await()
+    }
+
+    override fun stop() {
+        running = false
+    }
+
+    fun release() {
+        gate.complete(Unit)
     }
 }

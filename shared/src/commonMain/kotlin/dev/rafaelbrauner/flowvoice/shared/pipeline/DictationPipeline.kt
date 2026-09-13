@@ -84,7 +84,10 @@ class DictationPipeline(
         }
         scope.launch(start = CoroutineStart.UNDISPATCHED) {
             controller.state.collect { state ->
-                if (state is DictationSessionState.Error && statusState.value == DictationPipelineStatus.Recording) {
+                val active = statusState.value
+                val capturing = active == DictationPipelineStatus.Starting ||
+                    active == DictationPipelineStatus.Recording
+                if (state is DictationSessionState.Error && capturing) {
                     statusState.value = DictationPipelineStatus.Failed(state.message)
                     log("dictation_failed", mapOf("stage" to "capture"))
                 }
@@ -105,19 +108,28 @@ class DictationPipeline(
 
     suspend fun start() {
         if (statusState.value.isBusy) return
-        sessionToken++
+        val token = ++sessionToken
+        statusState.value = DictationPipelineStatus.Starting
         transcription.reset()
         windowsState.value = emptyList()
         submittedWindows.value = 0
         try {
             controller.start()
-            statusState.value = DictationPipelineStatus.Recording
-            log("dictation_started", emptyMap())
+            if (token != sessionToken) {
+                controller.cancel()
+                return
+            }
+            if (statusState.value == DictationPipelineStatus.Starting) {
+                statusState.value = DictationPipelineStatus.Recording
+                log("dictation_started", emptyMap())
+            }
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
-            statusState.value = DictationPipelineStatus.Failed(error.message ?: "erro desconhecido")
-            log("dictation_failed", mapOf("stage" to "start"))
+            if (token == sessionToken) {
+                statusState.value = DictationPipelineStatus.Failed(error.message ?: "erro desconhecido")
+                log("dictation_failed", mapOf("stage" to "start"))
+            }
         }
     }
 
