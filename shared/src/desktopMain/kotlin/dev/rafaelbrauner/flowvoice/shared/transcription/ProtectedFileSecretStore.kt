@@ -59,8 +59,6 @@ class ProtectedFileSecretStore(
     }
 }
 
-class SecretStoreUnavailableException(message: String) : IllegalStateException(message)
-
 class UnavailableSecretStore(private val reason: String) : SecretStore {
     override fun readOpenRouterKey(): String? = null
 

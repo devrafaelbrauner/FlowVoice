@@ -64,6 +64,7 @@ import dev.rafaelbrauner.flowvoice.shared.transcription.KeyValidationResult
 import dev.rafaelbrauner.flowvoice.shared.transcription.OpenRouterConfig
 import dev.rafaelbrauner.flowvoice.shared.transcription.OpenRouterKeyValidator
 import dev.rafaelbrauner.flowvoice.shared.transcription.SecretStore
+import dev.rafaelbrauner.flowvoice.shared.transcription.SecretStoreUnavailableException
 import dev.rafaelbrauner.flowvoice.shared.transcription.TranscriptionClient
 import dev.rafaelbrauner.flowvoice.shared.transcription.TranscriptionSegment
 import kotlinx.coroutines.delay
@@ -570,10 +571,14 @@ class MainActivity : ComponentActivity(), KoinComponent {
                 KeyValidationResult.Unavailable
             }
             if (result == KeyValidationResult.Valid) {
-                secretStore.writeOpenRouterKey(draft)
-                keyDraft.value = ""
-                keyConfigured.value = true
-                addLog("Chave OpenRouter validada e armazenada.")
+                try {
+                    secretStore.writeOpenRouterKey(draft)
+                    keyDraft.value = ""
+                    keyConfigured.value = true
+                    addLog("Chave OpenRouter validada e armazenada.")
+                } catch (_: SecretStoreUnavailableException) {
+                    addLog("Cofre da chave indisponível neste aparelho; a chave não foi salva.")
+                }
             } else {
                 addLog("Não foi possível validar a chave.")
             }
