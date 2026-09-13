@@ -117,7 +117,7 @@ class MainActivity : ComponentActivity(), KoinComponent {
     private val overlayPermissionsLauncher =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { results ->
             if (results[Manifest.permission.RECORD_AUDIO] == true) {
-                startOverlay()
+                toggleOverlay()
             } else {
                 addLog("Botão flutuante precisa da permissão de microfone.")
             }
@@ -776,6 +776,10 @@ class MainActivity : ComponentActivity(), KoinComponent {
         if (FlowVoiceOverlayService.running) {
             stopService(Intent(this, FlowVoiceOverlayService::class.java))
             addLog("Overlay desligado.")
+            return
+        }
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            addLog("Botão flutuante requer Android 8 ou superior.")
             return
         }
         if (!Settings.canDrawOverlays(this)) {

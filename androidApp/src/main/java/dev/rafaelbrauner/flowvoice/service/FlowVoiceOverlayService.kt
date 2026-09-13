@@ -9,6 +9,7 @@ import android.content.pm.ServiceInfo
 import android.graphics.PixelFormat
 import android.os.Build
 import android.os.IBinder
+import android.provider.Settings
 import android.util.Log
 import android.view.Gravity
 import android.view.WindowManager
@@ -17,6 +18,7 @@ import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import dev.rafaelbrauner.flowvoice.MainActivity
+import dev.rafaelbrauner.flowvoice.shared.overlay.OverlayStartGuard
 import dev.rafaelbrauner.flowvoice.shared.pipeline.DictationPipeline
 import dev.rafaelbrauner.flowvoice.shared.pipeline.DictationPipelineStatus
 import kotlinx.coroutines.CoroutineScope
@@ -49,8 +51,8 @@ class FlowVoiceOverlayService : Service(), KoinComponent {
             stopSelf()
             return START_NOT_STICKY
         }
-        if (button == null) {
-            showOverlay()
+        if (button == null && !showOverlay()) {
+            stopOverlay()
         }
         return START_NOT_STICKY
     }
@@ -60,7 +62,7 @@ class FlowVoiceOverlayService : Service(), KoinComponent {
             pipeline.requestCancel()
         }
         scope.cancel()
-        button?.let { windowManager?.removeView(it) }
+        button?.takeIf { it.isAttachedToWindow }?.let { windowManager?.removeView(it) }
         button = null
         windowManager = null
         runningState.value = false
@@ -73,6 +75,11 @@ class FlowVoiceOverlayService : Service(), KoinComponent {
     } catch (error: RuntimeException) {
         Log.w(TAG, "overlay_foreground_denied ${error.javaClass.simpleName}")
         false
+    }
+
+    private fun stopOverlay() {
+        ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
+        stopSelf()
     }
 
     private fun foregroundType(): Int =
@@ -106,9 +113,13 @@ class FlowVoiceOverlayService : Service(), KoinComponent {
             .build()
     }
 
-    private fun showOverlay() {
+    private fun showOverlay(): Boolean {
+        if (!OverlayStartGuard.canShow(Build.VERSION.SDK_INT, Settings.canDrawOverlays(this))) {
+            Log.w(TAG, "overlay_not_allowed")
+            Toast.makeText(this, OVERLAY_UNAVAILABLE_MESSAGE, Toast.LENGTH_LONG).show()
+            return false
+        }
         val manager = getSystemService(WINDOW_SERVICE) as WindowManager
-        windowManager = manager
         val overlay = Button(this).apply {
             setOnClickListener { onTap() }
             setOnLongClickListener {
@@ -118,7 +129,6 @@ class FlowVoiceOverlayService : Service(), KoinComponent {
                 true
             }
         }
-        button = overlay
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
@@ -130,7 +140,15 @@ class FlowVoiceOverlayService : Service(), KoinComponent {
             x = 48
             y = 180
         }
-        manager.addView(overlay, params)
+        try {
+            manager.addView(overlay, params)
+        } catch (error: RuntimeException) {
+            Log.w(TAG, "overlay_add_failed ${error.javaClass.simpleName}")
+            Toast.makeText(this, OVERLAY_UNAVAILABLE_MESSAGE, Toast.LENGTH_LONG).show()
+            return false
+        }
+        windowManager = manager
+        button = overlay
         runningState.value = true
         render(pipeline.status.value)
         scope.launch {
@@ -139,6 +157,7 @@ class FlowVoiceOverlayService : Service(), KoinComponent {
                 report(status)
             }
         }
+        return true
     }
 
     private fun onTap() {
@@ -180,6 +199,8 @@ class FlowVoiceOverlayService : Service(), KoinComponent {
         private const val TAG = "FlowVoiceOverlay"
         private const val CHANNEL_ID = "flowvoice_overlay"
         private const val NOTIFICATION_ID = 1001
+        private const val OVERLAY_UNAVAILABLE_MESSAGE =
+            "Botão flutuante indisponível: permita sobrepor a outros apps (Android 8+)."
         const val ACTION_STOP = "dev.rafaelbrauner.flowvoice.action.STOP_OVERLAY"
 
         private val runningState = MutableStateFlow(false)
