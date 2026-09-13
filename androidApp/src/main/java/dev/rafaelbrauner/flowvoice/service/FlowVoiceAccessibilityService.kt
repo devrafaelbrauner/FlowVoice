@@ -10,6 +10,7 @@ import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import dev.rafaelbrauner.flowvoice.shared.insertion.CursorInsertion
+import dev.rafaelbrauner.flowvoice.shared.insertion.InsertionTarget
 
 class FlowVoiceAccessibilityService : AccessibilityService() {
 
@@ -17,6 +18,7 @@ class FlowVoiceAccessibilityService : AccessibilityService() {
         val success: Boolean,
         val route: String,
         val message: String,
+        val blocked: Boolean = false,
     ) {
         val summary: String
             get() = if (success) "[$route] $message" else "[$route] FALHOU — $message"
@@ -66,7 +68,7 @@ class FlowVoiceAccessibilityService : AccessibilityService() {
         super.onDestroy()
     }
 
-    fun insertDirect(text: String): InsertResult {
+    fun insertDirect(text: String, excludedPackage: String? = null): InsertResult {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
             return InsertResult(false, "commitText", "requer Android 13+ (API 33)")
         }
@@ -76,6 +78,13 @@ class FlowVoiceAccessibilityService : AccessibilityService() {
         val connection = inputMethod.currentInputConnection
             ?: return InsertResult(false, "commitText", "currentInputConnection nulo")
 
+        val packageName = runCatching {
+            inputMethod.currentInputEditorInfo?.packageName
+        }.getOrDefault(null)
+        if (excludedPackage != null && InsertionTarget.isOwnApp(packageName, excludedPackage)) {
+            return InsertResult(false, "commitText", InsertionTarget.OWN_APP_MESSAGE, blocked = true)
+        }
+
         try {
             connection.commitText(text, 1, null)
         } catch (error: Throwable) {
@@ -83,14 +92,11 @@ class FlowVoiceAccessibilityService : AccessibilityService() {
             return InsertResult(false, "commitText", "commitText falhou: ${error.message}")
         }
 
-        val packageName = runCatching {
-            inputMethod.currentInputEditorInfo?.packageName
-        }.getOrDefault(null)
         Log.i(TAG, "commitText executado no pacote=$packageName")
         return InsertResult(true, "commitText", "commitText(...) executado")
     }
 
-    fun insertFallback(text: String): InsertResult {
+    fun insertFallback(text: String, excludedPackage: String? = null): InsertResult {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
             return InsertResult(false, "ACTION_SET_TEXT", "requer Android 8+ para inserir sem apagar o texto do campo")
         }
@@ -99,6 +105,9 @@ class FlowVoiceAccessibilityService : AccessibilityService() {
             ?: return InsertResult(false, "ACTION_SET_TEXT", "nenhum foco de edição encontrado")
 
         try {
+            if (excludedPackage != null && InsertionTarget.isOwnApp(node.packageName, excludedPackage)) {
+                return InsertResult(false, "ACTION_SET_TEXT", InsertionTarget.OWN_APP_MESSAGE, blocked = true)
+            }
             if (node.isPassword) {
                 return InsertResult(false, "ACTION_SET_TEXT", "campo de senha: nada inserido")
             }
