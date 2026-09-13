@@ -13,6 +13,7 @@ securityCrypto = "1.0.0"
 credentials = "1.3.0"
 googleId = "1.1.1"
 jna = "5.19.1"
+composeMultiplatform = "1.8.2"
 
 [libraries]
 compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "composeBom" }
@@ -40,6 +41,7 @@ androidx-credentials-play = { group = "androidx.credentials", name = "credential
 google-id = { group = "com.google.android.libraries.identity.googleid", name = "googleid", version.ref = "googleId" }
 jna = { group = "net.java.dev.jna", name = "jna", version.ref = "jna" }
 jna-platform = { group = "net.java.dev.jna", name = "jna-platform", version.ref = "jna" }
+kotlinx-coroutines-swing = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-swing", version.ref = "kotlinxCoroutines" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
@@ -48,3 +50,4 @@ kotlin-multiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref 
 kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
+compose-multiplatform = { id = "org.jetbrains.compose", version.ref = "composeMultiplatform" }

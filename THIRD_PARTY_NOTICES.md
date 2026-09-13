@@ -19,6 +19,8 @@ dependência adicionada deve ter sua licença registrada aqui.
 | googleid | 1.1.1 | Apache-2.0 | Google ID token (F10). |
 | JNA (`net.java.dev.jna:jna`) | 5.19.1 | Apache-2.0 OR LGPL-2.1-or-later (dupla; usada sob Apache-2.0) | Interop nativa no desktop (F13). |
 | JNA Platform (`net.java.dev.jna:jna-platform`) | 5.19.1 | Apache-2.0 OR LGPL-2.1-or-later (dupla; usada sob Apache-2.0) | Win32 `SendInput` e DPAPI (`Crypt32Util`) (F13). |
+| Compose Multiplatform (`org.jetbrains.compose`) | 1.8.2 | Apache-2.0 | UI desktop (`desktopApp`, F13); inclui Skiko/Skia nativos. |
+| kotlinx-coroutines-swing | 1.10.1 | Apache-2.0 | `Dispatchers.Main` no desktop (F13). |
 
 ## Bibliotecas previstas
 
