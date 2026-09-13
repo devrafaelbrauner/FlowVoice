@@ -502,6 +502,7 @@ class MainActivity : ComponentActivity(), KoinComponent {
                         serviceRunning.value = FlowVoiceAccessibilityService.isRunning
                         dictionaryTick.value += 1
                         addLog("Inserção final (${status.text.length} chars) ${status.insertion.summary}")
+                        status.warning?.let { addLog("Aviso: $it") }
                     }
                     is DictationPipelineStatus.Failed -> addLog("Falha no ditado: ${status.message}")
                     DictationPipelineStatus.Cancelled -> addLog("Ditado cancelado.")

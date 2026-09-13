@@ -162,8 +162,10 @@ class FlowVoiceOverlayService : Service(), KoinComponent {
 
     private fun report(status: DictationPipelineStatus) {
         val message = when (status) {
-            is DictationPipelineStatus.Completed ->
+            is DictationPipelineStatus.Completed -> listOfNotNull(
+                status.warning,
                 if (status.insertion.success) null else "Texto não inserido: ${status.insertion.summary}"
+            ).joinToString("\n").ifEmpty { null }
             is DictationPipelineStatus.Failed -> "Falha no ditado: ${status.message}"
             DictationPipelineStatus.Cancelled -> "Ditado cancelado"
             else -> null

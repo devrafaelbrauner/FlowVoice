@@ -14,7 +14,8 @@ sealed interface DictationPipelineStatus {
 
     data class Completed(
         val text: String,
-        val insertion: TextInsertionResult
+        val insertion: TextInsertionResult,
+        val warning: String? = null
     ) : DictationPipelineStatus
 
     data object Cancelled : DictationPipelineStatus

@@ -129,9 +129,19 @@ class DictationPipeline(
             controller.finalize()
             submittedWindows.first { it >= controller.emittedWindowCount }
             transcription.awaitIdle()
+            val failures = TranscriptionFailureSummary.from(
+                segments = transcription.segments.value,
+                totalWindows = controller.emittedWindowCount
+            )
             val text = reviseFinalText()
             if (token != sessionToken) {
                 DictationPipelineStatus.Cancelled
+            } else if (text.isBlank() && failures != null) {
+                log(
+                    "dictation_failed",
+                    mapOf("stage" to "transcription", "failedWindows" to failures.failedCount.toString())
+                )
+                DictationPipelineStatus.Failed(failures.noTextMessage)
             } else {
                 dictionary.suggestFrom(text)
                 val insertion = if (text.isBlank()) {
@@ -141,9 +151,13 @@ class DictationPipeline(
                 }
                 log(
                     "dictation_finalized",
-                    mapOf("chars" to text.length.toString(), "inserted" to insertion.success.toString())
+                    mapOf(
+                        "chars" to text.length.toString(),
+                        "inserted" to insertion.success.toString(),
+                        "failedWindows" to (failures?.failedCount ?: 0).toString()
+                    )
                 )
-                DictationPipelineStatus.Completed(text, insertion)
+                DictationPipelineStatus.Completed(text, insertion, warning = failures?.partialMessage)
             }
         } catch (error: CancellationException) {
             throw error
