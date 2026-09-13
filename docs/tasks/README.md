@@ -22,7 +22,7 @@ Rastreamento das fases do [`PLAN.md`](../PLAN.md). Cada fase tem um arquivo
 | F09 | Pontuação e ortografia | [F09.md](F09.md) | [x] |
 | F10 | Login Google obrigatório | [F10.md](F10.md) | [x] |
 | F11 | Sincronização (offline-first) | [F11.md](F11.md) | [x] |
-| F12 | UX do app principal | [F12.md](F12.md) | [x] |
+| F12 | UX do app principal | [F12.md](F12.md) | [~] |
 | F13 | Preparação para Windows | [F13.md](F13.md) | [~] |
 | F14 | Higiene de licença e entrega | (a criar) | [ ]
 
