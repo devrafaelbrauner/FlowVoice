@@ -1,6 +1,8 @@
 package dev.rafaelbrauner.flowvoice
 
 import android.app.Application
+import android.util.Log
+import dev.rafaelbrauner.flowvoice.service.AccessibilityTextInserter
 import dev.rafaelbrauner.flowvoice.shared.dictation.AndroidAudioCaptureEngine
 import dev.rafaelbrauner.flowvoice.shared.dictation.AudioCaptureEngine
 import dev.rafaelbrauner.flowvoice.shared.dictation.DictationSessionController
@@ -13,6 +15,7 @@ import dev.rafaelbrauner.flowvoice.shared.auth.PrefsAuthGateway
 import dev.rafaelbrauner.flowvoice.shared.notes.InMemoryNoteStore
 import dev.rafaelbrauner.flowvoice.shared.notes.NoteStore
 import dev.rafaelbrauner.flowvoice.shared.notes.PrefsNotePersist
+import dev.rafaelbrauner.flowvoice.shared.pipeline.DictationPipeline
 import dev.rafaelbrauner.flowvoice.shared.prefs.PrefsPreferencesStore
 import dev.rafaelbrauner.flowvoice.shared.prefs.PreferencesStore
 import dev.rafaelbrauner.flowvoice.shared.sync.InMemoryRemoteSync
@@ -20,6 +23,9 @@ import dev.rafaelbrauner.flowvoice.shared.sync.RemoteSync
 import dev.rafaelbrauner.flowvoice.shared.sync.SyncEngine
 import dev.rafaelbrauner.flowvoice.shared.transcription.EncryptedSecretStore
 import dev.rafaelbrauner.flowvoice.shared.transcription.SecretStore
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.context.GlobalContext
 import org.koin.dsl.module
@@ -34,6 +40,8 @@ class FlowVoiceApp : Application() {
         }
     }
 }
+
+private const val DICTATION_TAG = "FlowVoiceDictation"
 
 private val dictationModule = module {
     single<AudioCaptureEngine> { AndroidAudioCaptureEngine(androidContext()) }
@@ -57,6 +65,22 @@ private val dictationModule = module {
             preferences = get(),
             remote = get(),
             clock = { System.currentTimeMillis() }
+        )
+    }
+    single {
+        DictationPipeline(
+            controller = get(),
+            client = get(),
+            config = get(),
+            dictionary = get(),
+            proofreading = get(),
+            preferences = get(),
+            secrets = get(),
+            inserter = AccessibilityTextInserter,
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
+            eventLog = { event, metadata ->
+                Log.i(DICTATION_TAG, metadata.entries.joinToString(" ", prefix = "$event ") { "${it.key}=${it.value}" })
+            }
         )
     }
 }
