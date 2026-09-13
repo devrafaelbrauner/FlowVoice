@@ -90,10 +90,6 @@ class FlowVoiceAccessibilityService : AccessibilityService() {
     }
 
     fun insertFallback(text: String): InsertResult {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N_MR1) {
-            return InsertResult(false, "ACTION_SET_TEXT", "requer Android 8+ (API 27)")
-        }
-
         val node = rootInActiveWindow?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
             ?: return InsertResult(false, "ACTION_SET_TEXT", "nenhum foco de edição encontrado")
 
