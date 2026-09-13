@@ -33,6 +33,7 @@ fun FlowVoiceDesktopScreen(controller: DesktopDictationController, hideWindow: (
     val status by controller.status.collectAsState()
     val keyConfigured by controller.keyConfigured.collectAsState()
     val finalText by controller.finalText.collectAsState()
+    val finalizing by controller.finalizing.collectAsState()
     val sessionState by controller.sessionState.collectAsState()
     val segments by controller.segments.collectAsState()
     var keyDraft by remember { mutableStateOf("") }
@@ -85,7 +86,7 @@ fun FlowVoiceDesktopScreen(controller: DesktopDictationController, hideWindow: (
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(
                         onClick = controller::startDictation,
-                        enabled = keyConfigured && !sessionState.isActive
+                        enabled = keyConfigured && !sessionState.isActive && !finalizing
                     ) {
                         Text("Iniciar ditado")
                     }
@@ -120,7 +121,7 @@ fun FlowVoiceDesktopScreen(controller: DesktopDictationController, hideWindow: (
 
                 Button(
                     onClick = { controller.insertIntoActiveApp(hideWindow) },
-                    enabled = finalText.isNotBlank()
+                    enabled = finalText.isNotBlank() && !finalizing
                 ) {
                     Text("Inserir no app ativo (em 3 s)")
                 }
