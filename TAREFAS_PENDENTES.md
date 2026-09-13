@@ -37,7 +37,7 @@ Itens concluídos são marcados, não apagados.
 | P22 | Desktop: atalho global e janela flutuante que não rouba o foco (hoje minimiza e insere após 3 s) | pendente | F13 |
 | P23 | Definir `upgradeUuid` e `menuGroup` do MSI antes do primeiro instalador | pendente | F13 |
 | P24 | Onboarding: tratar recusa de `POST_NOTIFICATIONS` (a notificação do serviço de microfone some) | pendente | F12.4 |
-| P25 | `TYPE_APPLICATION_OVERLAY` exige API 26 com minSdk 24: proteger por versão ou subir o minSdk | pendente | lint |
+| P25 | `TYPE_APPLICATION_OVERLAY` exige API 26 com minSdk 24: proteger por versão ou subir o minSdk | em andamento (junto com P37) | lint |
 | P26 | `stopService` com instância nova em `MainActivity` (`ImplicitSamInstance` no lint) pode não parar o overlay | pendente | lint |
 
 ## Baixa
@@ -54,29 +54,31 @@ Itens concluídos são marcados, não apagados.
 
 | ID | Prioridade | Tarefa | Status | Encaminhar |
 | --- | --- | --- | --- | --- |
-| P30 | Alta | O fallback `ACTION_SET_TEXT` (`FlowVoiceAccessibilityService.kt:96-101`) substitui todo o conteúdo do campo do app-alvo pelo texto ditado. No Android 7 a 12 esse é sempre o caminho usado, e conta como sucesso | pendente | /corrigir |
-| P31 | Alta | Trecho com falha (timeout, sem chave) some do texto (`LivePreviewAssembler.kt:12`) e a inserção parcial sai como sucesso, sem Toast; sem chave, a mensagem é só "sem texto para inserir" | pendente | /corrigir |
-| P32 | Média | Corrida no início: `Recording` só é publicado depois de `controller.start()` (`DictationPipeline.kt:113-114`). Toque duplo gera Toast de falha, cancelar é ignorado e ocultar o botão nesse intervalo deixa a gravação sem overlay | pendente | /corrigir |
-| P33 | Média | A inserção não confere o destino: ditado pela `MainActivity` com foco no campo "Google Web Client ID" grava o texto nas preferências (`MainActivity.kt:159-160`) | pendente | /corrigir |
-| P34 | Média | `docs/tasks/F12.md` marca F12.4 `[x]`, mas o aceite ponta a ponta não foi observado (`chars=0` nas duas sessões; a inserção veio do receiver de debug, não do pipeline). Voltar para `[~]` até P20 | pendente | /corrigir |
-| P35 | Média | Testes do pipeline não cobrem: duas sessões seguidas no singleton, start duplo, cancelar durante o start, janela com falha, inserter falhando, erro de captura, e frames vindos de outra thread | pendente | /corrigir (testes de regressão de P31/P32) |
-| P36 | Média (suspeito) | `EncryptedSecretStore.reset()` chama `open()` sem proteção: se a falha for da chave-mestra, o app cai ao criar o singleton. Uma falha passageira do Keystore apaga a chave | pendente | /debugar |
-| P37 | Média (suspeito) | Overlay: `stopSelf()` quando `startForeground` falha (`FlowVoiceOverlayService.kt:48-50`) e `addView` sem proteção (`:133`) podem derrubar o app | pendente | /debugar |
-| P38 | Baixa | Finalize cancelado continua: com a revisão ligada, o texto vai à OpenRouter mesmo depois de cancelar (token só conferido depois de `reviseFinalText`) | pendente | /corrigir |
-| P39 | Baixa | `POST_NOTIFICATIONS` só é pedida quando falta o microfone (`MainActivity.kt:784-792`); complementa P24 | pendente | /corrigir |
+| P30 | Bloqueante | O fallback `ACTION_SET_TEXT` substituía todo o conteúdo do campo do app-alvo pelo texto ditado | concluída (0.3.1): insere no cursor; recusa em senha, texto ilegível e Android < 8 | /corrigir |
+| P31 | Alta | Trecho com falha sumia do texto e a inserção parcial saía como sucesso, sem aviso | concluída (0.3.1) | /corrigir |
+| P32 | Média | Corrida no início do ditado: toque duplo, cancelar e ocultar durante o `start` | concluída (0.3.1) | /corrigir |
+| P33 | Média | A inserção não conferia o destino: ditado pela `MainActivity` gravava nos campos do próprio app | concluída (0.3.1) | /corrigir |
+| P34 | Média | F12.4 marcada `[x]` sem aceite ponta a ponta | concluída (0.3.1): volta para `[~]` até P20 | /corrigir |
+| P35 | Média | Testes do pipeline sem sessões seguidas, start duplo, falha de trecho, inserção falha, erro de captura e frames de outra thread | concluída (0.3.1) | /corrigir |
+| P36 | Média | `EncryptedSecretStore`: com a chave-mestra inutilizável o app cai em loop ao abrir (`InstanceCreationException`); uma falha passageira do Keystore apaga a chave. Diagnóstico /debugar: confirmado (hipóteses 1 e 2a; 2b refutada) | em andamento | /corrigir |
+| P37 | Média | Overlay: `addView` sem proteção lança `BadTokenException` sem permissão de sobreposição (ou na API 24–25), e `onDestroy` remove view não anexada. Diagnóstico /debugar: hipótese do `stopSelf` refutada, `addView` confirmado | em andamento | /corrigir |
+| P38 | Baixa | Finalize cancelado continua: com a revisão ligada, o texto vai à OpenRouter mesmo depois de cancelar | pendente | /corrigir |
+| P39 | Baixa | `POST_NOTIFICATIONS` só é pedida quando falta o microfone; complementa P24 | pendente | /corrigir |
 | P40 | Baixa | `startedHere` nunca volta a `false` no overlay: ocultar o botão cancela um ditado iniciado pela `MainActivity` | pendente | /corrigir |
-| P41 | Baixa | A captura Android para sozinha quando `read` devolve ≤ 0 e a sessão continua como "● Gravando" (`AndroidAudioCaptureEngine.kt:102-105`) | pendente | /debugar |
-| P42 | Baixa | Privacidade dos logs: o diagnóstico debug loga 40 caracteres do campo de outro app, `onStartCommand` de debug está no código principal e o release loga o pacote de cada app ditado | pendente | /seguranca |
+| P41 | Baixa | A captura Android parava sozinha quando `read` devolvia ≤ 0 e a sessão seguia "● Gravando" | concluída (0.3.1, junto com P47) | /corrigir |
+| P42 | Baixa | Privacidade dos logs: o diagnóstico debug loga 40 caracteres do campo de outro app, `onStartCommand` de debug no código principal e o release loga o pacote de cada app ditado | pendente: auditoria /seguranca a seguir | /seguranca |
 | P43 | Baixa | Docs: o `AGENTS.md` não cita `desktopApp` nos comandos nem no CI; o `PLAN.md` e o `requirements.md` ainda dizem que a implementação Windows está "adiada" | pendente | /corrigir |
-| P44 | Baixa | Branches auxiliares no GitHub (`docs/arquivos-controle`, `fix/achados-verificacao`, `feat/f13-windows`, `feat/ditado-overlay-app-alvo`) já integradas na `f03-audio-capture-session` | pendente: apagar após o merge do PR #2 | usuário |
-| P45 | Alta | O runtime empacotado do desktop (MSI/EXE) não tem `java.net.http`, e o motor Ktor Java exige esse módulo. No app instalado a validação da chave falha ("rede ou serviço") e o ditado nunca libera. Evidência: `release` do runtime com `MODULES="java.base java.datatransfer java.xml java.prefs java.desktop java.logging jdk.crypto.ec"`, `jdeps` do `ktor-client-java-jvm` → `java.net.http`, e `suggestRuntimeModules` → `modules("java.instrument", "java.management", "java.net.http", "jdk.unsupported")` | pendente | /corrigir |
-| P46 | Média | Desktop: "Iniciar ditado" fica habilitado enquanto o trecho final é transcrito (`FlowVoiceDesktopScreen.kt:88`). `reset()` apaga o ditado anterior, e a finalização antiga grava texto vazio ou da sessão nova (o controller não tem `sessionToken`) | pendente | /corrigir |
-| P47 | Média | Captura desktop que falha no meio (microfone removido) só vai para o stderr (`JavaSoundAudioCaptureEngine.kt:77-83`): a sessão continua "gravando". Com `read` devolvendo 0 e a linha aberta, o laço gira sem pausa. O F13.2 diz que falhas viram `AudioCaptureException`, mas isso só vale no `start` | pendente | /corrigir |
-| P48 | Média (suspeito) | `SendInput` não sinaliza bloqueio por UIPI no retorno: com um app elevado em foco, provavelmente informa "N caracteres inseridos" sem inserir. Retorno parcial não avisa, e repetir duplica. Validar em F13.7 | pendente | /debugar |
-| P49 | Baixa | Desktop: "Inserir" duplicado com duplo clique durante a contagem; "Cancelar" em `Finalizing` ainda deixa o texto disponível para inserir | pendente | /corrigir |
-| P50 | Baixa | `THIRD_PARTY_NOTICES.md`: Skia é BSD-3-Clause (não Apache), o Skiko embute HarfBuzz/FreeType/ICU e o MSI embute um runtime OpenJDK (GPLv2 + Classpath Exception) | pendente (F14) | /corrigir |
-| P51 | Baixa | Nenhum teste exercita a chamada JNA real nem o tamanho de `WinUser.INPUT` (40 bytes no x64), e o aceite do F13.3 cobre só o planejador de teclas | pendente | /corrigir |
-| P52 | Baixa | Quebra de linha vira `VK_RETURN` (envia a mensagem em chats) e Tab vai como `VK_PACKET`; o `mergeAdjacent` troca quebras por espaço quando há 2+ trechos, então o comportamento é inconsistente | pendente: decidir a política | /aprimorar |
-| P53 | Baixa | Desktop: o controller mistura thread da UI e `Dispatchers.Default` sem sincronização (`jobs` em `ArrayList`, `cancelled` sem `@Volatile`, contador não atômico); se o coletor morrer, o finalize trava em "Transcrevendo…" | pendente | /corrigir |
-| P54 | Baixa | `ProtectedFileSecretStore.readOpenRouterKey` captura `Exception` mas não `LinkageError`: um `UnsatisfiedLinkError` do JNA derruba o app na abertura. A chave é lida e decifrada a cada janela de áudio | pendente | /corrigir |
-| P55 | Baixa | Empacotar no macOS falha: o `jpackage` recusa `app-version` 0.x e o plugin barra o JDK do Homebrew (`checkJdkVendor`). Só afeta gerar o pacote no Mac; o alvo é Windows | pendente | usuário |
+| P44 | Baixa | Branches auxiliares no GitHub já integradas na `f03-audio-capture-session` | pendente: apagar após o merge do PR #2 | usuário |
+| P45 | Alta | O runtime empacotado do desktop não tinha `java.net.http` (motor Ktor Java) | concluída (0.3.1); o CI confere o `release` do runtime | /corrigir |
+| P46 | Média | Desktop: iniciar ou cancelar durante a transcrição final apagava ou misturava o texto de outra sessão | concluída (0.3.1) | /corrigir |
+| P47 | Média | Captura desktop que falhava no meio só ia para o stderr; `read` = 0 com a linha aberta girava sem pausa | concluída (0.3.1) | /corrigir |
+| P48 | Média (suspeito) | `SendInput` não sinaliza bloqueio por UIPI no retorno; retorno parcial não avisa e repetir duplica. Validar em F13.7 | pendente | /debugar |
+| P49 | Baixa | Desktop: "Inserir" duplicado com duplo clique durante a contagem; "Cancelar" em `Finalizing` liberava o texto | parcial (0.3.1): o cancelamento na finalização foi coberto por P46; falta travar a contagem de inserção | /corrigir |
+| P50 | Baixa | `THIRD_PARTY_NOTICES.md`: Skia é BSD-3-Clause, o Skiko embute HarfBuzz/FreeType/ICU e o MSI embute um runtime OpenJDK (GPLv2 + Classpath Exception) | pendente (F14) | /corrigir |
+| P51 | Baixa | Nenhum teste exercita a chamada JNA real nem o tamanho de `WinUser.INPUT` (40 bytes no x64) | pendente | /corrigir |
+| P52 | Baixa | Quebra de linha vira `VK_RETURN` (envia a mensagem em chats) e Tab vai como `VK_PACKET`; `mergeAdjacent` troca quebras por espaço com 2+ trechos | pendente: decidir a política | /aprimorar |
+| P53 | Baixa | Desktop: o controller mistura thread da UI e `Dispatchers.Default` sem sincronização (`jobs`, `cancelled`, contador) | pendente | /corrigir |
+| P54 | Baixa | `ProtectedFileSecretStore.readOpenRouterKey` não captura `LinkageError` (JNA) e decifra a chave a cada janela | pendente | /corrigir |
+| P55 | Baixa | Empacotar no macOS falha: `jpackage` recusa `app-version` 0.x e o plugin barra o JDK do Homebrew | pendente | usuário |
+| P56 | Baixa | Depois de P30, o fallback recusa no Android 7 (sem `isShowingHintText`) e em campos que reportam texto nulo: nesses casos não há inserção (antes apagava o campo) | pendente: avaliar se algum app-alvo real cai nisso | /debugar |
+| P57 | Média | Tink 1.5.0 pode gravar o keyset **em claro** quando não consegue gerar a chave-mestra (`readOrGenerateNewMasterKey`), sem avisar | pendente | /seguranca |

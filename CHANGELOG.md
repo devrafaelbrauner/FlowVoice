@@ -6,6 +6,40 @@ estão em [`docs/tasks/`](docs/tasks/README.md).
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-09-13
+
+Correções dos achados da verificação de `9d527d7` (ver `TAREFAS_PENDENTES.md`).
+
+### Fixed
+
+- P30: o fallback `ACTION_SET_TEXT` apagava o conteúdo do campo do app-alvo;
+  agora insere no cursor e recusa em campo de senha ou texto ilegível.
+- P31: trecho com falha sumia do texto sem aviso; o texto parcial é inserido com
+  aviso do trecho e do motivo, e sem nenhum trecho transcrito o motivo real aparece.
+- P32: toque duplo ou cancelar durante o início do ditado geravam erro ou eram
+  ignorados (novo estado `Starting`).
+- P33: ditado pela tela do FlowVoice podia cair nos próprios campos do app (ex.:
+  Google Web Client ID) e ser salvo nas preferências.
+- P45: o runtime empacotado do desktop não tinha `java.net.http`, e a chave nunca
+  validava no app instalado.
+- P46: no desktop, iniciar ou cancelar durante a transcrição final apagava ou
+  misturava o texto de outra sessão.
+- P47 e P41: falha de captura depois do início (desktop e Android) deixava a
+  sessão "gravando" sem áudio.
+
+### Changed
+
+- `AudioCaptureEngine` avisa erro durante a captura (`start(onFrame, onError)`,
+  compatível com as implementações existentes).
+- F12.4 volta para "em andamento" até o aceite com fala real (P34).
+
+### Added
+
+- Testes de regressão do pipeline: sessões seguidas, inserção falha, erro de
+  captura e frames de outra thread (P35).
+- CI confere que o runtime do desktop inclui `java.net.http` e roda os testes do
+  `desktopApp`.
+
 ## [0.3.0] - 2026-09-13
 
 ### Added
