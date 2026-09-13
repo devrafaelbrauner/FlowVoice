@@ -120,16 +120,25 @@ App de ditado **voz → texto** em nuvem (**OpenRouter**), com:
 
 ## Modelos de transcrição (shortlist de benchmark — F05)
 
-**Rodada 1 (princpais):**
+**Escolha (Galaxy S26 Ultra `RXGL10CHB5E`, 2026-09-13):**
 
-- `openai/whisper-large-v3-turbo` — **baseline** rápido.
-- `openai/gpt-4o-mini-transcribe` — candidato equilibrado.
-- `openai/gpt-transcribe` — comparação de maior precisão.
-- `openai/gpt-4o-transcribe` — referência adicional.
-- `deepgram/nova-3` — forte em pontuação / uso cotidiano.
-- `microsoft/mai-transcribe-2` — precisão multilíngue / saída estruturada.
-- `nvidia/parakeet-tdt-0.6b-v3` — velocidade + português.
-- `mistralai/voxtral-mini-transcribe` — eficiência.
+- **Padrão:** `openai/gpt-4o-mini-transcribe` — WER 0, latência 1321 ms, custo ~US$ 0,00019.
+- **Fallback:** `deepgram/nova-3` — segundo mais rápido (1545 ms); WER 0,18.
+- Clipe: 3 janelas, frase *O médico pediu o exame de sangue para amanhã de manhã.*
+- Teto: US$ 1,00; gasto real US$ 0,003; 8/8 modelos ok.
+
+**Rodada 1 (ranking WER → latência → custo):**
+
+| # | Modelo | WER | Latência | Custo USD |
+| --- | --- | --- | --- | --- |
+| 1 | `openai/gpt-4o-mini-transcribe` | 0,00 | 1321 ms | 0,000191 |
+| 2 | `nvidia/parakeet-tdt-0.6b-v3` | 0,00 | 1632 ms | 0,000243 |
+| 3 | `openai/gpt-transcribe` | 0,00 | 2151 ms | 0,000750 |
+| 4 | `microsoft/mai-transcribe-2` | 0,00 | 2343 ms | 0,000278 |
+| 5 | `mistralai/voxtral-mini-transcribe` | 0,00 | 2757 ms | 0,000450 |
+| 6 | `openai/gpt-4o-transcribe` | 0,09 | 2756 ms | 0,000373 |
+| 7 | `deepgram/nova-3` | 0,18 | 1545 ms | 0,000697 |
+| 8 | `openai/whisper-large-v3-turbo` | 0,27 | 2668 ms | 0,000032 |
 
 **Rodada 2 (avaliar conforme resultado):**
 
@@ -145,8 +154,8 @@ App de ditado **voz → texto** em nuvem (**OpenRouter**), com:
 - `google/gemini-3.8-flash`
 - `openai/gpt-4o-mini`
 
-> A selection final deve refletir o **trade-off latência × precisão pt-BR ×
-> custo** medido no aparelho real, e ser registrada aqui com os números.
+> Escolha: menor WER, desempate por latência. Turbo permanece na shortlist
+> como baseline barato, mas não é o padrão.
 
 ## Critérios de aceite (globais)
 
@@ -172,5 +181,5 @@ App de ditado **voz → texto** em nuvem (**OpenRouter**), com:
 - Confirmação da **licença MIT** do FlowVoice.
 - Novos **apps-alvo adicionais**, se houver, para regressão extra do F02 no
   Galaxy S26 Ultra.
-- Dados de aparelho (Android/One UI, microfone) e **limite de gasto**.
-- Escolha final de modelo (após F05).
+- Dados de aparelho: Galaxy S26 Ultra `SM_S948B` / `RXGL10CHB5E`; teto F05 US$ 1,00 (gasto US$ 0,003).
+- Modelo padrão: `openai/gpt-4o-mini-transcribe`; fallback `deepgram/nova-3`.
