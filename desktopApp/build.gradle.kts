@@ -30,7 +30,7 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Msi, TargetFormat.Exe)
             packageName = "FlowVoice"
-            packageVersion = "0.1.0"
+            packageVersion = "0.3.0"
         }
     }
 }
