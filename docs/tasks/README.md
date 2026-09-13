@@ -11,7 +11,7 @@ Rastreamento das fases do [`PLAN.md`](../PLAN.md). Cada fase tem um arquivo
 | Fase | Título | Arquivo | Status |
 | --- | --- | --- | --- |
 | F00 | Governança e preparação do repositório | [F00.md](F00.md) | [~] |
-| F01 | Scaffold Kotlin Multiplatform + Gradle | (a criar) | [ ] |
+| F01 | Scaffold Kotlin Multiplatform + Gradle | [F01.md](F01.md) | [x] |
 | F02 | POC de inserção direta (aparelho real) | (a criar) | [ ] |
 | F03 | Captura de áudio contínua + sessão de ditado | (a criar) | [ ] |
 | F04 | Integração OpenRouter (transcrição incremental) | (a criar) | [ ] |
