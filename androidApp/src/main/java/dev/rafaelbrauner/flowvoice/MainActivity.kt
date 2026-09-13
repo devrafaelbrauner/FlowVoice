@@ -716,6 +716,7 @@ class MainActivity : ComponentActivity(), KoinComponent {
 
     private fun describePipelineStatus(status: DictationPipelineStatus): String = when (status) {
         DictationPipelineStatus.Idle -> "pronto"
+        DictationPipelineStatus.Starting -> "iniciando"
         DictationPipelineStatus.Recording -> "gravando"
         DictationPipelineStatus.Transcribing -> "transcrevendo"
         is DictationPipelineStatus.Completed -> if (status.insertion.success) "inserido" else "não inserido"

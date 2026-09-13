@@ -144,6 +144,7 @@ class FlowVoiceOverlayService : Service(), KoinComponent {
     private fun onTap() {
         when (pipeline.status.value) {
             DictationPipelineStatus.Recording -> pipeline.requestFinalize()
+            DictationPipelineStatus.Starting,
             DictationPipelineStatus.Transcribing -> Unit
             else -> {
                 startedHere = true
@@ -154,6 +155,7 @@ class FlowVoiceOverlayService : Service(), KoinComponent {
 
     private fun render(status: DictationPipelineStatus) {
         button?.text = when (status) {
+            DictationPipelineStatus.Starting -> "Iniciando…"
             DictationPipelineStatus.Recording -> "● Gravando"
             DictationPipelineStatus.Transcribing -> "Transcrevendo…"
             else -> "Ditar"

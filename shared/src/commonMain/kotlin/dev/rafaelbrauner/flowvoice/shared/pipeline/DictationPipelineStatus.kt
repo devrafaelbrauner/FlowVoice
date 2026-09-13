@@ -4,9 +4,11 @@ import dev.rafaelbrauner.flowvoice.shared.insertion.TextInsertionResult
 
 sealed interface DictationPipelineStatus {
     val isBusy: Boolean
-        get() = this is Recording || this is Transcribing
+        get() = this is Starting || this is Recording || this is Transcribing
 
     data object Idle : DictationPipelineStatus
+
+    data object Starting : DictationPipelineStatus
 
     data object Recording : DictationPipelineStatus
 
