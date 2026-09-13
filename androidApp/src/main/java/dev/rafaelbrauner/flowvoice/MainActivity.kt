@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import androidx.activity.ComponentActivity
@@ -29,7 +30,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.SpanStyle
@@ -45,23 +45,21 @@ import androidx.lifecycle.lifecycleScope
 import dev.rafaelbrauner.flowvoice.auth.GoogleSignInHelper
 import dev.rafaelbrauner.flowvoice.service.FlowVoiceAccessibilityService
 import dev.rafaelbrauner.flowvoice.service.FlowVoiceOverlayService
+import dev.rafaelbrauner.flowvoice.shared.auth.AuthGateway
 import dev.rafaelbrauner.flowvoice.shared.benchmark.BenchmarkBudget
 import dev.rafaelbrauner.flowvoice.shared.benchmark.BenchmarkClip
 import dev.rafaelbrauner.flowvoice.shared.benchmark.BenchmarkRunner
 import dev.rafaelbrauner.flowvoice.shared.benchmark.PtBrCorpus
-import dev.rafaelbrauner.flowvoice.shared.auth.AuthGateway
 import dev.rafaelbrauner.flowvoice.shared.diagnostics.DiagnosticReport
-import dev.rafaelbrauner.flowvoice.shared.dictionary.PersonalDictionary
-import dev.rafaelbrauner.flowvoice.shared.notes.NoteStore
-import dev.rafaelbrauner.flowvoice.shared.prefs.PreferencesStore
-import dev.rafaelbrauner.flowvoice.shared.proofreading.ProofreadingClient
-import dev.rafaelbrauner.flowvoice.shared.sync.SyncEngine
-import dev.rafaelbrauner.flowvoice.shared.dictation.DictationSessionController
 import dev.rafaelbrauner.flowvoice.shared.dictation.DictationSessionState
 import dev.rafaelbrauner.flowvoice.shared.dictation.DictationWindow
 import dev.rafaelbrauner.flowvoice.shared.dictation.DictationWindowAggregator
-import dev.rafaelbrauner.flowvoice.shared.preview.LivePreviewAssembler
-import dev.rafaelbrauner.flowvoice.shared.transcription.IncrementalTranscriptionController
+import dev.rafaelbrauner.flowvoice.shared.dictionary.PersonalDictionary
+import dev.rafaelbrauner.flowvoice.shared.notes.NoteStore
+import dev.rafaelbrauner.flowvoice.shared.pipeline.DictationPipeline
+import dev.rafaelbrauner.flowvoice.shared.pipeline.DictationPipelineStatus
+import dev.rafaelbrauner.flowvoice.shared.prefs.PreferencesStore
+import dev.rafaelbrauner.flowvoice.shared.sync.SyncEngine
 import dev.rafaelbrauner.flowvoice.shared.transcription.KeyValidationResult
 import dev.rafaelbrauner.flowvoice.shared.transcription.OpenRouterConfig
 import dev.rafaelbrauner.flowvoice.shared.transcription.OpenRouterKeyValidator
@@ -79,7 +77,7 @@ import java.util.Locale
 
 class MainActivity : ComponentActivity(), KoinComponent {
 
-    private val dictationController by inject<DictationSessionController>()
+    private val pipeline by inject<DictationPipeline>()
     private val secretStore by inject<SecretStore>()
     private val keyValidator by inject<OpenRouterKeyValidator>()
     private val transcriptionClient by inject<TranscriptionClient>()
@@ -87,7 +85,6 @@ class MainActivity : ComponentActivity(), KoinComponent {
     private val personalDictionary by inject<PersonalDictionary>()
     private val noteStore by inject<NoteStore>()
     private val preferencesStore by inject<PreferencesStore>()
-    private val proofreadingClient by inject<ProofreadingClient>()
     private val authGateway by inject<AuthGateway>()
     private val syncEngine by inject<SyncEngine>()
 
@@ -95,7 +92,6 @@ class MainActivity : ComponentActivity(), KoinComponent {
     private val logLines = mutableStateListOf<String>()
     private val testText = mutableStateOf("")
     private val capturedDurationMs = mutableStateOf(0L)
-    private val windowCount = mutableStateOf(0)
     private val keyDraft = mutableStateOf("")
     private val keyConfigured = mutableStateOf(false)
     private val validatingKey = mutableStateOf(false)
@@ -103,13 +99,10 @@ class MainActivity : ComponentActivity(), KoinComponent {
     private val budgetUsd = mutableStateOf("1.00")
     private val rankingText = mutableStateOf("")
     private val runningBenchmark = mutableStateOf(false)
-    private val clipWindows = mutableListOf<DictationWindow>()
-    private val clipReady = mutableStateOf(false)
     private val dictionaryTick = mutableStateOf(0)
     private val newTerm = mutableStateOf("")
     private val notesTick = mutableStateOf(0)
     private val sessionTick = mutableStateOf(0)
-    private lateinit var transcription: IncrementalTranscriptionController
 
     private val dictationPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -120,33 +113,22 @@ class MainActivity : ComponentActivity(), KoinComponent {
             }
         }
 
+    private val overlayPermissionsLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { results ->
+            if (results[Manifest.permission.RECORD_AUDIO] == true) {
+                startOverlay()
+            } else {
+                addLog("Botão flutuante precisa da permissão de microfone.")
+            }
+        }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         keyConfigured.value = secretStore.readOpenRouterKey() != null
-        transcription = IncrementalTranscriptionController(
-            client = transcriptionClient,
-            config = openRouterConfig,
-            scope = lifecycleScope,
-            apiKeyProvider = { secretStore.readOpenRouterKey() },
-            eventLog = { event, metadata ->
-                addLog(
-                    buildString {
-                        append(event)
-                        metadata.forEach { (key, value) ->
-                            append(' ')
-                            append(key)
-                            append('=')
-                            append(value)
-                        }
-                    }
-                )
-            }
-        )
 
         observeSessionState()
-        observeSessionWindows()
-        handleStartDictation(intent)
+        observePipeline()
 
         setContent {
             MaterialTheme {
@@ -221,12 +203,13 @@ class MainActivity : ComponentActivity(), KoinComponent {
                     ) {
                         Text("Sincronizar", modifier = Modifier.padding(8.dp))
                     }
+                    val overlayRunning by FlowVoiceOverlayService.runningFlow.collectAsState()
                     Button(
                         onClick = { toggleOverlay() },
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(
-                            if (FlowVoiceOverlayService.running) "Ocultar botão flutuante" else "Mostrar botão flutuante",
+                            if (overlayRunning) "Ocultar botão flutuante" else "Mostrar botão flutuante",
                             modifier = Modifier.padding(8.dp)
                         )
                     }
@@ -237,8 +220,10 @@ class MainActivity : ComponentActivity(), KoinComponent {
                         Text("Exportar diagnóstico", modifier = Modifier.padding(8.dp))
                     }
 
-                    val sessionState by dictationController.state.collectAsState()
-                    val segments by transcription.segments.collectAsState()
+                    val sessionState by pipeline.sessionState.collectAsState()
+                    val segments by pipeline.segments.collectAsState()
+                    val sessionWindows by pipeline.sessionWindows.collectAsState()
+                    val pipelineStatus by pipeline.status.collectAsState()
 
                     Text(
                         text = "Serviço de acessibilidade: ${if (serviceRunning.value) "ativo" else "inativo"}",
@@ -246,7 +231,7 @@ class MainActivity : ComponentActivity(), KoinComponent {
                     )
 
                     Text(
-                        text = "Sessão de ditado: ${describeSessionState(sessionState)}",
+                        text = "Sessão de ditado: ${describeSessionState(sessionState)} · ${describePipelineStatus(pipelineStatus)}",
                         style = MaterialTheme.typography.bodyMedium
                     )
 
@@ -256,7 +241,7 @@ class MainActivity : ComponentActivity(), KoinComponent {
                     )
 
                     Text(
-                        text = "Duração capturada: ${formatDuration(capturedDurationMs.value)} · Janelas: ${windowCount.value} · Janela alvo: ${formatDuration(DictationWindowAggregator.DEFAULT_TARGET_DURATION_MS)}",
+                        text = "Duração capturada: ${formatDuration(capturedDurationMs.value)} · Janelas: ${sessionWindows.size} · Janela alvo: ${formatDuration(DictationWindowAggregator.DEFAULT_TARGET_DURATION_MS)}",
                         style = MaterialTheme.typography.bodySmall
                     )
 
@@ -284,12 +269,10 @@ class MainActivity : ComponentActivity(), KoinComponent {
                     }
 
                     dictionaryTick.value
-                    val livePreview = LivePreviewAssembler.assemble(
-                        segments = segments,
-                        sessionComplete = sessionState is DictationSessionState.Finalized
-                    )
-                    val finalizedText = personalDictionary.apply(livePreview.finalized)
-                    val provisionalPreview = personalDictionary.apply(livePreview.provisional)
+                    segments
+                    val livePreview = pipeline.preview()
+                    val finalizedText = livePreview.finalized
+                    val provisionalPreview = livePreview.provisional
                     Text(
                         text = "Prévia ao vivo",
                         style = MaterialTheme.typography.titleSmall
@@ -401,15 +384,16 @@ class MainActivity : ComponentActivity(), KoinComponent {
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
                     )
 
+                    val clipReady = sessionWindows.isNotEmpty() && !sessionState.isActive
                     Text(
-                        text = "Clipe F05: ${if (clipReady.value) "${clipWindows.size} janelas" else "grave e finalize uma sessão"}",
+                        text = "Clipe F05: ${if (clipReady) "${sessionWindows.size} janelas" else "grave e finalize uma sessão"}",
                         style = MaterialTheme.typography.bodySmall
                     )
 
                     Button(
                         onClick = { runBenchmark() },
                         modifier = Modifier.fillMaxWidth(),
-                        enabled = !runningBenchmark.value && clipReady.value && keyConfigured.value
+                        enabled = !runningBenchmark.value && clipReady && keyConfigured.value
                     ) {
                         Text("Rodar benchmark rodada 1", modifier = Modifier.padding(8.dp))
                     }
@@ -424,7 +408,7 @@ class MainActivity : ComponentActivity(), KoinComponent {
                     Button(
                         onClick = { requestDictationStart() },
                         modifier = Modifier.fillMaxWidth(),
-                        enabled = !sessionState.isActive
+                        enabled = !pipelineStatus.isBusy
                     ) {
                         Text("Iniciar ditado", modifier = Modifier.padding(8.dp))
                     }
@@ -432,7 +416,7 @@ class MainActivity : ComponentActivity(), KoinComponent {
                     Button(
                         onClick = { finalizeDictation() },
                         modifier = Modifier.fillMaxWidth(),
-                        enabled = sessionState is DictationSessionState.Capturing
+                        enabled = pipelineStatus == DictationPipelineStatus.Recording
                     ) {
                         Text("Finalizar", modifier = Modifier.padding(8.dp))
                     }
@@ -440,7 +424,7 @@ class MainActivity : ComponentActivity(), KoinComponent {
                     Button(
                         onClick = { cancelDictation() },
                         modifier = Modifier.fillMaxWidth(),
-                        enabled = sessionState.isActive
+                        enabled = pipelineStatus.isBusy
                     ) {
                         Text("Cancelar", modifier = Modifier.padding(8.dp))
                     }
@@ -489,35 +473,46 @@ class MainActivity : ComponentActivity(), KoinComponent {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        serviceRunning.value = FlowVoiceAccessibilityService.isRunning
+        sessionTick.value += 1
+    }
+
     private fun observeSessionState() {
         lifecycleScope.launch {
-            dictationController.state.drop(1).collect { state ->
-                capturedDurationMs.value = dictationController.capturedDurationMs
+            pipeline.sessionState.drop(1).collect { state ->
+                capturedDurationMs.value = pipeline.capturedDurationMs
                 addLog("Estado da sessão: ${describeSessionState(state)}")
+                if (state is DictationSessionState.Capturing) {
+                    startCapturedDurationPolling()
+                }
             }
         }
     }
 
-    private fun observeSessionWindows() {
+    private fun observePipeline() {
         lifecycleScope.launch {
-            dictationController.windows.collect { window ->
-                windowCount.value += 1
-                clipWindows += window
-                transcription.submit(window)
-                addLog(
-                    "Janela ${window.index + 1} criada (${formatDuration(window.durationMs)}, modelo ${openRouterConfig.model})."
-                )
+            pipeline.events.collect { addLog(it) }
+        }
+        lifecycleScope.launch {
+            pipeline.status.drop(1).collect { status ->
+                when (status) {
+                    is DictationPipelineStatus.Completed -> {
+                        serviceRunning.value = FlowVoiceAccessibilityService.isRunning
+                        dictionaryTick.value += 1
+                        addLog("Inserção final (${status.text.length} chars) ${status.insertion.summary}")
+                    }
+                    is DictationPipelineStatus.Failed -> addLog("Falha no ditado: ${status.message}")
+                    DictationPipelineStatus.Cancelled -> addLog("Ditado cancelado.")
+                    else -> Unit
+                }
             }
         }
     }
 
     private fun requestDictationStart() {
-        val permissionGranted = ContextCompat.checkSelfPermission(
-            this,
-            Manifest.permission.RECORD_AUDIO
-        ) == PackageManager.PERMISSION_GRANTED
-
-        if (permissionGranted) {
+        if (hasMicrophonePermission()) {
             startDictation()
         } else {
             addLog("Solicitando permissão de microfone.")
@@ -526,85 +521,29 @@ class MainActivity : ComponentActivity(), KoinComponent {
     }
 
     private fun startDictation() {
-        windowCount.value = 0
         capturedDurationMs.value = 0L
-        clipWindows.clear()
-        clipReady.value = false
-        transcription.reset()
         addLog("Iniciando ditado...")
-
-        lifecycleScope.launch {
-            try {
-                dictationController.start()
-                startCapturedDurationPolling()
-            } catch (error: Exception) {
-                capturedDurationMs.value = dictationController.capturedDurationMs
-                addLog("Falha ao iniciar captura: ${error.message ?: "erro desconhecido"}")
-            }
-        }
+        pipeline.requestStart()
     }
 
     private fun finalizeDictation() {
         addLog("Finalizando ditado...")
-
-        lifecycleScope.launch {
-            try {
-                dictationController.finalize()
-                clipReady.value = clipWindows.isNotEmpty()
-                if (clipReady.value) {
-                    addLog("Clipe F05 pronto (${clipWindows.size} janelas).")
-                }
-                transcription.awaitIdle()
-                val preview = LivePreviewAssembler.assemble(
-                    segments = transcription.segments.value,
-                    sessionComplete = true
-                )
-                var revised = personalDictionary.apply(preview.finalized)
-                val prefs = preferencesStore.read()
-                if (prefs.proofreadingEnabled && revised.isNotBlank()) {
-                    val apiKey = secretStore.readOpenRouterKey().orEmpty()
-                    if (apiKey.isNotBlank()) {
-                        try {
-                            revised = proofreadingClient.proofread(revised, apiKey, prefs.proofreadingModel)
-                            revised = personalDictionary.apply(revised)
-                            addLog("Revisão aplicada (${revised.length} chars).")
-                        } catch (_: Exception) {
-                            addLog("Revisão indisponível; texto sem pontuação extra.")
-                        }
-                    }
-                }
-                personalDictionary.suggestFrom(revised)
-                dictionaryTick.value += 1
-                insertFinalPreview(revised)
-            } catch (error: Exception) {
-                capturedDurationMs.value = dictationController.capturedDurationMs
-                addLog("Falha ao finalizar ditado: ${error.message ?: "erro desconhecido"}")
-            }
-        }
+        pipeline.requestFinalize()
     }
 
     private fun cancelDictation() {
         addLog("Cancelando ditado...")
-        transcription.cancel()
-
-        lifecycleScope.launch {
-            try {
-                dictationController.cancel()
-            } catch (error: Exception) {
-                capturedDurationMs.value = dictationController.capturedDurationMs
-                addLog("Falha ao cancelar ditado: ${error.message ?: "erro desconhecido"}")
-            }
-        }
+        pipeline.requestCancel()
     }
 
     private fun startCapturedDurationPolling() {
         lifecycleScope.launch {
-            while (dictationController.state.value is DictationSessionState.Capturing) {
-                capturedDurationMs.value = dictationController.capturedDurationMs
+            while (pipeline.sessionState.value is DictationSessionState.Capturing) {
+                capturedDurationMs.value = pipeline.capturedDurationMs
                 delay(250L)
             }
 
-            capturedDurationMs.value = dictationController.capturedDurationMs
+            capturedDurationMs.value = pipeline.capturedDurationMs
         }
     }
 
@@ -648,6 +587,7 @@ class MainActivity : ComponentActivity(), KoinComponent {
             return
         }
         val reference = referenceText.value.trim()
+        val clipWindows = pipeline.sessionWindows.value
         if (reference.isEmpty() || clipWindows.isEmpty()) {
             addLog("Clipe ou texto de referência ausente.")
             return
@@ -742,23 +682,6 @@ class MainActivity : ComponentActivity(), KoinComponent {
         addLog("Termo rejeitado.")
     }
 
-    private fun insertFinalPreview(text: String) {
-        val trimmed = text.trim()
-        if (trimmed.isEmpty()) {
-            addLog("Finalize sem texto para inserir.")
-            return
-        }
-        serviceRunning.value = FlowVoiceAccessibilityService.isRunning
-        val service = FlowVoiceAccessibilityService.service
-        if (service == null) {
-            addLog("Prévia pronta (${trimmed.length} chars); acessibilidade inativa — nada inserido.")
-            return
-        }
-        val direct = service.insertDirect(trimmed)
-        val result = if (direct.success) direct else service.insertFallback(trimmed)
-        addLog("Inserção final (${trimmed.length} chars) ${result.summary}")
-    }
-
     private fun insertTestText() {
         serviceRunning.value = FlowVoiceAccessibilityService.isRunning
         val service = FlowVoiceAccessibilityService.service
@@ -790,6 +713,15 @@ class MainActivity : ComponentActivity(), KoinComponent {
         is DictationSessionState.Error -> "erro: ${state.message}"
     }
 
+    private fun describePipelineStatus(status: DictationPipelineStatus): String = when (status) {
+        DictationPipelineStatus.Idle -> "pronto"
+        DictationPipelineStatus.Recording -> "gravando"
+        DictationPipelineStatus.Transcribing -> "transcrevendo"
+        is DictationPipelineStatus.Completed -> if (status.insertion.inserted) "inserido" else "não inserido"
+        DictationPipelineStatus.Cancelled -> "cancelado"
+        is DictationPipelineStatus.Failed -> "falhou"
+    }
+
     private fun formatDuration(durationMs: Long): String =
         String.format(Locale.getDefault(), "%.1fs", durationMs / 1000.0)
 
@@ -802,18 +734,6 @@ class MainActivity : ComponentActivity(), KoinComponent {
                 TranscriptionSegment.Status.Failed -> segment.errorKind ?: "falha"
             }
             "${segment.windowIndex + 1}:$label"
-        }
-    }
-
-    override fun onNewIntent(intent: Intent) {
-        super.onNewIntent(intent)
-        setIntent(intent)
-        handleStartDictation(intent)
-    }
-
-    private fun handleStartDictation(intent: Intent?) {
-        if (intent?.getBooleanExtra(EXTRA_START_DICTATION, false) == true) {
-            requestDictationStart()
         }
     }
 
@@ -849,7 +769,6 @@ class MainActivity : ComponentActivity(), KoinComponent {
         if (FlowVoiceOverlayService.running) {
             stopService(Intent(this, FlowVoiceOverlayService::class.java))
             addLog("Overlay desligado.")
-            sessionTick.value += 1
             return
         }
         if (!Settings.canDrawOverlays(this)) {
@@ -862,18 +781,33 @@ class MainActivity : ComponentActivity(), KoinComponent {
             addLog("Autorize sobreposição para o botão flutuante.")
             return
         }
-        startService(Intent(this, FlowVoiceOverlayService::class.java))
-        addLog("Overlay ligado.")
-        sessionTick.value += 1
+        if (!hasMicrophonePermission()) {
+            val permissions = buildList {
+                add(Manifest.permission.RECORD_AUDIO)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    add(Manifest.permission.POST_NOTIFICATIONS)
+                }
+            }
+            overlayPermissionsLauncher.launch(permissions.toTypedArray())
+            return
+        }
+        startOverlay()
     }
 
-    private fun exportDiagnostics() {
-        val mic = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) ==
+    private fun startOverlay() {
+        ContextCompat.startForegroundService(this, Intent(this, FlowVoiceOverlayService::class.java))
+        addLog("Overlay ligado.")
+    }
+
+    private fun hasMicrophonePermission(): Boolean =
+        ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) ==
             PackageManager.PERMISSION_GRANTED
+
+    private fun exportDiagnostics() {
         val report = DiagnosticReport.build(
             generatedAtMs = System.currentTimeMillis(),
             accessibility = FlowVoiceAccessibilityService.isRunning,
-            microphoneGranted = mic,
+            microphoneGranted = hasMicrophonePermission(),
             keyConfigured = secretStore.readOpenRouterKey() != null,
             signedIn = authGateway.isSignedIn,
             proofreading = preferencesStore.read().proofreadingEnabled,
@@ -891,7 +825,6 @@ class MainActivity : ComponentActivity(), KoinComponent {
     }
 
     companion object {
-        const val EXTRA_START_DICTATION = "fv_start_dictation"
         private const val MAX_LOG_LINES = 20
     }
 }
