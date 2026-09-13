@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">FlowVoice</string>
+    <string name="accessibility_service_label">FlowVoice</string>
+    <string name="accessibility_service_description">Permite o FlowVoice inserir o texto ditado diretamente no campo de texto ativo.</string>
 </resources>
