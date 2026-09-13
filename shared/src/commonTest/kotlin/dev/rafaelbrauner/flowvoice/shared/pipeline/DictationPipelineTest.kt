@@ -14,6 +14,7 @@ import dev.rafaelbrauner.flowvoice.shared.proofreading.ProofreadingClient
 import dev.rafaelbrauner.flowvoice.shared.transcription.InMemorySecretStore
 import dev.rafaelbrauner.flowvoice.shared.transcription.OpenRouterConfig
 import dev.rafaelbrauner.flowvoice.shared.transcription.TranscriptionClient
+import dev.rafaelbrauner.flowvoice.shared.transcription.TranscriptionError
 import dev.rafaelbrauner.flowvoice.shared.transcription.TranscriptionResult
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -46,6 +47,39 @@ class DictationPipelineTest {
         assertEquals(listOf("o médico pediu o exame de sangue"), env.inserter.inserted)
         assertEquals(3, env.pipeline.sessionWindows.value.size)
         assertEquals(status, env.pipeline.status.value)
+    }
+
+    @Test
+    fun failedMiddleWindowInsertsPartialTextWithWarning() = runTest {
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = listOf(frame(100L), frame(100L), frame(50L)),
+            texts = mapOf(0 to "o médico", 2 to "de sangue"),
+            failures = mapOf(1 to TranscriptionError.Timeout())
+        )
+
+        env.pipeline.start()
+        runCurrent()
+        val completed = assertIs<DictationPipelineStatus.Completed>(env.pipeline.finalize())
+
+        assertEquals(listOf("o médico de sangue"), env.inserter.inserted)
+        assertEquals("Trecho 2 de 3 falhou (timeout): texto incompleto", completed.warning)
+    }
+
+    @Test
+    fun allWindowsFailingWithoutKeyReportsKeyAndSkipsInsertion() = runTest {
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = listOf(frame(100L), frame(50L)),
+            apiKey = null
+        )
+
+        env.pipeline.start()
+        runCurrent()
+        val failed = assertIs<DictationPipelineStatus.Failed>(env.pipeline.finalize())
+
+        assertTrue(failed.message.contains("chave OpenRouter"), failed.message)
+        assertTrue(env.inserter.inserted.isEmpty())
     }
 
     @Test
@@ -159,7 +193,9 @@ private class PipelineEnv(
     preferences: AppPreferences = AppPreferences(),
     proofreadingFails: Boolean = false,
     transcriptionDelayMs: Long = 0L,
-    startError: Throwable? = null
+    startError: Throwable? = null,
+    failures: Map<Int, Throwable> = emptyMap(),
+    apiKey: String? = "sk-or-v1-testkey123456"
 ) {
     val engine = ScriptedAudioCaptureEngine(frames, startError)
     val dictionary = InMemoryPersonalDictionary()
@@ -167,12 +203,12 @@ private class PipelineEnv(
     val proofreader = FakeProofreader(proofreadingFails)
     val pipeline = DictationPipeline(
         controller = DictationSessionController(engine, windowTargetDurationMs = 100L),
-        client = ScriptedTranscriptionClient(texts, transcriptionDelayMs),
+        client = ScriptedTranscriptionClient(texts, transcriptionDelayMs, failures),
         config = OpenRouterConfig(),
         dictionary = dictionary,
         proofreading = proofreader,
         preferences = InMemoryPreferencesStore(preferences),
-        secrets = InMemorySecretStore().apply { writeOpenRouterKey("sk-or-v1-testkey123456") },
+        secrets = InMemorySecretStore().apply { apiKey?.let { writeOpenRouterKey(it) } },
         inserter = inserter,
         scope = scope
     )
@@ -201,10 +237,12 @@ private class FakeProofreader(private val fails: Boolean) : ProofreadingClient {
 
 private class ScriptedTranscriptionClient(
     private val texts: Map<Int, String>,
-    private val delayMs: Long
+    private val delayMs: Long,
+    private val failures: Map<Int, Throwable> = emptyMap()
 ) : TranscriptionClient {
     override suspend fun transcribe(window: DictationWindow, apiKey: String, model: String?): TranscriptionResult {
         if (delayMs > 0L) delay(delayMs)
+        failures[window.index]?.let { throw it }
         return TranscriptionResult(texts[window.index] ?: "w${window.index}", "fake")
     }
 
