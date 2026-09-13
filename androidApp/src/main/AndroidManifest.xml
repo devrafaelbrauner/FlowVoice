@@ -2,7 +2,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
-<uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
     <application
         android:name=".FlowVoiceApp"
@@ -35,5 +36,9 @@
         <receiver
             android:name=".FlowVoiceAdbReceiver"
             android:exported="true" />
+
+        <service
+            android:name=".service.FlowVoiceOverlayService"
+            android:exported="false" />
     </application>
 </manifest>

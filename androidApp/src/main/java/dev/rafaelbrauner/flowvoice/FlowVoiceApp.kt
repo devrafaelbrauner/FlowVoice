@@ -5,6 +5,21 @@ import dev.rafaelbrauner.flowvoice.shared.dictation.AndroidAudioCaptureEngine
 import dev.rafaelbrauner.flowvoice.shared.dictation.AudioCaptureEngine
 import dev.rafaelbrauner.flowvoice.shared.dictation.DictationSessionController
 import dev.rafaelbrauner.flowvoice.shared.di.sharedModule
+import dev.rafaelbrauner.flowvoice.shared.dictionary.InMemoryPersonalDictionary
+import dev.rafaelbrauner.flowvoice.shared.dictionary.PersonalDictionary
+import dev.rafaelbrauner.flowvoice.shared.dictionary.PrefsDictionaryPersist
+import dev.rafaelbrauner.flowvoice.shared.auth.AuthGateway
+import dev.rafaelbrauner.flowvoice.shared.auth.PrefsAuthGateway
+import dev.rafaelbrauner.flowvoice.shared.notes.InMemoryNoteStore
+import dev.rafaelbrauner.flowvoice.shared.notes.NoteStore
+import dev.rafaelbrauner.flowvoice.shared.notes.PrefsNotePersist
+import dev.rafaelbrauner.flowvoice.shared.prefs.PrefsPreferencesStore
+import dev.rafaelbrauner.flowvoice.shared.prefs.PreferencesStore
+import dev.rafaelbrauner.flowvoice.shared.sync.InMemoryRemoteSync
+import dev.rafaelbrauner.flowvoice.shared.sync.RemoteSync
+import dev.rafaelbrauner.flowvoice.shared.sync.SyncEngine
+import dev.rafaelbrauner.flowvoice.shared.transcription.EncryptedSecretStore
+import dev.rafaelbrauner.flowvoice.shared.transcription.SecretStore
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.context.GlobalContext
 import org.koin.dsl.module
@@ -23,4 +38,25 @@ class FlowVoiceApp : Application() {
 private val dictationModule = module {
     single<AudioCaptureEngine> { AndroidAudioCaptureEngine(androidContext()) }
     factory { DictationSessionController(get()) }
+    single<SecretStore> { EncryptedSecretStore(androidContext()) }
+    single<PersonalDictionary> { InMemoryPersonalDictionary(PrefsDictionaryPersist(androidContext())) }
+    single<NoteStore> {
+        InMemoryNoteStore(
+            persist = PrefsNotePersist(androidContext()),
+            clock = { System.currentTimeMillis() }
+        )
+    }
+    single<PreferencesStore> { PrefsPreferencesStore(androidContext()) }
+    single<AuthGateway> { PrefsAuthGateway(androidContext()) }
+    single<RemoteSync> { InMemoryRemoteSync() }
+    single {
+        SyncEngine(
+            auth = get(),
+            notes = get(),
+            dictionary = get(),
+            preferences = get(),
+            remote = get(),
+            clock = { System.currentTimeMillis() }
+        )
+    }
 }

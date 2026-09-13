@@ -4,18 +4,24 @@ Licenças de dependências e software de terceiros **diretamente incluído** no
 FlowVoice (bibliotecas, SDKs, modelos). Este arquivo é **cumulativo**: toda
 dependência adicionada deve ter sua licença registrada aqui.
 
-> **Estado atual (F00):** o projeto ainda não tem código de dependências.
-> Abaixo está a **lista prevista** com as licenças esperadas; confirmar cada uma
-> no momento de adotar a dependência (fase F01 em diante).
+## Bibliotecas adotadas
 
-## Bibliotecas previstas (Kotlin Multiplatform)
+| Biblioteca | Versão | Licença | Observação |
+| --- | --- | --- | --- |
+| Kotlin | 2.1.10 | Apache-2.0 | Linguagem base. |
+| Jetpack Compose BOM | 2025.06.00 | Apache-2.0 | UI Android. |
+| Ktor Client | 2.3.13 | Apache-2.0 | HTTP (OpenRouter). |
+| Kotlin Serialization | 1.7.3 | Apache-2.0 | JSON. |
+| kotlinx-coroutines | 1.10.1 | Apache-2.0 | Concorrência. |
+| Koin | 3.5.6 | Apache-2.0 | DI. |
+| androidx.security:security-crypto | 1.0.0 | Apache-2.0 | Chave OpenRouter cifrada (F04). |
+| androidx.credentials | 1.3.0 | Apache-2.0 | Google Sign-In (F10). |
+| googleid | 1.1.1 | Apache-2.0 | Google ID token (F10). |
+
+## Bibliotecas previstas
 
 | Biblioteca | Licença esperada | Observação |
 | --- | --- | --- |
-| Kotlin | Apache-2.0 | Linguagem base. |
-| Jetpack Compose / Compose Multiplatform | Apache-2.0 | UI. |
-| Ktor Client | Apache-2.0 | HTTP (OpenRouter). |
-| Kotlin Serialization | Apache-2.0 | Serialização. |
 | SQLDelight | Apache-2.0 | Persistência local. |
 | JNA (Windows, F13) | LGPL-2.1 / MPL-2.0 (dual) | Interop Win32 / `SendInput`. |
 | Supabase SDK | MIT (agora) | Auth + Postgres. |
