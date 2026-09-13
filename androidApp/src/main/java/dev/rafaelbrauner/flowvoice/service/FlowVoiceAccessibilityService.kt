@@ -9,6 +9,7 @@ import android.os.Bundle
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import dev.rafaelbrauner.flowvoice.shared.insertion.CursorInsertion
 
 class FlowVoiceAccessibilityService : AccessibilityService() {
 
@@ -90,19 +91,46 @@ class FlowVoiceAccessibilityService : AccessibilityService() {
     }
 
     fun insertFallback(text: String): InsertResult {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            return InsertResult(false, "ACTION_SET_TEXT", "requer Android 8+ para inserir sem apagar o texto do campo")
+        }
+
         val node = rootInActiveWindow?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
             ?: return InsertResult(false, "ACTION_SET_TEXT", "nenhum foco de edição encontrado")
 
         try {
-            val args = Bundle().apply {
-                putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text)
+            if (node.isPassword) {
+                return InsertResult(false, "ACTION_SET_TEXT", "campo de senha: nada inserido")
             }
-            val performed = node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
+            val current = node.text
+            if (current == null && !node.isShowingHintText) {
+                return InsertResult(false, "ACTION_SET_TEXT", "texto do campo ilegível: nada inserido para não apagar conteúdo")
+            }
+            val plan = CursorInsertion.plan(
+                current = current?.toString(),
+                showingHint = node.isShowingHintText,
+                selectionStart = node.textSelectionStart,
+                selectionEnd = node.textSelectionEnd,
+                insert = text
+            )
+            val textArgs = Bundle().apply {
+                putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, plan.text)
+            }
+            val performed = node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, textArgs)
             if (!performed) error("performAction(ACTION_SET_TEXT) retornou false")
+            val selectionArgs = Bundle().apply {
+                putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, plan.cursor)
+                putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, plan.cursor)
+            }
+            val cursorPlaced = node.performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, selectionArgs)
             return InsertResult(
                 success = true,
                 route = "ACTION_SET_TEXT",
-                message = "texto definido em ${node.className}",
+                message = if (cursorPlaced) {
+                    "texto inserido no cursor em ${node.className}"
+                } else {
+                    "texto inserido no cursor em ${node.className} (cursor não reposicionado)"
+                },
             )
         } catch (error: Throwable) {
             return InsertResult(false, "ACTION_SET_TEXT", error.message ?: "erro desconhecido")
