@@ -5,6 +5,8 @@ import dev.rafaelbrauner.flowvoice.shared.api.OpenRouterApiClient
 import dev.rafaelbrauner.flowvoice.shared.http.buildHttpClient
 import dev.rafaelbrauner.flowvoice.shared.transcription.OpenRouterConfig
 import dev.rafaelbrauner.flowvoice.shared.transcription.OpenRouterKeyValidator
+import dev.rafaelbrauner.flowvoice.shared.proofreading.OpenRouterProofreadingClient
+import dev.rafaelbrauner.flowvoice.shared.proofreading.ProofreadingClient
 import dev.rafaelbrauner.flowvoice.shared.transcription.OpenRouterTranscriptionClient
 import dev.rafaelbrauner.flowvoice.shared.transcription.RetryingTranscriptionClient
 import dev.rafaelbrauner.flowvoice.shared.transcription.TranscriptionClient
@@ -22,4 +24,5 @@ val sharedModule = module {
             get()
         )
     }
+    single<ProofreadingClient> { OpenRouterProofreadingClient(get(), get()) }
 }
