@@ -6,6 +6,8 @@ import dev.rafaelbrauner.flowvoice.shared.dictation.AudioFrame
 import dev.rafaelbrauner.flowvoice.shared.dictation.DictationSessionController
 import dev.rafaelbrauner.flowvoice.shared.dictation.DictationWindow
 import dev.rafaelbrauner.flowvoice.shared.dictionary.InMemoryPersonalDictionary
+import dev.rafaelbrauner.flowvoice.shared.insertion.TextInserter
+import dev.rafaelbrauner.flowvoice.shared.insertion.TextInsertionResult
 import dev.rafaelbrauner.flowvoice.shared.prefs.AppPreferences
 import dev.rafaelbrauner.flowvoice.shared.prefs.InMemoryPreferencesStore
 import dev.rafaelbrauner.flowvoice.shared.proofreading.ProofreadingClient
@@ -93,7 +95,7 @@ class DictationPipelineTest {
         val status = assertIs<DictationPipelineStatus.Completed>(env.pipeline.finalize())
 
         assertEquals("", status.text)
-        assertEquals(false, status.insertion.inserted)
+        assertEquals(false, status.insertion.success)
         assertTrue(env.inserter.inserted.isEmpty())
     }
 
@@ -179,9 +181,11 @@ private class PipelineEnv(
 private class RecordingInserter : TextInserter {
     val inserted = mutableListOf<String>()
 
-    override fun insert(text: String): InsertOutcome {
+    override val isAvailable: Boolean = true
+
+    override fun insert(text: String): TextInsertionResult {
         inserted += text
-        return InsertOutcome(inserted = true, summary = "ok")
+        return TextInsertionResult(success = true, route = "teste", message = "ok")
     }
 }
 

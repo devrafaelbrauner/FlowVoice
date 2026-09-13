@@ -4,6 +4,8 @@ import dev.rafaelbrauner.flowvoice.shared.dictation.DictationSessionController
 import dev.rafaelbrauner.flowvoice.shared.dictation.DictationSessionState
 import dev.rafaelbrauner.flowvoice.shared.dictation.DictationWindow
 import dev.rafaelbrauner.flowvoice.shared.dictionary.PersonalDictionary
+import dev.rafaelbrauner.flowvoice.shared.insertion.TextInserter
+import dev.rafaelbrauner.flowvoice.shared.insertion.TextInsertionResult
 import dev.rafaelbrauner.flowvoice.shared.prefs.PreferencesStore
 import dev.rafaelbrauner.flowvoice.shared.preview.LivePreview
 import dev.rafaelbrauner.flowvoice.shared.preview.LivePreviewAssembler
@@ -133,13 +135,13 @@ class DictationPipeline(
             } else {
                 dictionary.suggestFrom(text)
                 val insertion = if (text.isBlank()) {
-                    InsertOutcome(inserted = false, summary = "sem texto para inserir")
+                    TextInsertionResult(success = false, route = "pipeline", message = "sem texto para inserir")
                 } else {
                     inserter.insert(text)
                 }
                 log(
                     "dictation_finalized",
-                    mapOf("chars" to text.length.toString(), "inserted" to insertion.inserted.toString())
+                    mapOf("chars" to text.length.toString(), "inserted" to insertion.success.toString())
                 )
                 DictationPipelineStatus.Completed(text, insertion)
             }

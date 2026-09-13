@@ -717,7 +717,7 @@ class MainActivity : ComponentActivity(), KoinComponent {
         DictationPipelineStatus.Idle -> "pronto"
         DictationPipelineStatus.Recording -> "gravando"
         DictationPipelineStatus.Transcribing -> "transcrevendo"
-        is DictationPipelineStatus.Completed -> if (status.insertion.inserted) "inserido" else "não inserido"
+        is DictationPipelineStatus.Completed -> if (status.insertion.success) "inserido" else "não inserido"
         DictationPipelineStatus.Cancelled -> "cancelado"
         is DictationPipelineStatus.Failed -> "falhou"
     }
