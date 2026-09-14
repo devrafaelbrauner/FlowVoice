@@ -6,6 +6,34 @@ estão em [`docs/tasks/`](docs/tasks/README.md).
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-09-13
+
+Correções dos achados do `/verificar` da 0.4.1 e do teste real no S26.
+
+### Fixed
+
+- P67: ditado de nota não fica mais órfão ao trocar de aba ou girar a tela; um
+  coordenador de escopo de app anexa o texto à nota e as Notas voltam a mostrar
+  o botão de parar.
+- P91: sessão iniciada pelo microfone do Início mostrava só a bolha, gravando
+  sem controle; a barra aparece e tocar na bolha durante uma sessão a assume.
+- P92: o teto de requisições por sessão encerra a captura e entrega o texto até
+  ali, com aviso, em vez de gravar indefinidamente.
+- P90: telas do sistema (acessibilidade, sobreposição, detalhes do app,
+  compartilhar) abriam na tarefa do FlowVoice, e o ícone reabria Configurações.
+- P80: inserção recusada mantém o texto na barra para tentar de novo.
+- P83: o destino da inserção é conferido também no ditado iniciado pelo Início.
+- P81: o cache de acessibilidade é limpo antes de ler janelas e o campo focado
+  (barra acompanha o teclado; fallback não usa texto antigo).
+- P69: nomes para o TalkBack em toggles e campos.
+
+### Added
+
+- P66: o onboarding e o README orientam a liberar "configurações restritas" em
+  instalações fora de loja (Android 13+) e a não usar o FlowVoice como atalho de
+  acessibilidade.
+- P84: o CI roda os testes unitários do app Android.
+
 ## [0.4.1] - 2026-09-13
 
 Correções dos achados da auditoria de segurança da 0.3.1 (SEG-1 a SEG-7).
