@@ -497,6 +497,55 @@ class DictationPipelineTest {
     }
 
     @Test
+    fun budgetStopDoesNotPinTheDestinationSoInsertGoesWhereTheUserTaps() = runTest {
+        val inserter = TargetInserter()
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = List(4) { frame(100L) },
+            texts = mapOf(0 to "um", 1 to "dois", 2 to "três", 3 to "quatro"),
+            textInserter = inserter,
+            config = OpenRouterConfig(maxRequestsPerSession = 2)
+        )
+
+        env.pipeline.start()
+        assertNull(inserter.target)
+        inserter.focused = "com.whatsapp"
+        runCurrent()
+        assertIs<DictationPipelineStatus.Ready>(env.pipeline.status.value)
+        assertNull(inserter.target)
+
+        inserter.focused = "com.android.chrome"
+        assertIs<DictationPipelineStatus.Completed>(env.pipeline.insertReady())
+        assertEquals("com.android.chrome", inserter.target)
+        assertEquals(listOf("um dois"), inserter.inserted)
+    }
+
+    @Test
+    fun retryAfterRefusedInsertRecapturesTheDestination() = runTest {
+        val inserter = TargetInserter()
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = listOf(frame(50L)),
+            texts = mapOf(0 to "o médico"),
+            textInserter = inserter
+        )
+
+        inserter.focused = "com.whatsapp"
+        env.pipeline.start()
+        runCurrent()
+        assertIs<DictationPipelineStatus.Ready>(env.pipeline.finalizeForReview())
+
+        inserter.focused = "com.android.chrome"
+        val refused = assertIs<DictationPipelineStatus.Ready>(env.pipeline.insertReady())
+        assertEquals(TargetInserter.CHANGED, refused.refusal)
+        assertTrue(inserter.inserted.isEmpty())
+
+        assertIs<DictationPipelineStatus.Completed>(env.pipeline.insertReady())
+        assertEquals("com.android.chrome", inserter.target)
+        assertEquals(listOf("o médico"), inserter.inserted)
+    }
+
+    @Test
     fun noteSessionReachingRequestBudgetDeliversToTheNoteWithoutTouchingTheInserter() = runTest {
         val inserter = CallRecordingInserter()
         val env = PipelineEnv(
