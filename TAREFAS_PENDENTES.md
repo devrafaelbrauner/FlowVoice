@@ -66,7 +66,7 @@ Itens concluídos são marcados, não apagados.
 | P39 | Baixa | `POST_NOTIFICATIONS` só é pedida quando falta o microfone; complementa P24 | pendente | /corrigir |
 | P40 | Baixa | `startedHere` nunca volta a `false` no overlay: ocultar o botão cancela um ditado iniciado pela `MainActivity` | pendente | /corrigir |
 | P41 | Baixa | A captura Android parava sozinha quando `read` devolvia ≤ 0 e a sessão seguia "● Gravando" | concluída (0.3.1, junto com P47) | /corrigir |
-| P42 | Baixa | Privacidade dos logs: o diagnóstico debug loga 40 caracteres do campo de outro app, `onStartCommand` de debug no código principal e o release loga o pacote de cada app ditado | pendente: auditoria /seguranca a seguir | /seguranca |
+| P42 | Baixa | Privacidade dos logs: o diagnóstico debug loga 40 caracteres do campo de outro app, `onStartCommand` de debug no código principal e o release loga o pacote de cada app ditado | auditado: dividido em SEG-3 e SEG-4 | /corrigir |
 | P43 | Baixa | Docs: o `AGENTS.md` não cita `desktopApp` nos comandos nem no CI; o `PLAN.md` e o `requirements.md` ainda dizem que a implementação Windows está "adiada" | pendente | /corrigir |
 | P44 | Baixa | Branches auxiliares no GitHub já integradas na `f03-audio-capture-session` | pendente: apagar após o merge do PR #2 | usuário |
 | P45 | Alta | O runtime empacotado do desktop não tinha `java.net.http` (motor Ktor Java) | concluída (0.3.1); o CI confere o `release` do runtime | /corrigir |
@@ -81,4 +81,20 @@ Itens concluídos são marcados, não apagados.
 | P54 | Baixa | `ProtectedFileSecretStore.readOpenRouterKey` não captura `LinkageError` (JNA) e decifra a chave a cada janela | pendente | /corrigir |
 | P55 | Baixa | Empacotar no macOS falha: `jpackage` recusa `app-version` 0.x e o plugin barra o JDK do Homebrew | pendente | usuário |
 | P56 | Baixa | Depois de P30, o fallback recusa no Android 7 (sem `isShowingHintText`) e em campos que reportam texto nulo: nesses casos não há inserção (antes apagava o campo) | pendente: avaliar se algum app-alvo real cai nisso | /debugar |
-| P57 | Média | Tink 1.5.0 pode gravar o keyset **em claro** quando não consegue gerar a chave-mestra (`readOrGenerateNewMasterKey`), sem avisar | pendente | /seguranca |
+| P57 | Média | Tink 1.5.0 pode gravar o keyset **em claro** quando não consegue gerar a chave-mestra (`readOrGenerateNewMasterKey`), sem avisar | confirmado pelo /seguranca (SEG-6, rebaixado a Baixa: exige falha rara do Keystore e acesso ao sandbox) | /corrigir |
+
+## Achados da auditoria /seguranca de `9722166` (2026-09-13)
+
+Veredito: com ressalvas (0 críticos, 0 altos). gitleaks (histórico), semgrep (`p/kotlin`, `p/secrets`, `p/owasp-top-ten`), OSV API e lint Security sem achados confirmados.
+
+| ID | Severidade | Tarefa | Status | Encaminhar |
+| --- | --- | --- | --- | --- |
+| SEG-1 | Média | Notas, dicionário e e-mail em SharedPreferences sem cifra; só `flowvoice_secrets.xml` sai do backup, então notas (uso clínico, LGPD) vão para o backup em nuvem e a transferência entre aparelhos (`data_extraction_rules.xml`, `backup_rules.xml`, `Prefs*Persist.kt`) | pendente: decidir se ficam no backup; cifrar em repouso junto com P14 | usuário, depois /corrigir |
+| SEG-2 | Média | Repositório **público**: a `main` ainda tem `FlowVoiceAdbReceiver` exportado sem permissão, e há 2 artefatos `flowvoice-debug` da `main` publicados pelo CI (expiram em 2026-12-12) | pendente: mesclar o PR #2 e apagar os artefatos antigos | usuário |
+| SEG-3 | Baixa | O release loga no logcat o pacote de cada app em que se dita (`FlowVoiceAccessibilityService.kt:95`); parte do P42 | pendente | /corrigir |
+| SEG-4 | Baixa | Caminho de debug do `onStartCommand` no source set `main`; `diagnoseFocusedField` devolve 40 caracteres do campo de qualquer app sem checar `isPassword`; parte do P42 | pendente | /corrigir |
+| SEG-5 | Baixa | `typeAllMask` no serviço de acessibilidade com `onAccessibilityEvent` vazio: recebe eventos de todos os apps sem necessidade (`accessibility_flowvoice.xml:3`) | pendente | /corrigir |
+| SEG-6 | Baixa | Tink 1.5.0 grava e aceita keyset em claro quando o Keystore falha (P57); `security-crypto` descontinuado | pendente | /corrigir |
+| SEG-7 | Baixa | A rota direta `commitText` não recusa campo de senha, e o destino não é conferido entre iniciar e finalizar: se o foco mudar durante a transcrição, o texto cai em outro app | pendente | /corrigir |
+| SEG-8 | Info | `SyncModels.kt:15`: a trava `contains("sk-")` derruba o sync com termo legítimo e não cobre notas | pendente | /aprimorar |
+| SEG-9 | Info | Nenhuma tela usa `filterTouchesWhenObscured` (tapjacking); avaliar nas telas de chave e permissões | pendente | /aprimorar |
