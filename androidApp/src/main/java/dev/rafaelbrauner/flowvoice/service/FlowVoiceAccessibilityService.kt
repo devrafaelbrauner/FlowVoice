@@ -12,6 +12,7 @@ import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
 import dev.rafaelbrauner.flowvoice.shared.insertion.CursorInsertion
 import dev.rafaelbrauner.flowvoice.shared.insertion.FocusedFieldDiagnostic
+import dev.rafaelbrauner.flowvoice.shared.insertion.InsertionGuard
 import dev.rafaelbrauner.flowvoice.shared.insertion.InsertionTarget
 
 class FlowVoiceAccessibilityService : AccessibilityService() {
@@ -62,6 +63,18 @@ class FlowVoiceAccessibilityService : AccessibilityService() {
         super.onDestroy()
     }
 
+    fun focusedPackage(): String? {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            runCatching { inputMethod?.currentInputEditorInfo?.packageName }.getOrNull()?.let { return it }
+        }
+        val root = runCatching { rootInActiveWindow }.getOrNull() ?: return null
+        return try {
+            root.packageName?.toString()
+        } finally {
+            releaseNode(root)
+        }
+    }
+
     fun insertDirect(text: String, excludedPackage: String? = null): InsertResult {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
             return InsertResult(false, "commitText", "requer Android 13+ (API 33)")
@@ -72,11 +85,12 @@ class FlowVoiceAccessibilityService : AccessibilityService() {
         val connection = inputMethod.currentInputConnection
             ?: return InsertResult(false, "commitText", "currentInputConnection nulo")
 
-        val packageName = runCatching {
-            inputMethod.currentInputEditorInfo?.packageName
-        }.getOrDefault(null)
-        if (excludedPackage != null && InsertionTarget.isOwnApp(packageName, excludedPackage)) {
+        val editorInfo = runCatching { inputMethod.currentInputEditorInfo }.getOrNull()
+        if (excludedPackage != null && InsertionTarget.isOwnApp(editorInfo?.packageName, excludedPackage)) {
             return InsertResult(false, "commitText", InsertionTarget.OWN_APP_MESSAGE, blocked = true)
+        }
+        if (editorInfo != null && InsertionGuard.isPasswordInputType(editorInfo.inputType)) {
+            return InsertResult(false, "commitText", InsertionGuard.PASSWORD_MESSAGE, blocked = true)
         }
 
         try {

@@ -126,6 +126,7 @@ class DictationPipeline(
         transcription.reset()
         windowsState.value = emptyList()
         submittedWindows.value = 0
+        inserter.captureTarget()
         try {
             controller.start()
             if (token != sessionToken) {

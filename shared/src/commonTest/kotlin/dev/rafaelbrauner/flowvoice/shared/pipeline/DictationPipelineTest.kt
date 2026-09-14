@@ -408,6 +408,16 @@ class DictationPipelineTest {
         assertTrue(env.inserter.inserted.isEmpty())
     }
 
+    @Test
+    fun startCapturesInsertionTargetBeforeRecording() = runTest {
+        val env = PipelineEnv(scope = backgroundScope, frames = listOf(frame(50L)))
+
+        env.pipeline.start()
+
+        assertEquals(1, env.inserter.captures)
+        assertEquals(DictationPipelineStatus.Recording, env.pipeline.status.value)
+    }
+
     private fun frame(durationMs: Long): AudioFrame =
         AudioFrame(ByteArray((durationMs * 16).toInt() * 2), AudioFormat.DEFAULT)
 }
@@ -445,8 +455,13 @@ private class PipelineEnv(
 
 private class RecordingInserter(private val succeeds: Boolean = true) : TextInserter {
     val inserted = mutableListOf<String>()
+    var captures = 0
 
     override val isAvailable: Boolean = true
+
+    override fun captureTarget() {
+        captures += 1
+    }
 
     override fun insert(text: String): TextInsertionResult {
         inserted += text
