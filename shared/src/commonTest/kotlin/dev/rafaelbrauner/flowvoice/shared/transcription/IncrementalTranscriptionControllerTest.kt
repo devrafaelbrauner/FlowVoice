@@ -2,11 +2,15 @@ package dev.rafaelbrauner.flowvoice.shared.transcription
 
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertIs
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -104,6 +108,66 @@ class IncrementalTranscriptionControllerTest {
         assertEquals(TranscriptionSegment.Status.Ok, controller.segments.value[0].status)
         assertEquals(TranscriptionSegment.Status.Failed, controller.segments.value[1].status)
         assertEquals("budget", controller.segments.value[1].errorKind)
+    }
+
+    @Test
+    fun budgetIsCountedAtSubmissionSoSlowRequestsCannotLetCaptureRunPastIt() = runTest {
+        val client = FakeTranscriptionClient(delayMs = 10_000L)
+        val controller = IncrementalTranscriptionController(
+            client = client,
+            config = OpenRouterConfig(maxRequestsPerSession = 2),
+            scope = this,
+            apiKeyProvider = { "sk-or-v1-testkey123456" }
+        )
+        var submitted = 0
+        var submittedWhenExhausted = -1
+
+        val watcher = launch {
+            controller.budgetExhausted.first { it }
+            submittedWhenExhausted = submitted
+        }
+        launch {
+            repeat(12) {
+                controller.submit(testWindow(it))
+                submitted++
+                delay(4_000L)
+            }
+        }
+        advanceUntilIdle()
+        watcher.join()
+
+        assertTrue(submittedWhenExhausted in 1..3, "janelas capturadas ao esgotar: $submittedWhenExhausted")
+        assertEquals(listOf(0, 1), client.started)
+    }
+
+    @Test
+    fun missingOrRejectedKeyBecomesTerminalAndStopsFurtherRequests() = runTest {
+        val missing = IncrementalTranscriptionController(
+            client = FakeTranscriptionClient(),
+            config = OpenRouterConfig(),
+            scope = this,
+            apiKeyProvider = { null }
+        )
+        missing.submit(testWindow(0))
+        advanceUntilIdle()
+        assertIs<TranscriptionError.InvalidKey>(missing.fatalError.value)
+
+        val client = FakeTranscriptionClient(failures = mapOf(0 to TranscriptionError.InvalidKey()))
+        val rejected = IncrementalTranscriptionController(
+            client = client,
+            config = OpenRouterConfig(),
+            scope = this,
+            apiKeyProvider = { "sk-or-v1-testkey123456" }
+        )
+        repeat(3) { rejected.submit(testWindow(it)) }
+        advanceUntilIdle()
+
+        assertIs<TranscriptionError.InvalidKey>(rejected.fatalError.value)
+        assertEquals(listOf(0), client.started)
+        assertEquals("invalid_key", rejected.segments.value[2].errorKind)
+
+        rejected.reset()
+        assertNull(rejected.fatalError.value)
     }
 
     private class FakeTranscriptionClient(

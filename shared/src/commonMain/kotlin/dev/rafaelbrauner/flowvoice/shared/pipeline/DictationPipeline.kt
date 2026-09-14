@@ -105,6 +105,11 @@ class DictationPipeline(
                 if (exhausted) stopAtRequestBudget()
             }
         }
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            transcription.fatalError.collect { error ->
+                if (error != null) failOnInvalidKey()
+            }
+        }
     }
 
     fun preview(): LivePreview {
@@ -134,6 +139,11 @@ class DictationPipeline(
         transcription.reset()
         windowsState.value = emptyList()
         submittedWindows.value = 0
+        if (secrets.readOpenRouterKey().isNullOrBlank()) {
+            statusState.value = DictationPipelineStatus.Failed(INVALID_KEY_MESSAGE)
+            log("dictation_failed", mapOf("stage" to "key"))
+            return
+        }
         if (target == DictationTarget.ActiveField) inserter.captureTarget()
         try {
             controller.start()
@@ -144,7 +154,10 @@ class DictationPipeline(
             if (statusState.value == DictationPipelineStatus.Starting) {
                 statusState.value = DictationPipelineStatus.Recording
                 log("dictation_started", emptyMap())
-                if (transcription.budgetExhausted.value) stopAtRequestBudget()
+                when {
+                    transcription.fatalError.value != null -> failOnInvalidKey()
+                    transcription.budgetExhausted.value -> stopAtRequestBudget()
+                }
             }
         } catch (error: CancellationException) {
             throw error
@@ -154,6 +167,15 @@ class DictationPipeline(
                 log("dictation_failed", mapOf("stage" to "start"))
             }
         }
+    }
+
+    private fun failOnInvalidKey() {
+        if (statusState.value != DictationPipelineStatus.Recording) return
+        sessionToken++
+        transcription.cancel()
+        statusState.value = DictationPipelineStatus.Failed(INVALID_KEY_MESSAGE)
+        log("dictation_failed", mapOf("stage" to "key"))
+        scope.launch { controller.cancel() }
     }
 
     private fun stopAtRequestBudget() {
@@ -370,6 +392,7 @@ class DictationPipeline(
 
     private companion object {
         const val EVENT_BUFFER = 64
+        const val INVALID_KEY_MESSAGE = "chave OpenRouter ausente ou inválida"
         val NOTE_DELIVERY = TextInsertionResult(success = false, route = "nota", message = "texto entregue à nota")
     }
 }
