@@ -89,7 +89,7 @@ fun NotesRoute(initialNoteId: String?, modifier: Modifier = Modifier) {
 
     LaunchedEffect(initialNoteId) {
         state.refresh()
-        (initialNoteId ?: coordinator.activeNoteId)?.let(state::select)
+        state.selectInitial(initialNoteId)
     }
     LaunchedEffect(dictationState, status) { state.refresh() }
 
