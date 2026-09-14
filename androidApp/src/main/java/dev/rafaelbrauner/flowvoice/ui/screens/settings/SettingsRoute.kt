@@ -360,14 +360,22 @@ internal fun SettingsContent(
                     label = "Botão flutuante",
                     hint = state.overlayMessage ?: "Dita no app aberto sem trocar o teclado"
                 ) {
-                    FvToggle(checked = state.overlayRunning, onCheckedChange = { actions.onOverlayToggle() })
+                    FvToggle(
+                        checked = state.overlayRunning,
+                        onCheckedChange = { actions.onOverlayToggle() },
+                        label = "Botão flutuante"
+                    )
                 }
                 FvDivider()
                 SettingsRow(
                     label = "Revisão por IA",
                     hint = "Pontuação e ortografia antes de inserir"
                 ) {
-                    FvToggle(checked = state.proofreadingEnabled, onCheckedChange = actions.onProofreadingChange)
+                    FvToggle(
+                        checked = state.proofreadingEnabled,
+                        onCheckedChange = actions.onProofreadingChange,
+                        label = "Revisão por IA"
+                    )
                 }
             }
             AccountCard(state, actions)
@@ -405,6 +413,7 @@ private fun KeyCard(state: SettingsUiState, actions: SettingsActions) {
                 onValueChange = actions.onKeyDraftChange,
                 modifier = Modifier.weight(1f),
                 placeholder = state.maskedKey ?: "sk-or-v1-…",
+                label = "Nova chave OpenRouter",
                 visualTransformation = if (state.keyDraftVisible) {
                     VisualTransformation.None
                 } else {
