@@ -63,6 +63,7 @@ import dev.rafaelbrauner.flowvoice.shared.notes.NoteDictationCoordinator
 import dev.rafaelbrauner.flowvoice.shared.notes.NoteStore
 import dev.rafaelbrauner.flowvoice.shared.pipeline.DictationPipeline
 import dev.rafaelbrauner.flowvoice.shared.pipeline.DictationPipelineStatus
+import dev.rafaelbrauner.flowvoice.shared.pipeline.DictationTarget
 import dev.rafaelbrauner.flowvoice.shared.preview.LivePreviewAssembler
 import dev.rafaelbrauner.flowvoice.ui.components.PillButton
 import dev.rafaelbrauner.flowvoice.ui.components.ProvisionalText
@@ -98,7 +99,7 @@ fun NotesRoute(initialNoteId: String?, modifier: Modifier = Modifier) {
             state.showError("Já há um ditado em andamento.")
         } else {
             state.beginDictation(noteId, current)
-            pipeline.requestStart()
+            pipeline.requestStart(DictationTarget.Note)
         }
     }
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->

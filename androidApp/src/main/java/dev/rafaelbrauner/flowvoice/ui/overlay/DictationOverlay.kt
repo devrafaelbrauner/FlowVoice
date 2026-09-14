@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.rafaelbrauner.flowvoice.shared.pipeline.DictationPipeline
 import dev.rafaelbrauner.flowvoice.shared.pipeline.DictationPipelineStatus
+import dev.rafaelbrauner.flowvoice.shared.pipeline.DictationTarget
 import dev.rafaelbrauner.flowvoice.ui.components.FvPreviewSurface
 import dev.rafaelbrauner.flowvoice.ui.components.MicButton
 import dev.rafaelbrauner.flowvoice.ui.components.MonoLabel
@@ -74,7 +75,7 @@ fun DictationOverlay(
         dismissed = null
         elapsedMs = 0L
         latestSessionStarted()
-        pipeline.requestStart(review = true)
+        pipeline.requestStart(DictationTarget.ActiveField)
     }
 
     LaunchedEffect(startRequest) {

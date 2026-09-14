@@ -54,10 +54,11 @@ class DictationPipeline(
     private val statusState = MutableStateFlow<DictationPipelineStatus>(DictationPipelineStatus.Idle)
     private val windowsState = MutableStateFlow<List<DictationWindow>>(emptyList())
     private val submittedWindows = MutableStateFlow(0)
+    private val targetState = MutableStateFlow(DictationTarget.ActiveField)
     private var sessionToken = 0
-    private var reviewSession = false
 
     val status: StateFlow<DictationPipelineStatus> = statusState.asStateFlow()
+    val target: StateFlow<DictationTarget> = targetState.asStateFlow()
     val sessionState: StateFlow<DictationSessionState> = controller.state
     val segments: StateFlow<List<TranscriptionSegment>> = transcription.segments
     val sessionWindows: StateFlow<List<DictationWindow>> = windowsState.asStateFlow()
@@ -125,15 +126,15 @@ class DictationPipeline(
         )
     }
 
-    suspend fun start(review: Boolean = false) {
+    suspend fun start(target: DictationTarget = DictationTarget.ActiveField) {
         if (statusState.value.isBusy) return
         val token = ++sessionToken
-        reviewSession = review
+        targetState.value = target
         statusState.value = DictationPipelineStatus.Starting
         transcription.reset()
         windowsState.value = emptyList()
         submittedWindows.value = 0
-        inserter.captureTarget()
+        if (target == DictationTarget.ActiveField) inserter.captureTarget()
         try {
             controller.start()
             if (token != sessionToken) {
@@ -157,8 +158,11 @@ class DictationPipeline(
 
     private fun stopAtRequestBudget() {
         if (statusState.value != DictationPipelineStatus.Recording) return
-        log("dictation_budget_stop", mapOf("review" to reviewSession.toString()))
-        if (reviewSession) requestFinalizeForReview() else requestFinalize()
+        log("dictation_budget_stop", mapOf("target" to targetState.value.name))
+        when (targetState.value) {
+            DictationTarget.Note -> requestFinalize()
+            DictationTarget.ActiveField -> requestFinalizeForReview()
+        }
     }
 
     suspend fun finalize(): DictationPipelineStatus {
@@ -196,7 +200,7 @@ class DictationPipeline(
         if (statusState.value != DictationPipelineStatus.Recording) return statusState.value
         val token = sessionToken
         val mark = timeSource.markNow()
-        inserter.captureTargetIfUnknown()
+        if (targetState.value == DictationTarget.ActiveField) inserter.captureTargetIfUnknown()
         statusState.value = DictationPipelineStatus.Transcribing
         val outcome = try {
             val final = transcribeFinalText()
@@ -231,7 +235,7 @@ class DictationPipeline(
 
     fun insertReady(): DictationPipelineStatus {
         val ready = statusState.value as? DictationPipelineStatus.Ready ?: return statusState.value
-        if (ready.text.isNotBlank()) {
+        if (ready.text.isNotBlank() && targetState.value == DictationTarget.ActiveField) {
             val insertion = inserter.insert(ready.text)
             if (!insertion.success) {
                 log("dictation_insert_refused", mapOf("chars" to ready.text.length.toString()))
@@ -260,7 +264,7 @@ class DictationPipeline(
         }
     }
 
-    fun requestStart(review: Boolean = false): Job = scope.launch { start(review) }
+    fun requestStart(target: DictationTarget): Job = scope.launch { start(target) }
 
     fun requestFinalize(): Job = scope.launch { finalize() }
 
@@ -295,10 +299,10 @@ class DictationPipeline(
         latencyMs: Long?,
         failedWindows: Int? = null
     ): DictationPipelineStatus {
-        val insertion = if (text.isBlank()) {
-            TextInsertionResult(success = false, route = "pipeline", message = "sem texto para inserir")
-        } else {
-            inserter.insert(text)
+        val insertion = when {
+            text.isBlank() -> TextInsertionResult(success = false, route = "pipeline", message = "sem texto para inserir")
+            targetState.value == DictationTarget.Note -> NOTE_DELIVERY
+            else -> inserter.insert(text)
         }
         return completed(text, insertion, warning, latencyMs, failedWindows)
     }
@@ -362,5 +366,6 @@ class DictationPipeline(
 
     private companion object {
         const val EVENT_BUFFER = 64
+        val NOTE_DELIVERY = TextInsertionResult(success = false, route = "nota", message = "texto entregue à nota")
     }
 }
