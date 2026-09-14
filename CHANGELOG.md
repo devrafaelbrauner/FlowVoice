@@ -6,6 +6,29 @@ estão em [`docs/tasks/`](docs/tasks/README.md).
 
 ## [Unreleased]
 
+## [0.4.5] - 2026-09-14
+
+Correções do pipeline de voz feitas sem o aparelho: achados P124 e P125 da
+revisão do pipeline, e parte da P121 e da P122.
+
+### Fixed
+
+- P124: janelas de silêncio digital (PCM zerado) eram enviadas à OpenRouter,
+  custando uma requisição cada e podendo voltar como texto inventado. É o que
+  o sistema entrega quando silencia a captura, por exemplo num ditado de nota
+  com o app em segundo plano (P121). Essas janelas agora viram trecho vazio,
+  sem requisição, e continuam contando no teto da sessão, para que uma captura
+  muda ainda termine. Só silêncio digital é filtrado; fala baixa e ruído de
+  sala continuam sendo enviados.
+- P125: HTTP 408 da OpenRouter ("request timed out") virava "resposta
+  inválida", sem nova tentativa; agora é tratado como timeout e repetido.
+
+Testes novos cobrem a parada por chave recusada ou por teto enquanto a captura
+ainda está iniciando, o coordenador de nota com status igual ao anterior e o
+teto contado na submissão com valor exato (P122). Coberto por testes unitários;
+nada disto foi medido no aparelho, inclusive se a captura em segundo plano
+chega zerada no S26 (ver P94).
+
 ## [0.4.4] - 2026-09-14
 
 Correções dos achados P110 a P113 do `/verificar` da 0.4.3.
