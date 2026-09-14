@@ -6,97 +6,101 @@ import android.os.SystemClock
 import android.util.Log
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKeys
+import java.io.File
 import java.io.IOException
 import java.security.GeneralSecurityException
 import java.security.KeyStore
 import java.security.KeyStoreException
-import javax.crypto.Cipher
-import javax.crypto.SecretKey
+import javax.crypto.AEADBadTagException
 
 class EncryptedSecretStore(private val context: Context) : SecretStore {
-    private val prefs: SharedPreferences? = openVault()
+    private val vault = CipherSecretStore(
+        cipher = KeystoreVaultCipher(),
+        storage = PrefsVaultStorage(context),
+        isCorruption = { it is AEADBadTagException || it is VaultKeyMissingException },
+        onFailure = { event, error -> Log.w(TAG, "$event ${error.javaClass.simpleName}") }
+    )
 
-    override fun readOpenRouterKey(): String? {
-        val vault = prefs ?: return null
-        return try {
-            vault.getString(KEY_OPENROUTER, null)?.takeIf { it.isNotBlank() }
-        } catch (error: SecurityException) {
-            Log.w(TAG, "Chave OpenRouter ilegível; removida do cofre (${error.javaClass.simpleName})")
-            vault.edit().remove(KEY_OPENROUTER).apply()
-            null
+    init {
+        migrateLegacyVault()
+    }
+
+    override fun readOpenRouterKey(): String? = vault.readOpenRouterKey()
+
+    override fun writeOpenRouterKey(value: String) = vault.writeOpenRouterKey(value)
+
+    override fun clearOpenRouterKey() = vault.clearOpenRouterKey()
+
+    private fun migrateLegacyVault() {
+        val outcome = try {
+            LegacySecretMigration(
+                legacyExists = ::legacyVaultExists,
+                readLegacy = ::readLegacyKey,
+                target = vault,
+                deleteLegacy = ::deleteLegacyVault
+            ).migrate()
+        } catch (error: Exception) {
+            LegacySecretMigration.Outcome.Kept(error)
+        }
+        when (outcome) {
+            LegacySecretMigration.Outcome.NoLegacy -> Unit
+            is LegacySecretMigration.Outcome.Kept ->
+                Log.w(TAG, "legacy_vault_kept ${outcome.cause.javaClass.simpleName}")
+            else -> Log.i(TAG, "legacy_vault_${outcome::class.simpleName}")
         }
     }
 
-    override fun writeOpenRouterKey(value: String) {
-        val trimmed = value.trim()
-        require(trimmed.isNotEmpty()) { "key must not be blank" }
-        val vault = prefs ?: throw SecretStoreUnavailableException("cofre da chave indisponível neste aparelho")
-        vault.edit().putString(KEY_OPENROUTER, trimmed).apply()
-    }
+    private fun legacyVaultExists(): Boolean =
+        File(File(context.applicationInfo.dataDir, "shared_prefs"), "$LEGACY_PREFS_NAME.xml").exists()
 
-    override fun clearOpenRouterKey() {
-        prefs?.edit()?.remove(KEY_OPENROUTER)?.apply()
-    }
-
-    private fun openVault(): SharedPreferences? {
-        val opener = SecretVaultOpener(
-            open = ::open,
-            deleteVault = { context.deleteSharedPreferences(PREFS_NAME) },
-            isCorruption = ::isKeysetCorruption,
+    // O cofre antigo só é aberto se o keyset e a chave-mestra já existirem: assim o
+    // Tink nunca gera material novo, que é o caminho em que ele grava o keyset em claro.
+    private fun readLegacyKey(): String? {
+        val raw = context.getSharedPreferences(LEGACY_PREFS_NAME, Context.MODE_PRIVATE)
+        if (raw.all.isEmpty()) return null
+        if (!raw.contains(LEGACY_KEY_KEYSET) || !raw.contains(LEGACY_VALUE_KEYSET)) {
+            throw GeneralSecurityException("keyset do cofre antigo ausente")
+        }
+        val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
+        if (!keyStore.containsAlias(LEGACY_MASTER_KEY_ALIAS)) {
+            throw KeyStoreException("chave-mestra do cofre antigo ausente")
+        }
+        val opened = SecretVaultOpener(
+            open = ::openLegacyVault,
+            deleteVault = {},
+            isCorruption = { false },
             pause = { SystemClock.sleep(RETRY_DELAY_MS) }
-        )
-        return when (val outcome = opener.openVault()) {
-            is SecretVaultOpener.Outcome.Opened -> {
-                if (outcome.recreated) {
-                    Log.w(TAG, "Cofre da chave corrompido; recriado vazio")
-                }
-                outcome.vault
-            }
-            is SecretVaultOpener.Outcome.Unavailable -> {
-                Log.w(TAG, "Cofre da chave indisponível (${outcome.cause.javaClass.simpleName})")
-                null
-            }
+        ).openVault()
+        val legacy = when (opened) {
+            is SecretVaultOpener.Outcome.Opened -> opened.vault
+            is SecretVaultOpener.Outcome.Unavailable -> throw opened.cause
         }
+        return legacy.getString(LEGACY_KEY_OPENROUTER, null)?.takeIf { it.isNotBlank() }
     }
 
-    private fun open(): SharedPreferences =
+    private fun openLegacyVault(): SharedPreferences =
         EncryptedSharedPreferences.create(
-            PREFS_NAME,
+            LEGACY_PREFS_NAME,
             MasterKeys.getOrCreate(MasterKeys.AES256_GCM_SPEC),
             context,
             EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
             EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
         )
 
-    // O Tink lança KeyStoreException quando a chave-mestra existe mas não funciona;
-    // apagar o arquivo não resolve isso e perderia a chave. Keyset ilegível só conta
-    // como corrupção se a chave-mestra ainda cifra.
-    private fun isKeysetCorruption(error: Throwable): Boolean {
-        val keysetError = error is IOException ||
-            (error is GeneralSecurityException && error !is KeyStoreException)
-        return keysetError && masterKeyUsable()
-    }
-
-    private fun masterKeyUsable(): Boolean = try {
-        val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
-        val key = keyStore.getKey(MASTER_KEY_ALIAS, null) as? SecretKey
-        if (key == null) {
-            false
-        } else {
-            Cipher.getInstance(MASTER_KEY_TRANSFORMATION).init(Cipher.ENCRYPT_MODE, key)
-            true
+    private fun deleteLegacyVault() {
+        if (!context.deleteSharedPreferences(LEGACY_PREFS_NAME)) {
+            throw IOException("cofre antigo não removido")
         }
-    } catch (error: Exception) {
-        false
     }
 
-    companion object {
-        private const val TAG = "FlowVoiceSecrets"
-        private const val PREFS_NAME = "flowvoice_secrets"
-        private const val KEY_OPENROUTER = "openrouter_api_key"
-        private const val ANDROID_KEYSTORE = "AndroidKeyStore"
-        private const val MASTER_KEY_ALIAS = "_androidx_security_master_key_"
-        private const val MASTER_KEY_TRANSFORMATION = "AES/GCM/NoPadding"
-        private const val RETRY_DELAY_MS = 50L
+    private companion object {
+        const val TAG = "FlowVoiceSecrets"
+        const val ANDROID_KEYSTORE = "AndroidKeyStore"
+        const val RETRY_DELAY_MS = 50L
+        const val LEGACY_PREFS_NAME = "flowvoice_secrets"
+        const val LEGACY_KEY_OPENROUTER = "openrouter_api_key"
+        const val LEGACY_MASTER_KEY_ALIAS = "_androidx_security_master_key_"
+        const val LEGACY_KEY_KEYSET = "__androidx_security_crypto_encrypted_prefs_key_keyset__"
+        const val LEGACY_VALUE_KEYSET = "__androidx_security_crypto_encrypted_prefs_value_keyset__"
     }
 }
