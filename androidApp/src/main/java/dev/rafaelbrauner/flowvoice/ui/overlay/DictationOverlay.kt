@@ -61,7 +61,8 @@ fun DictationOverlay(
 ) {
     val status by pipeline.status.collectAsState()
     val segments by pipeline.segments.collectAsState()
-    var owned by remember { mutableStateOf(false) }
+    var ownership by remember { mutableStateOf(OverlayOwnership.released()) }
+    val owned = ownership.owned
     var dismissed by remember { mutableStateOf<DictationPipelineStatus?>(null) }
     var elapsedMs by remember { mutableLongStateOf(0L) }
     val latestModeChange by rememberUpdatedState(onModeChange)
@@ -69,7 +70,7 @@ fun DictationOverlay(
     val startRequest by OverlayStartRequests.count.collectAsState()
 
     val beginSession = {
-        owned = true
+        ownership = OverlayOwnership.begin(pipeline.status.value)
         dismissed = null
         elapsedMs = 0L
         latestSessionStarted()
@@ -83,20 +84,20 @@ fun DictationOverlay(
     }
 
     LaunchedEffect(status) {
-        when (status) {
+        val current = pipeline.status.value
+        ownership = OverlayOwnership.onStatus(ownership, current)
+        when (current) {
             DictationPipelineStatus.Starting,
             DictationPipelineStatus.Recording -> while (true) {
                 elapsedMs = pipeline.capturedDurationMs
                 delay(CLOCK_REFRESH_MS)
             }
             is DictationPipelineStatus.Completed,
-            is DictationPipelineStatus.Failed -> if (owned) {
+            is DictationPipelineStatus.Failed -> if (ownership.owned) {
                 delay(RESULT_VISIBLE_MS)
-                dismissed = status
-                owned = false
+                dismissed = current
+                ownership = OverlayOwnership.released()
             }
-            DictationPipelineStatus.Idle,
-            DictationPipelineStatus.Cancelled -> owned = false
             else -> Unit
         }
     }
@@ -119,7 +120,13 @@ fun DictationOverlay(
             DictationBarState.Hidden -> DictationBubble(
                 busy = status.isBusy,
                 onTap = {
-                    if (!status.isBusy) beginSession()
+                    val current = pipeline.status.value
+                    if (current.isBusy) {
+                        dismissed = null
+                        ownership = OverlayOwnership.adopt(current)
+                    } else {
+                        beginSession()
+                    }
                 }
             )
             is DictationBarState.Live -> DictationBar(
@@ -137,7 +144,7 @@ fun DictationOverlay(
                 state = state,
                 onDismiss = {
                     dismissed = status
-                    owned = false
+                    ownership = OverlayOwnership.released()
                 }
             )
         }
