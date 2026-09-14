@@ -70,12 +70,12 @@ class DictationBarModelTest {
     @Test
     fun refusedInsertionKeepsTextVisibleWithReasonAndRetry() {
         val bar = assertIs<DictationBarState.Live>(
-            state(DictationPipelineStatus.Ready("Bom dia, Marina.", refusal = "o foco mudou de app; texto mantido na barra"))
+            state(DictationPipelineStatus.Ready("Bom dia, Marina.", refusal = "o foco mudou de app; toque em Inserir de novo para inserir no app atual"))
         )
 
         assertEquals("Bom dia, Marina.", bar.finalized)
         assertEquals(DictationBarModel.ROUTE_NOT_INSERTED, bar.route)
-        assertEquals("o foco mudou de app; texto mantido na barra", bar.warning)
+        assertEquals("o foco mudou de app; toque em Inserir de novo para inserir no app atual", bar.warning)
         assertTrue(bar.canInsert)
     }
 
