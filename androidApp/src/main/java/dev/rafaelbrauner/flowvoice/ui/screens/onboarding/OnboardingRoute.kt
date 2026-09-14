@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -20,6 +21,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -43,6 +45,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import androidx.core.net.toUri
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import dev.rafaelbrauner.flowvoice.service.FlowVoiceAccessibilityService
 import dev.rafaelbrauner.flowvoice.shared.transcription.SecretStore
@@ -51,6 +54,7 @@ import dev.rafaelbrauner.flowvoice.ui.components.Wordmark
 import dev.rafaelbrauner.flowvoice.ui.rememberKoin
 import dev.rafaelbrauner.flowvoice.ui.shell.startActivitySafely
 import dev.rafaelbrauner.flowvoice.ui.theme.FlowVoiceRadius
+import dev.rafaelbrauner.flowvoice.ui.theme.FlowVoiceSpacing
 import dev.rafaelbrauner.flowvoice.ui.theme.FlowVoiceTheme
 import dev.rafaelbrauner.flowvoice.ui.theme.PillShape
 
@@ -58,6 +62,7 @@ import dev.rafaelbrauner.flowvoice.ui.theme.PillShape
 fun OnboardingRoute(onDone: () -> Unit, onOpenKeySettings: () -> Unit, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val secretStore = rememberKoin<SecretStore>()
+    val installer = remember { installerPackage(context) }
     var progress by remember { mutableStateOf(readProgress(context, secretStore)) }
 
     LifecycleResumeEffect(Unit) {
@@ -71,7 +76,17 @@ fun OnboardingRoute(onDone: () -> Unit, onOpenKeySettings: () -> Unit, modifier:
 
     OnboardingScreen(
         progress = progress,
+        showRestrictedSettingsHint = RestrictedSettingsHint.shouldShow(
+            sdkInt = Build.VERSION.SDK_INT,
+            accessibilityActive = progress.accessibility,
+            installer = installer
+        ),
         onAccessibility = { context.startActivitySafely(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) },
+        onOpenAppDetails = {
+            context.startActivitySafely(
+                Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, "package:${context.packageName}".toUri())
+            )
+        },
         onMicrophone = {
             if (!progress.microphone) microphoneLauncher.launch(Manifest.permission.RECORD_AUDIO)
         },
@@ -88,6 +103,17 @@ private fun readProgress(context: Context, secretStore: SecretStore) = Onboardin
     key = secretStore.readOpenRouterKey() != null
 )
 
+private fun installerPackage(context: Context): String? =
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+        try {
+            context.packageManager.getInstallSourceInfo(context.packageName).installingPackageName
+        } catch (_: PackageManager.NameNotFoundException) {
+            null
+        }
+    } else {
+        null
+    }
+
 @Composable
 internal fun OnboardingScreen(
     progress: OnboardingProgress,
@@ -95,7 +121,9 @@ internal fun OnboardingScreen(
     onMicrophone: () -> Unit,
     onKey: () -> Unit,
     onCta: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    showRestrictedSettingsHint: Boolean = false,
+    onOpenAppDetails: () -> Unit = {}
 ) {
     val colors = FlowVoiceTheme.colors
     val typography = FlowVoiceTheme.typography
@@ -131,6 +159,9 @@ internal fun OnboardingScreen(
                     done = progress.accessibility,
                     onClick = onAccessibility
                 )
+                if (showRestrictedSettingsHint) {
+                    RestrictedSettingsHintRow(onOpenAppDetails = onOpenAppDetails)
+                }
                 OnboardingStepCard(
                     number = 2,
                     title = "Microfone",
@@ -149,6 +180,31 @@ internal fun OnboardingScreen(
             Spacer(Modifier.height(16.dp))
         }
         OnboardingCta(label = progress.ctaLabel, onClick = onCta)
+    }
+}
+
+@Composable
+private fun RestrictedSettingsHintRow(onOpenAppDetails: () -> Unit) {
+    val colors = FlowVoiceTheme.colors
+    val typography = FlowVoiceTheme.typography
+    Column(modifier = Modifier.padding(horizontal = 4.dp)) {
+        Text(
+            text = RestrictedSettingsHint.MESSAGE,
+            style = typography.bodySmall.copy(lineHeight = 1.5.em),
+            color = colors.textMuted
+        )
+        Box(
+            modifier = Modifier
+                .heightIn(min = FlowVoiceSpacing.minTouchTarget)
+                .clickable(role = Role.Button, onClick = onOpenAppDetails),
+            contentAlignment = Alignment.CenterStart
+        ) {
+            Text(
+                text = RestrictedSettingsHint.ACTION,
+                style = typography.monoValue,
+                color = colors.accentText
+            )
+        }
     }
 }
 
@@ -241,6 +297,22 @@ private fun OnboardingScreenPreview(@PreviewParameter(ThemePreviewParameter::cla
             onKey = {},
             onCta = {},
             modifier = Modifier.fillMaxSize()
+        )
+    }
+}
+
+@Preview(heightDp = 860)
+@Composable
+private fun OnboardingRestrictedSettingsPreview(@PreviewParameter(ThemePreviewParameter::class) dark: Boolean) {
+    FlowVoiceTheme(darkTheme = dark) {
+        OnboardingScreen(
+            progress = OnboardingProgress(accessibility = false, microphone = true, key = true),
+            onAccessibility = {},
+            onMicrophone = {},
+            onKey = {},
+            onCta = {},
+            modifier = Modifier.fillMaxSize(),
+            showRestrictedSettingsHint = true
         )
     }
 }

@@ -62,6 +62,13 @@ adb install -r androidApp/build/outputs/apk/debug/androidApp-debug.apk
 2. **Onboarding:** ligue o serviço de acessibilidade, conceda o microfone e salve a
    chave OpenRouter em Ajustes. A chave fica cifrada no aparelho, fora do backup e
    da sincronização, e só aparece mascarada.
+   - **Instalado por adb ou APK (fora de loja), Android 13+:** o sistema bloqueia o
+     interruptor do serviço ("configurações restritas"). Tente ligar uma vez e depois
+     vá em Configurações → Aplicativos → FlowVoice → ⋮ → **Permitir configurações
+     restritas**; aí ligue o FlowVoice em Acessibilidade. O onboarding mostra esse
+     passo e um atalho para os detalhes do app.
+   - **Não** ponha o FlowVoice como atalho de acessibilidade (botão ou gesto): o
+     atalho alterna o serviço e um toque acidental o desliga.
 3. **Ajustes:** ligue o botão flutuante (pede microfone, notificações e "sobrepor a
    outros apps"), a revisão por IA e, se quiser, o Google Web Client ID.
 
