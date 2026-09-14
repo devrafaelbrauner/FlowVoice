@@ -22,6 +22,13 @@ dependência adicionada deve ter sua licença registrada aqui.
 | Compose Multiplatform (`org.jetbrains.compose`) | 1.8.2 | Apache-2.0 | UI desktop (`desktopApp`, F13); inclui Skiko/Skia nativos. |
 | kotlinx-coroutines-swing | 1.10.1 | Apache-2.0 | `Dispatchers.Main` no desktop (F13). |
 
+## Fontes empacotadas
+
+| Fonte | Versão / origem | Licença | Observação |
+| --- | --- | --- | --- |
+| Instrument Sans (Regular, Medium, SemiBold, Bold) | `Instrument/instrument-sans` @ `7fa22308a3d0`, `fonts/ttf/` estáticas | SIL OFL 1.1 | UI do app Android (redesign F12). Texto da licença em `androidApp/src/main/assets/licenses/InstrumentSans-OFL.txt`. |
+| JetBrains Mono (Regular, Medium, Bold) | `JetBrains/JetBrainsMono` tag `v2.304`, `fonts/ttf/` estáticas | SIL OFL 1.1 | Rótulos, dados e logs do app Android. Texto da licença em `androidApp/src/main/assets/licenses/JetBrainsMono-OFL.txt`. |
+
 ## Bibliotecas previstas
 
 | Biblioteca | Licença esperada | Observação |

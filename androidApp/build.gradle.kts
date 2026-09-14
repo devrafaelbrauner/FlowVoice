@@ -50,4 +50,5 @@ dependencies {
     implementation(libs.androidx.credentials.play)
     implementation(libs.google.id)
     debugImplementation(libs.compose.ui.tooling)
+    testImplementation(kotlin("test-junit"))
 }
