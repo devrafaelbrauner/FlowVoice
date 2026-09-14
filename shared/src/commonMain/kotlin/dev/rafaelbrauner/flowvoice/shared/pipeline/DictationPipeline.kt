@@ -161,7 +161,7 @@ class DictationPipeline(
         log("dictation_budget_stop", mapOf("target" to targetState.value.name))
         when (targetState.value) {
             DictationTarget.Note -> requestFinalize()
-            DictationTarget.ActiveField -> requestFinalizeForReview()
+            DictationTarget.ActiveField -> scope.launch { finalizeForReview(captureTarget = false) }
         }
     }
 
@@ -196,12 +196,14 @@ class DictationPipeline(
         return outcome
     }
 
-    suspend fun finalizeForReview(): DictationPipelineStatus {
+    suspend fun finalizeForReview(): DictationPipelineStatus = finalizeForReview(captureTarget = true)
+
+    private suspend fun finalizeForReview(captureTarget: Boolean): DictationPipelineStatus {
         if (targetState.value == DictationTarget.Note) return finalize()
         if (statusState.value != DictationPipelineStatus.Recording) return statusState.value
         val token = sessionToken
         val mark = timeSource.markNow()
-        inserter.captureTargetIfUnknown()
+        if (captureTarget) inserter.captureTargetIfUnknown()
         statusState.value = DictationPipelineStatus.Transcribing
         val outcome = try {
             val final = transcribeFinalText()
@@ -237,6 +239,7 @@ class DictationPipeline(
     fun insertReady(): DictationPipelineStatus {
         val ready = statusState.value as? DictationPipelineStatus.Ready ?: return statusState.value
         if (ready.text.isNotBlank() && targetState.value == DictationTarget.ActiveField) {
+            if (ready.refusal == null) inserter.captureTargetIfUnknown() else inserter.captureTarget()
             val insertion = inserter.insert(ready.text)
             if (!insertion.success) {
                 log("dictation_insert_refused", mapOf("chars" to ready.text.length.toString()))

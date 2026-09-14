@@ -1,7 +1,9 @@
 package dev.rafaelbrauner.flowvoice.shared.insertion
 
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class InsertionGuardTest {
@@ -38,8 +40,22 @@ class InsertionGuardTest {
         assertFalse(InsertionGuard.destinationChanged("com.whatsapp", null))
     }
 
+    @Test
+    fun flowVoiceItselfInFocusIsRefusedWithAClearMessageAndTheDestinationCheckStays() {
+        assertEquals(InsertionGuard.OWN_APP_FOCUSED_MESSAGE, InsertionGuard.refusal(null, OWN, OWN))
+        assertEquals(InsertionGuard.OWN_APP_FOCUSED_MESSAGE, InsertionGuard.refusal("com.whatsapp", OWN, OWN))
+        assertEquals(
+            InsertionGuard.DESTINATION_CHANGED_MESSAGE,
+            InsertionGuard.refusal("com.whatsapp", "com.android.chrome", OWN)
+        )
+        assertNull(InsertionGuard.refusal("com.whatsapp", "com.whatsapp", OWN))
+        assertNull(InsertionGuard.refusal(null, "com.android.chrome", OWN))
+        assertNull(InsertionGuard.refusal("com.whatsapp", null, OWN))
+    }
+
     private companion object {
         const val TEXT = 0x1
         const val NUMBER = 0x2
+        const val OWN = "dev.rafaelbrauner.flowvoice"
     }
 }
