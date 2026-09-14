@@ -58,7 +58,7 @@ private const val RESULT_VISIBLE_MS = 4_000L
 fun DictationOverlay(
     pipeline: DictationPipeline,
     onModeChange: (OverlayMode) -> Unit,
-    onSessionStarted: () -> Unit
+    onSessionOwned: () -> Unit
 ) {
     val status by pipeline.status.collectAsState()
     val target by pipeline.target.collectAsState()
@@ -68,14 +68,14 @@ fun DictationOverlay(
     var dismissed by remember { mutableStateOf<DictationPipelineStatus?>(null) }
     var elapsedMs by remember { mutableLongStateOf(0L) }
     val latestModeChange by rememberUpdatedState(onModeChange)
-    val latestSessionStarted by rememberUpdatedState(onSessionStarted)
+    val latestSessionOwned by rememberUpdatedState(onSessionOwned)
     val startRequest by OverlayStartRequests.count.collectAsState()
 
     val beginSession = {
         ownership = OverlayOwnership.begin(pipeline.status.value)
         dismissed = null
         elapsedMs = 0L
-        latestSessionStarted()
+        latestSessionOwned()
         pipeline.requestStart(DictationTarget.ActiveField)
     }
 
@@ -127,6 +127,7 @@ fun DictationOverlay(
                     if (current.isBusy) {
                         dismissed = null
                         ownership = OverlayOwnership.adopt(current)
+                        latestSessionOwned()
                     } else {
                         beginSession()
                     }
