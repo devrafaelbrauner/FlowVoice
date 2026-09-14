@@ -6,6 +6,30 @@ estão em [`docs/tasks/`](docs/tasks/README.md).
 
 ## [Unreleased]
 
+## [0.4.3] - 2026-09-14
+
+Correções dos achados do `/verificar` da 0.4.2 e do `/debugar` de P95 e P106.
+
+### Fixed
+
+- P99: texto de nota ditada podia ser digitado no app em foco sem ação do usuário
+  (parada pelo teto); cada sessão agora tem destino explícito (`DictationTarget`)
+  e sessão de nota nunca chama a inserção.
+- P100: ditado de nota assumido pela bolha travava em "Ready"; a barra oferece
+  Parar e Cancelar (sem Inserir) e o texto vai para a nota.
+- P101: depois do teto, a recusa de inserção podia ficar permanente; o destino é
+  capturado no toque em Inserir e recapturado a cada nova tentativa.
+- P102: girar a tela durante um ditado de nota selecionava outra nota e escondia
+  o botão de parar.
+- P103: ocultar o botão flutuante cancelava ditado de nota; só cancela sessão de
+  campo ativo iniciada ou assumida pelo overlay.
+- P107: sem chave OpenRouter o microfone ficava aberto indefinidamente; chave
+  ausente ou rejeitada encerra a sessão, e o teto passa a contar no envio.
+- P108: a conferência de destino podia usar o pacote do último editor; o pacote
+  em foco vem da janela ativa.
+- P109: campos editáveis anunciavam o rótulo no lugar do texto; o rótulo
+  acessível só aparece com o campo vazio, e os campos de Ajustes ganharam nome.
+
 ## [0.4.2] - 2026-09-13
 
 Correções dos achados do `/verificar` da 0.4.1 e do teste real no S26.
