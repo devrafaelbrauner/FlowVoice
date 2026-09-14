@@ -3,7 +3,6 @@ package dev.rafaelbrauner.flowvoice.service
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
 import android.content.Intent
-import android.content.pm.ApplicationInfo
 import android.graphics.Rect
 import android.os.Build
 import android.os.Bundle
@@ -12,6 +11,7 @@ import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
 import dev.rafaelbrauner.flowvoice.shared.insertion.CursorInsertion
+import dev.rafaelbrauner.flowvoice.shared.insertion.FocusedFieldDiagnostic
 import dev.rafaelbrauner.flowvoice.shared.insertion.InsertionTarget
 
 class FlowVoiceAccessibilityService : AccessibilityService() {
@@ -47,24 +47,6 @@ class FlowVoiceAccessibilityService : AccessibilityService() {
         val bounds = Rect()
         keyboard.getBoundsInScreen(bounds)
         return bounds.top.takeIf { bounds.height() > 0 }
-    }
-
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (
-            intent?.getStringExtra("fv_poc_debug_source") == "adb" &&
-            applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
-        ) {
-            val action = intent.getStringExtra("fv_poc_action") ?: "diagnose"
-            val text = intent.getStringExtra("fv_poc_text") ?: "POC FlowVoice — "
-            val result = when (action) {
-                "direct" -> insertDirect(text)
-                "fallback" -> insertFallback(text)
-                "diagnose" -> diagnoseFocusedField()
-                else -> InsertResult(false, "debug", "ação desconhecida: $action")
-            }
-            Log.i(TAG, "[POC_ADB] action=$action resultado=${result.summary}")
-        }
-        return START_NOT_STICKY
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) = Unit
@@ -165,11 +147,16 @@ class FlowVoiceAccessibilityService : AccessibilityService() {
             ?: return InsertResult(false, "diagnóstico", "nenhum foco de edição encontrado")
 
         try {
-            val preview = node.text?.take(40)
             return InsertResult(
                 success = true,
                 route = "diagnóstico",
-                message = "classe=${node.className}, editável=${node.isEditable}, focado=${node.isFocused}, texto='${preview?.ifBlank { "(vazio)" }}'",
+                message = FocusedFieldDiagnostic.describe(
+                    className = node.className,
+                    editable = node.isEditable,
+                    focused = node.isFocused,
+                    password = node.isPassword,
+                    textLength = node.text?.length ?: 0
+                ),
             )
         } catch (error: Throwable) {
             return InsertResult(false, "diagnóstico", error.message ?: "erro desconhecido")
