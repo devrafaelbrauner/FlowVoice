@@ -216,6 +216,18 @@ class DictationPipeline(
 
     fun insertReady(): DictationPipelineStatus {
         val ready = statusState.value as? DictationPipelineStatus.Ready ?: return statusState.value
+        if (ready.text.isNotBlank()) {
+            val insertion = inserter.insert(ready.text)
+            if (!insertion.success) {
+                log("dictation_insert_refused", mapOf("chars" to ready.text.length.toString()))
+                val retry = ready.copy(refusal = insertion.message)
+                statusState.value = retry
+                return retry
+            }
+            val outcome = completed(ready.text, insertion, ready.warning, ready.latencyMs, failedWindows = null)
+            statusState.value = outcome
+            return outcome
+        }
         val outcome = insert(ready.text, ready.warning, ready.latencyMs)
         statusState.value = outcome
         return outcome
@@ -273,6 +285,16 @@ class DictationPipeline(
         } else {
             inserter.insert(text)
         }
+        return completed(text, insertion, warning, latencyMs, failedWindows)
+    }
+
+    private fun completed(
+        text: String,
+        insertion: TextInsertionResult,
+        warning: String?,
+        latencyMs: Long?,
+        failedWindows: Int?
+    ): DictationPipelineStatus.Completed {
         log(
             "dictation_finalized",
             buildMap {
