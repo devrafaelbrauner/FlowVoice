@@ -4,20 +4,36 @@ Licenças de dependências e software de terceiros **diretamente incluído** no
 FlowVoice (bibliotecas, SDKs, modelos). Este arquivo é **cumulativo**: toda
 dependência adicionada deve ter sua licença registrada aqui.
 
-> **Estado atual (F00):** o projeto ainda não tem código de dependências.
-> Abaixo está a **lista prevista** com as licenças esperadas; confirmar cada uma
-> no momento de adotar a dependência (fase F01 em diante).
+## Bibliotecas adotadas
 
-## Bibliotecas previstas (Kotlin Multiplatform)
+| Biblioteca | Versão | Licença | Observação |
+| --- | --- | --- | --- |
+| Kotlin | 2.1.10 | Apache-2.0 | Linguagem base. |
+| Jetpack Compose BOM | 2025.06.00 | Apache-2.0 | UI Android. |
+| Ktor Client | 2.3.13 | Apache-2.0 | HTTP (OpenRouter). |
+| Kotlin Serialization | 1.7.3 | Apache-2.0 | JSON. |
+| kotlinx-coroutines | 1.10.1 | Apache-2.0 | Concorrência. |
+| Koin | 3.5.6 | Apache-2.0 | DI. |
+| androidx.security:security-crypto | 1.0.0 | Apache-2.0 | Só para migrar a chave do cofre antigo (`flowvoice_secrets`) para o cofre com Android Keystore direto; remover quando a migração não for mais necessária. |
+| androidx.credentials | 1.3.0 | Apache-2.0 | Google Sign-In (F10). |
+| googleid | 1.1.1 | Apache-2.0 | Google ID token (F10). |
+| JNA (`net.java.dev.jna:jna`) | 5.19.1 | Apache-2.0 OR LGPL-2.1-or-later (dupla; usada sob Apache-2.0) | Interop nativa no desktop (F13). |
+| JNA Platform (`net.java.dev.jna:jna-platform`) | 5.19.1 | Apache-2.0 OR LGPL-2.1-or-later (dupla; usada sob Apache-2.0) | Win32 `SendInput` e DPAPI (`Crypt32Util`) (F13). |
+| Compose Multiplatform (`org.jetbrains.compose`) | 1.8.2 | Apache-2.0 | UI desktop (`desktopApp`, F13); inclui Skiko/Skia nativos. |
+| kotlinx-coroutines-swing | 1.10.1 | Apache-2.0 | `Dispatchers.Main` no desktop (F13). |
+
+## Fontes empacotadas
+
+| Fonte | Versão / origem | Licença | Observação |
+| --- | --- | --- | --- |
+| Instrument Sans (Regular, Medium, SemiBold, Bold) | `Instrument/instrument-sans` @ `7fa22308a3d0`, `fonts/ttf/` estáticas | SIL OFL 1.1 | UI do app Android (redesign F12). Texto da licença em `androidApp/src/main/assets/licenses/InstrumentSans-OFL.txt`. |
+| JetBrains Mono (Regular, Medium, Bold) | `JetBrains/JetBrainsMono` tag `v2.304`, `fonts/ttf/` estáticas | SIL OFL 1.1 | Rótulos, dados e logs do app Android. Texto da licença em `androidApp/src/main/assets/licenses/JetBrainsMono-OFL.txt`. |
+
+## Bibliotecas previstas
 
 | Biblioteca | Licença esperada | Observação |
 | --- | --- | --- |
-| Kotlin | Apache-2.0 | Linguagem base. |
-| Jetpack Compose / Compose Multiplatform | Apache-2.0 | UI. |
-| Ktor Client | Apache-2.0 | HTTP (OpenRouter). |
-| Kotlin Serialization | Apache-2.0 | Serialização. |
 | SQLDelight | Apache-2.0 | Persistência local. |
-| JNA (Windows, F13) | LGPL-2.1 / MPL-2.0 (dual) | Interop Win32 / `SendInput`. |
 | Supabase SDK | MIT (agora) | Auth + Postgres. |
 
 ## Serviços remotos (nenhum código no repo; sujeito aos Termos do provedor)

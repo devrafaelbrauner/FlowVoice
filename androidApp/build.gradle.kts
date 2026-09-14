@@ -12,8 +12,8 @@ android {
         applicationId = "dev.rafaelbrauner.flowvoice"
         minSdk = 24
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 8
+        versionName = "0.4.3"
     }
 
     buildTypes {
@@ -46,5 +46,9 @@ dependencies {
     implementation(libs.activity.compose)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation(libs.androidx.credentials)
+    implementation(libs.androidx.credentials.play)
+    implementation(libs.google.id)
     debugImplementation(libs.compose.ui.tooling)
+    testImplementation(kotlin("test-junit"))
 }

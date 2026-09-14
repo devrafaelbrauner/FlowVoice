@@ -3,12 +3,18 @@ package dev.rafaelbrauner.flowvoice.service
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
 import android.content.Intent
-import android.content.pm.ApplicationInfo
+import android.graphics.Rect
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import android.view.accessibility.AccessibilityWindowInfo
+import dev.rafaelbrauner.flowvoice.shared.insertion.CursorInsertion
+import dev.rafaelbrauner.flowvoice.shared.insertion.FocusedFieldDiagnostic
+import dev.rafaelbrauner.flowvoice.shared.insertion.FocusedPackage
+import dev.rafaelbrauner.flowvoice.shared.insertion.InsertionGuard
+import dev.rafaelbrauner.flowvoice.shared.insertion.InsertionTarget
 
 class FlowVoiceAccessibilityService : AccessibilityService() {
 
@@ -16,6 +22,7 @@ class FlowVoiceAccessibilityService : AccessibilityService() {
         val success: Boolean,
         val route: String,
         val message: String,
+        val blocked: Boolean = false,
     ) {
         val summary: String
             get() = if (success) "[$route] $message" else "[$route] FALHOU — $message"
@@ -25,31 +32,32 @@ class FlowVoiceAccessibilityService : AccessibilityService() {
         super.onServiceConnected()
         instance = this
         val current = serviceInfo ?: AccessibilityServiceInfo()
-        val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            current.flags or AccessibilityServiceInfo.FLAG_INPUT_METHOD_EDITOR
+        val base = current.flags or AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS
+        val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            base or AccessibilityServiceInfo.FLAG_INPUT_METHOD_EDITOR
         } else {
-            current.flags
+            base
         }
         serviceInfo = current.apply { this.flags = flags }
         Log.i(TAG, "Serviço de acessibilidade conectado (flags=0x${flags.toString(16)})")
     }
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (
-            intent?.getStringExtra("fv_poc_debug_source") == "adb" &&
-            applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
-        ) {
-            val action = intent.getStringExtra("fv_poc_action") ?: "diagnose"
-            val text = intent.getStringExtra("fv_poc_text") ?: "POC FlowVoice — "
-            val result = when (action) {
-                "direct" -> insertDirect(text)
-                "fallback" -> insertFallback(text)
-                "diagnose" -> diagnoseFocusedField()
-                else -> InsertResult(false, "debug", "ação desconhecida: $action")
-            }
-            Log.i(TAG, "[POC_ADB] action=$action resultado=${result.summary}")
+    // Sem tipos de evento assinados (SEG-5) o cache de janelas e nós nunca é invalidado;
+    // limpar antes de cada leitura garante posição do teclado e texto do campo atuais.
+    private fun freshAccessibilityData() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            runCatching { clearCache() }
         }
-        return START_NOT_STICKY
+    }
+
+    fun inputMethodTopOnScreen(): Int? {
+        freshAccessibilityData()
+        val keyboard = runCatching { windows }.getOrNull()
+            ?.firstOrNull { it.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD }
+            ?: return null
+        val bounds = Rect()
+        keyboard.getBoundsInScreen(bounds)
+        return bounds.top.takeIf { bounds.height() > 0 }
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) = Unit
@@ -65,9 +73,32 @@ class FlowVoiceAccessibilityService : AccessibilityService() {
         super.onDestroy()
     }
 
-    fun insertDirect(text: String): InsertResult {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
-            return InsertResult(false, "commitText", "requer Android 11+ (API 30)")
+    fun focusedPackage(): String? {
+        var editorPackage: String? = null
+        var inputStarted = false
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            runCatching {
+                val method = inputMethod
+                editorPackage = method?.currentInputEditorInfo?.packageName
+                inputStarted = method?.currentInputStarted == true
+            }
+        }
+        return FocusedPackage.resolve(editorPackage, inputStarted, activeWindowPackage())
+    }
+
+    private fun activeWindowPackage(): String? {
+        freshAccessibilityData()
+        val root = runCatching { rootInActiveWindow }.getOrNull() ?: return null
+        return try {
+            root.packageName?.toString()
+        } finally {
+            releaseNode(root)
+        }
+    }
+
+    fun insertDirect(text: String, excludedPackage: String? = null): InsertResult {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            return InsertResult(false, "commitText", "requer Android 13+ (API 33)")
         }
 
         val inputMethod = inputMethod
@@ -75,38 +106,70 @@ class FlowVoiceAccessibilityService : AccessibilityService() {
         val connection = inputMethod.currentInputConnection
             ?: return InsertResult(false, "commitText", "currentInputConnection nulo")
 
+        val editorInfo = runCatching { inputMethod.currentInputEditorInfo }.getOrNull()
+        if (excludedPackage != null && InsertionTarget.isOwnApp(editorInfo?.packageName, excludedPackage)) {
+            return InsertResult(false, "commitText", InsertionTarget.OWN_APP_MESSAGE, blocked = true)
+        }
+        if (editorInfo != null && InsertionGuard.isPasswordInputType(editorInfo.inputType)) {
+            return InsertResult(false, "commitText", InsertionGuard.PASSWORD_MESSAGE, blocked = true)
+        }
+
         try {
-            connection.commitText(text, 0, null)
+            connection.commitText(text, 1, null)
         } catch (error: Throwable) {
             Log.e(TAG, "commitText falhou", error)
             return InsertResult(false, "commitText", "commitText falhou: ${error.message}")
         }
 
-        val packageName = runCatching {
-            inputMethod.currentInputEditorInfo?.packageName
-        }.getOrDefault(null)
-        Log.i(TAG, "commitText executado no pacote=$packageName")
+        Log.i(TAG, "commitText executado")
         return InsertResult(true, "commitText", "commitText(...) executado")
     }
 
-    fun insertFallback(text: String): InsertResult {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N_MR1) {
-            return InsertResult(false, "ACTION_SET_TEXT", "requer Android 8+ (API 27)")
+    fun insertFallback(text: String, excludedPackage: String? = null): InsertResult {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            return InsertResult(false, "ACTION_SET_TEXT", "requer Android 8+ para inserir sem apagar o texto do campo")
         }
 
+        freshAccessibilityData()
         val node = rootInActiveWindow?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
             ?: return InsertResult(false, "ACTION_SET_TEXT", "nenhum foco de edição encontrado")
 
         try {
-            val args = Bundle().apply {
-                putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text)
+            if (excludedPackage != null && InsertionTarget.isOwnApp(node.packageName, excludedPackage)) {
+                return InsertResult(false, "ACTION_SET_TEXT", InsertionTarget.OWN_APP_MESSAGE, blocked = true)
             }
-            val performed = node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
+            if (node.isPassword) {
+                return InsertResult(false, "ACTION_SET_TEXT", "campo de senha: nada inserido")
+            }
+            val current = node.text
+            if (current == null && !node.isShowingHintText) {
+                return InsertResult(false, "ACTION_SET_TEXT", "texto do campo ilegível: nada inserido para não apagar conteúdo")
+            }
+            val plan = CursorInsertion.plan(
+                current = current?.toString(),
+                showingHint = node.isShowingHintText,
+                selectionStart = node.textSelectionStart,
+                selectionEnd = node.textSelectionEnd,
+                insert = text
+            )
+            val textArgs = Bundle().apply {
+                putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, plan.text)
+            }
+            val performed = node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, textArgs)
             if (!performed) error("performAction(ACTION_SET_TEXT) retornou false")
+            val selectionArgs = Bundle().apply {
+                putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, plan.cursor)
+                putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, plan.cursor)
+            }
+            val cursorPlaced = node.performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, selectionArgs)
             return InsertResult(
                 success = true,
                 route = "ACTION_SET_TEXT",
-                message = "texto definido em ${node.className}",
+                message = if (cursorPlaced) {
+                    "texto inserido no cursor em ${node.className}"
+                } else {
+                    "texto inserido no cursor em ${node.className} (cursor não reposicionado)"
+                },
             )
         } catch (error: Throwable) {
             return InsertResult(false, "ACTION_SET_TEXT", error.message ?: "erro desconhecido")
@@ -116,15 +179,21 @@ class FlowVoiceAccessibilityService : AccessibilityService() {
     }
 
     fun diagnoseFocusedField(): InsertResult {
+        freshAccessibilityData()
         val node = rootInActiveWindow?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
             ?: return InsertResult(false, "diagnóstico", "nenhum foco de edição encontrado")
 
         try {
-            val preview = node.text?.take(40)
             return InsertResult(
                 success = true,
                 route = "diagnóstico",
-                message = "classe=${node.className}, editável=${node.isEditable}, focado=${node.isFocused}, texto='${preview?.ifBlank { "(vazio)" }}'",
+                message = FocusedFieldDiagnostic.describe(
+                    className = node.className,
+                    editable = node.isEditable,
+                    focused = node.isFocused,
+                    password = node.isPassword,
+                    textLength = node.text?.length ?: 0
+                ),
             )
         } catch (error: Throwable) {
             return InsertResult(false, "diagnóstico", error.message ?: "erro desconhecido")

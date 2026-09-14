@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<full-backup-content>
+    <exclude domain="sharedpref" path="flowvoice_vault.xml" />
+    <exclude domain="sharedpref" path="flowvoice_secrets.xml" />
+    <exclude domain="sharedpref" path="flowvoice_notes.xml" />
+    <exclude domain="sharedpref" path="flowvoice_dictionary.xml" />
+    <exclude domain="sharedpref" path="flowvoice_auth.xml" />
+</full-backup-content>

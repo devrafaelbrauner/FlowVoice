@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="sharedpref" path="flowvoice_vault.xml" />
+        <exclude domain="sharedpref" path="flowvoice_secrets.xml" />
+        <exclude domain="sharedpref" path="flowvoice_notes.xml" />
+        <exclude domain="sharedpref" path="flowvoice_dictionary.xml" />
+        <exclude domain="sharedpref" path="flowvoice_auth.xml" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="sharedpref" path="flowvoice_vault.xml" />
+        <exclude domain="sharedpref" path="flowvoice_secrets.xml" />
+        <exclude domain="sharedpref" path="flowvoice_notes.xml" />
+        <exclude domain="sharedpref" path="flowvoice_dictionary.xml" />
+        <exclude domain="sharedpref" path="flowvoice_auth.xml" />
+    </device-transfer>
+</data-extraction-rules>

@@ -3,14 +3,12 @@ package dev.rafaelbrauner.flowvoice
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.content.pm.ApplicationInfo
 import android.util.Log
 import dev.rafaelbrauner.flowvoice.service.FlowVoiceAccessibilityService
 
 class FlowVoiceAdbReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.getStringExtra("fv_poc_debug_source") != "adb") return
-        if (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE == 0) return
 
         val service = FlowVoiceAccessibilityService.service
             ?: run {

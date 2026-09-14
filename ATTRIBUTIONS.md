@@ -20,6 +20,13 @@ Créditos por inspiração de **arquitetura e UX**. Conforme `docs/references.md
   1.1-kb) — teclado a manter; fonte de corpus e metodologia de medição de
   ditado pt-BR (`docs/voz-ptbr-medicao.md`).
 
+## Fontes
+
+- **Instrument Sans** — © 2022 The Instrument Sans Project Authors, SIL OFL 1.1
+  (https://github.com/Instrument/instrument-sans).
+- **JetBrains Mono** — © 2020 The JetBrains Mono Project Authors, SIL OFL 1.1
+  (https://github.com/JetBrains/JetBrainsMono).
+
 ## APIs / serviços / plataformas
 
 - **OpenRouter** — API de transcrição e catálogo de modelos

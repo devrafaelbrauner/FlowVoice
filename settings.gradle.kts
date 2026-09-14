@@ -17,3 +17,4 @@ rootProject.name = "FlowVoice"
 
 include(":shared")
 include(":androidApp")
+include(":desktopApp")
