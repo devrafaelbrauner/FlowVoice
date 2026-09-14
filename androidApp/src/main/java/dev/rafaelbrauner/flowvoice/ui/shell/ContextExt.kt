@@ -12,7 +12,14 @@ tailrec fun Context.findActivity(): Activity? = when (this) {
     else -> null
 }
 
+object ExternalLaunch {
+    fun flagsFor(currentFlags: Int, targetPackage: String?, ownPackage: String): Int =
+        if (targetPackage == ownPackage) currentFlags else currentFlags or Intent.FLAG_ACTIVITY_NEW_TASK
+}
+
 fun Context.startActivitySafely(intent: Intent): Boolean = try {
+    val target = intent.component?.packageName ?: intent.`package`
+    intent.flags = ExternalLaunch.flagsFor(intent.flags, target, packageName)
     startActivity(intent)
     true
 } catch (_: ActivityNotFoundException) {
