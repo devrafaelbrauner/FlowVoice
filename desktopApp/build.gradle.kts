@@ -36,7 +36,7 @@ compose.desktop {
             // Sugestão de :desktopApp:suggestRuntimeModules; o motor Ktor Java exige java.net.http.
             modules("java.instrument", "java.management", "java.net.http", "jdk.unsupported")
             packageName = "FlowVoice"
-            packageVersion = "0.4.1"
+            packageVersion = "0.4.2"
         }
     }
 }
