@@ -16,6 +16,9 @@ fun micAction(
     else -> MicAction.StartDictation
 }
 
+fun noteToResumeOnMic(pipelineBusy: Boolean, activeNoteId: String?): String? =
+    activeNoteId.takeIf { pipelineBusy }
+
 fun noteSnippet(title: String, body: String): String {
     val lines = body.lineSequence().map { it.trim() }.filter { it.isNotEmpty() }.toList()
     val first = lines.firstOrNull() ?: return ""

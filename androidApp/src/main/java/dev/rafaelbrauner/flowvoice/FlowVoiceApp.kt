@@ -13,6 +13,7 @@ import dev.rafaelbrauner.flowvoice.shared.dictionary.PrefsDictionaryPersist
 import dev.rafaelbrauner.flowvoice.shared.auth.AuthGateway
 import dev.rafaelbrauner.flowvoice.shared.auth.PrefsAuthGateway
 import dev.rafaelbrauner.flowvoice.shared.notes.InMemoryNoteStore
+import dev.rafaelbrauner.flowvoice.shared.notes.NoteDictationCoordinator
 import dev.rafaelbrauner.flowvoice.shared.notes.NoteStore
 import dev.rafaelbrauner.flowvoice.shared.notes.PrefsNotePersist
 import dev.rafaelbrauner.flowvoice.shared.pipeline.DictationPipeline
@@ -83,6 +84,14 @@ private val dictationModule = module {
                 Log.i(DICTATION_TAG, metadata.entries.joinToString(" ", prefix = "$event ") { "${it.key}=${it.value}" })
             }
         )
+    }
+    single(createdAtStart = true) {
+        NoteDictationCoordinator(get()).also { coordinator ->
+            coordinator.attach(
+                get<DictationPipeline>().status,
+                CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+            )
+        }
     }
     single(createdAtStart = true) {
         DiagnosticsLog().also { log ->

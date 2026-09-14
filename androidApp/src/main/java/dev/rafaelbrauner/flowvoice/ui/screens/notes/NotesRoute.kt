@@ -59,6 +59,7 @@ import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import dev.rafaelbrauner.flowvoice.shared.notes.Note
+import dev.rafaelbrauner.flowvoice.shared.notes.NoteDictationCoordinator
 import dev.rafaelbrauner.flowvoice.shared.notes.NoteStore
 import dev.rafaelbrauner.flowvoice.shared.pipeline.DictationPipeline
 import dev.rafaelbrauner.flowvoice.shared.pipeline.DictationPipelineStatus
@@ -76,17 +77,19 @@ import dev.rafaelbrauner.flowvoice.ui.theme.FlowVoiceTheme
 fun NotesRoute(initialNoteId: String?, modifier: Modifier = Modifier) {
     val store = rememberKoin<NoteStore>()
     val pipeline = rememberKoin<DictationPipeline>()
-    val state = remember(store) { NotesScreenState(store, initialNoteId) }
+    val coordinator = rememberKoin<NoteDictationCoordinator>()
+    val state = remember(store, coordinator) { NotesScreenState(store, initialNoteId, coordinator) }
     val context = LocalContext.current
     val status by pipeline.status.collectAsState()
     val segments by pipeline.segments.collectAsState()
+    val dictationState by coordinator.state.collectAsState()
     var pendingStartNoteId by rememberSaveable { mutableStateOf<String?>(null) }
 
     LaunchedEffect(initialNoteId) {
         state.refresh()
-        initialNoteId?.let(state::select)
+        (initialNoteId ?: coordinator.activeNoteId)?.let(state::select)
     }
-    LaunchedEffect(status) { state.onPipelineStatus(status) }
+    LaunchedEffect(dictationState, status) { state.refresh() }
 
     val startDictation: (String) -> Unit = { noteId ->
         val current = pipeline.status.value
@@ -116,7 +119,7 @@ fun NotesRoute(initialNoteId: String?, modifier: Modifier = Modifier) {
         }
     }
 
-    val dictatingHere = state.dictationNoteId != null && status.isBusy
+    val dictatingHere = dictationState.noteId != null && status.isBusy
     val provisional = if (dictatingHere) {
         LivePreviewAssembler.assemble(segments, sessionComplete = false).full
     } else {
@@ -133,7 +136,7 @@ fun NotesRoute(initialNoteId: String?, modifier: Modifier = Modifier) {
             status == DictationPipelineStatus.Transcribing -> NoteDictationBar.Transcribing
             else -> NoteDictationBar.Listening
         },
-        dictationNoteId = state.dictationNoteId,
+        dictationNoteId = dictationState.noteId,
         provisional = provisional,
         message = state.message,
         pendingDeleteId = state.pendingDeleteId,
@@ -142,7 +145,10 @@ fun NotesRoute(initialNoteId: String?, modifier: Modifier = Modifier) {
         onNewNote = { requestDictation(state.createNote().id) },
         onTitleChange = state::updateTitle,
         onBodyChange = state::updateBody,
-        onDeleteTap = { state.onDeleteTap(it) },
+        onDeleteTap = { id ->
+            val wasDictating = dictationState.noteId == id
+            if (state.onDeleteTap(id) && wasDictating) pipeline.requestCancel()
+        },
         onDictate = requestDictation,
         onStop = { pipeline.requestFinalize() },
         onDismissMessage = state::dismissMessage,

@@ -2,6 +2,7 @@ package dev.rafaelbrauner.flowvoice.ui.screens.home
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 
 class HomeLogicTest {
 
@@ -24,6 +25,13 @@ class HomeLogicTest {
     @Test
     fun readyDeviceStartsDictation() {
         assertEquals(MicAction.StartDictation, micAction(true, true, 26, true))
+    }
+
+    @Test
+    fun micWhileANoteIsBeingDictatedOpensThatNote() {
+        assertEquals("n1", noteToResumeOnMic(pipelineBusy = true, activeNoteId = "n1"))
+        assertNull(noteToResumeOnMic(pipelineBusy = true, activeNoteId = null))
+        assertNull(noteToResumeOnMic(pipelineBusy = false, activeNoteId = "n1"))
     }
 
     @Test
