@@ -68,6 +68,7 @@ import dev.rafaelbrauner.flowvoice.ui.components.PillButton
 import dev.rafaelbrauner.flowvoice.ui.components.ProvisionalText
 import dev.rafaelbrauner.flowvoice.ui.components.ThemePreviewParameter
 import dev.rafaelbrauner.flowvoice.ui.components.Waveform
+import dev.rafaelbrauner.flowvoice.ui.components.fieldDescription
 import dev.rafaelbrauner.flowvoice.ui.icons.FlowVoiceIcons
 import dev.rafaelbrauner.flowvoice.ui.rememberKoin
 import dev.rafaelbrauner.flowvoice.ui.theme.FlowVoiceRadius
@@ -457,7 +458,7 @@ private fun NoteDetail(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(start = 18.dp, end = 18.dp, top = 2.dp)
-                .semantics { contentDescription = "Título da nota" }
+                .fieldDescription("Título da nota", note.title)
         )
         Column(
             modifier = Modifier
@@ -491,7 +492,7 @@ private fun NoteDetail(
                         cursorBrush = SolidColor(colors.accent),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .semantics { contentDescription = "Corpo da nota" }
+                            .fieldDescription("Corpo da nota", note.body)
                     )
                 }
             }
