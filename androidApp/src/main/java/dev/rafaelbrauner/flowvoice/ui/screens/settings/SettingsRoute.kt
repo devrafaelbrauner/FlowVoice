@@ -2,7 +2,6 @@ package dev.rafaelbrauner.flowvoice.ui.screens.settings
 
 import android.Manifest
 import android.app.Activity
-import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
@@ -78,6 +77,7 @@ import dev.rafaelbrauner.flowvoice.ui.components.ThemePreviewParameter
 import dev.rafaelbrauner.flowvoice.ui.icons.FlowVoiceIcons
 import dev.rafaelbrauner.flowvoice.ui.rememberKoin
 import dev.rafaelbrauner.flowvoice.ui.screens.diagnostics.DiagnosticsLog
+import dev.rafaelbrauner.flowvoice.ui.shell.startActivitySafely
 import dev.rafaelbrauner.flowvoice.ui.theme.FlowVoiceTheme
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
@@ -568,10 +568,8 @@ private fun overlayDecision(context: Context, running: Boolean, permissionsReque
 
 private fun openOverlayPermissionSettings(context: Context) {
     val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, "package:${context.packageName}".toUri())
-    try {
-        context.startActivity(intent)
-    } catch (_: ActivityNotFoundException) {
-        context.startActivity(Intent(Settings.ACTION_SETTINGS))
+    if (!context.startActivitySafely(intent)) {
+        context.startActivitySafely(Intent(Settings.ACTION_SETTINGS))
     }
 }
 

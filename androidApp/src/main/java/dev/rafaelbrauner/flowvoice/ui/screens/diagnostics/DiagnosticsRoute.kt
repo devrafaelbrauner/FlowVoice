@@ -1,7 +1,6 @@
 package dev.rafaelbrauner.flowvoice.ui.screens.diagnostics
 
 import android.Manifest
-import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -75,6 +74,7 @@ import dev.rafaelbrauner.flowvoice.ui.components.ThemePreviewParameter
 import dev.rafaelbrauner.flowvoice.ui.rememberKoin
 import dev.rafaelbrauner.flowvoice.ui.screens.settings.FvDarkField
 import dev.rafaelbrauner.flowvoice.ui.screens.settings.FvTextAction
+import dev.rafaelbrauner.flowvoice.ui.shell.startActivitySafely
 import dev.rafaelbrauner.flowvoice.ui.theme.FlowVoiceRadius
 import dev.rafaelbrauner.flowvoice.ui.theme.FlowVoiceSpacing
 import dev.rafaelbrauner.flowvoice.ui.theme.FlowVoiceTheme
@@ -156,11 +156,10 @@ fun DiagnosticsRoute(onBack: () -> Unit, modifier: Modifier = Modifier) {
             type = "text/plain"
             putExtra(Intent.EXTRA_TEXT, report.asText())
         }
-        try {
-            context.startActivity(Intent.createChooser(share, "Exportar diagnóstico"))
+        if (context.startActivitySafely(Intent.createChooser(share, "Exportar diagnóstico"))) {
             exported = true
             diagnosticsLog.add("Diagnóstico exportado (${report.lines.size} linhas).")
-        } catch (_: ActivityNotFoundException) {
+        } else {
             diagnosticsLog.add("Nenhum app disponível para exportar o diagnóstico.")
         }
     }
@@ -404,10 +403,9 @@ private fun currentServiceFlags(): String =
     FlowVoiceAccessibilityService.service?.serviceInfo?.flags?.let { "0x" + Integer.toHexString(it) } ?: NO_SOURCE
 
 private fun openAccessibilitySettings(context: Context, log: DiagnosticsLog) {
-    try {
-        context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+    if (context.startActivitySafely(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))) {
         log.add("Abrindo configurações de acessibilidade.")
-    } catch (_: ActivityNotFoundException) {
+    } else {
         log.add("Configurações de acessibilidade indisponíveis neste aparelho.")
     }
 }
