@@ -12,6 +12,7 @@ import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
 import dev.rafaelbrauner.flowvoice.shared.insertion.CursorInsertion
 import dev.rafaelbrauner.flowvoice.shared.insertion.FocusedFieldDiagnostic
+import dev.rafaelbrauner.flowvoice.shared.insertion.FocusedPackage
 import dev.rafaelbrauner.flowvoice.shared.insertion.InsertionGuard
 import dev.rafaelbrauner.flowvoice.shared.insertion.InsertionTarget
 
@@ -73,9 +74,19 @@ class FlowVoiceAccessibilityService : AccessibilityService() {
     }
 
     fun focusedPackage(): String? {
+        var editorPackage: String? = null
+        var inputStarted = false
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            runCatching { inputMethod?.currentInputEditorInfo?.packageName }.getOrNull()?.let { return it }
+            runCatching {
+                val method = inputMethod
+                editorPackage = method?.currentInputEditorInfo?.packageName
+                inputStarted = method?.currentInputStarted == true
+            }
         }
+        return FocusedPackage.resolve(editorPackage, inputStarted, activeWindowPackage())
+    }
+
+    private fun activeWindowPackage(): String? {
         freshAccessibilityData()
         val root = runCatching { rootInActiveWindow }.getOrNull() ?: return null
         return try {
