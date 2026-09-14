@@ -88,7 +88,7 @@ private val dictationModule = module {
     single(createdAtStart = true) {
         NoteDictationCoordinator(get()).also { coordinator ->
             coordinator.attach(
-                get<DictationPipeline>().status,
+                get<DictationPipeline>().session,
                 CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
             )
         }

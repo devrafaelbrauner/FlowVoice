@@ -669,6 +669,36 @@ class DictationPipelineTest {
     }
 
     @Test
+    fun secondNoteAttemptWithoutKeyEndsThatSessionSoAnotherAppsTextNeverReachesTheNote() = runTest {
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = listOf(frame(50L)),
+            texts = mapOf(0 to "texto do whatsapp"),
+            apiKey = null
+        )
+        val note = NoteHarness(env.pipeline, backgroundScope)
+
+        env.pipeline.start(DictationTarget.Note)
+        runCurrent()
+        note.begin()
+        env.pipeline.start(DictationTarget.Note)
+        runCurrent()
+
+        assertEquals("chave OpenRouter ausente ou inválida", note.message())
+        assertNull(note.activeNoteId())
+
+        env.secrets.writeOpenRouterKey("sk-or-v1-testkey123456")
+        env.pipeline.start()
+        runCurrent()
+        env.pipeline.finalizeForReview()
+        env.pipeline.insertReady()
+        runCurrent()
+
+        assertEquals(listOf("texto do whatsapp"), env.inserter.inserted)
+        assertEquals("", note.body())
+    }
+
+    @Test
     fun keyRejectedMidSessionFailsTheSessionAndStopsCapture() = runTest {
         val env = PipelineEnv(
             scope = backgroundScope,
@@ -759,6 +789,7 @@ private class PipelineEnv(
     val inserter = RecordingInserter(inserterSucceeds)
     val proofreader = FakeProofreader(proofreadingFails)
     val client = ScriptedTranscriptionClient(texts, transcriptionDelayMs, failures)
+    val secrets = InMemorySecretStore().apply { apiKey?.let { writeOpenRouterKey(it) } }
     val pipeline = DictationPipeline(
         controller = DictationSessionController(captureEngine ?: engine, windowTargetDurationMs = 100L),
         client = client,
@@ -766,20 +797,26 @@ private class PipelineEnv(
         dictionary = dictionary,
         proofreading = proofreader,
         preferences = InMemoryPreferencesStore(preferences),
-        secrets = InMemorySecretStore().apply { apiKey?.let { writeOpenRouterKey(it) } },
+        secrets = secrets,
         inserter = textInserter ?: inserter,
         scope = scope
     )
 }
 
-private class NoteHarness(pipeline: DictationPipeline, scope: CoroutineScope) {
+private class NoteHarness(private val pipeline: DictationPipeline, scope: CoroutineScope) {
     private val store = InMemoryNoteStore()
-    private val coordinator = NoteDictationCoordinator(store).apply { attach(pipeline.status, scope) }
+    private val coordinator = NoteDictationCoordinator(store).apply { attach(pipeline.session, scope) }
     private val noteId = store.create(body = "").id
 
     init {
-        coordinator.begin(noteId, pipeline.status.value)
+        begin()
     }
+
+    fun begin() {
+        coordinator.begin(noteId, pipeline.session.value)
+    }
+
+    fun activeNoteId(): String? = coordinator.activeNoteId
 
     fun body(): String? = store.get(noteId)?.body
 

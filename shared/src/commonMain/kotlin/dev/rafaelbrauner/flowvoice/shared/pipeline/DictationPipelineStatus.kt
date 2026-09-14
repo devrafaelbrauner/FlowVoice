@@ -32,3 +32,9 @@ sealed interface DictationPipelineStatus {
 
     data class Failed(val message: String) : DictationPipelineStatus
 }
+
+data class DictationPipelineSession(
+    val id: Int,
+    val target: DictationTarget,
+    val status: DictationPipelineStatus
+)

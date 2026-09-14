@@ -7,7 +7,7 @@ import dev.rafaelbrauner.flowvoice.shared.notes.Note
 import dev.rafaelbrauner.flowvoice.shared.notes.NoteDictationCoordinator
 import dev.rafaelbrauner.flowvoice.shared.notes.NoteStore
 import dev.rafaelbrauner.flowvoice.shared.notes.NoteText
-import dev.rafaelbrauner.flowvoice.shared.pipeline.DictationPipelineStatus
+import dev.rafaelbrauner.flowvoice.shared.pipeline.DictationPipelineSession
 
 sealed interface NotesMessage {
     val text: String
@@ -105,13 +105,13 @@ class NotesScreenState(
         pendingDeleteId = null
     }
 
-    fun beginDictation(noteId: String, currentStatus: DictationPipelineStatus) {
+    fun beginDictation(noteId: String, currentSession: DictationPipelineSession) {
         localMessage = null
-        dictation.begin(noteId, currentStatus)
+        dictation.begin(noteId, currentSession)
     }
 
-    fun onPipelineStatus(status: DictationPipelineStatus) {
-        dictation.onStatus(status)
+    fun onPipelineSession(session: DictationPipelineSession) {
+        dictation.onSession(session)
         refresh()
     }
 
