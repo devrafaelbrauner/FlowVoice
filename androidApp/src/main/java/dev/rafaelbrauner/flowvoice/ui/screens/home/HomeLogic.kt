@@ -1,6 +1,8 @@
 package dev.rafaelbrauner.flowvoice.ui.screens.home
 
 import dev.rafaelbrauner.flowvoice.shared.overlay.OverlayStartGuard
+import dev.rafaelbrauner.flowvoice.shared.pipeline.DictationPipelineSession
+import dev.rafaelbrauner.flowvoice.shared.pipeline.DictationPipelineStatus
 
 enum class MicAction { OpenOnboarding, OverlayUnsupported, RequestOverlayPermission, StartDictation }
 
@@ -18,6 +20,11 @@ fun micAction(
 
 fun noteToResumeOnMic(pipelineBusy: Boolean, activeNoteId: String?): String? =
     activeNoteId.takeIf { pipelineBusy }
+
+fun startOutcome(previous: DictationPipelineSession, session: DictationPipelineSession): DictationPipelineStatus? =
+    session.status.takeIf {
+        session.id > previous.id && (it == DictationPipelineStatus.Recording || it is DictationPipelineStatus.Failed)
+    }
 
 fun noteSnippet(title: String, body: String): String {
     val lines = body.lineSequence().map { it.trim() }.filter { it.isNotEmpty() }.toList()

@@ -1,5 +1,8 @@
 package dev.rafaelbrauner.flowvoice.ui.screens.home
 
+import dev.rafaelbrauner.flowvoice.shared.pipeline.DictationPipelineSession
+import dev.rafaelbrauner.flowvoice.shared.pipeline.DictationPipelineStatus
+import dev.rafaelbrauner.flowvoice.shared.pipeline.DictationTarget
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -32,6 +35,20 @@ class HomeLogicTest {
         assertEquals("n1", noteToResumeOnMic(pipelineBusy = true, activeNoteId = "n1"))
         assertNull(noteToResumeOnMic(pipelineBusy = true, activeNoteId = null))
         assertNull(noteToResumeOnMic(pipelineBusy = false, activeNoteId = "n1"))
+    }
+
+    @Test
+    fun micTapOutcomeIsTheFirstRecordingOrFailureOfANewerSessionEvenIfEqualToThePrevious() {
+        val failed = DictationPipelineStatus.Failed("chave OpenRouter ausente ou inválida")
+        val previous = DictationPipelineSession(1, DictationTarget.ActiveField, failed)
+
+        assertNull(startOutcome(previous, previous))
+        assertNull(startOutcome(previous, DictationPipelineSession(2, DictationTarget.ActiveField, DictationPipelineStatus.Starting)))
+        assertEquals(failed, startOutcome(previous, DictationPipelineSession(2, DictationTarget.ActiveField, failed)))
+        assertEquals(
+            DictationPipelineStatus.Recording,
+            startOutcome(previous, DictationPipelineSession(2, DictationTarget.ActiveField, DictationPipelineStatus.Recording))
+        )
     }
 
     @Test

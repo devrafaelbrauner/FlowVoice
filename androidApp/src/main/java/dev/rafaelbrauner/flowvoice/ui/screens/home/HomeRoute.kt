@@ -78,6 +78,7 @@ import dev.rafaelbrauner.flowvoice.ui.theme.FlowVoiceSpacing
 import dev.rafaelbrauner.flowvoice.ui.theme.FlowVoiceTheme
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -181,14 +182,14 @@ private class DictationStarter(
     private val openNote: (String) -> Unit
 ) {
     fun start() {
-        val previous = pipeline.status.value
-        val dictatingNote = noteToResumeOnMic(previous.isBusy, notes.activeNoteId)
+        val previous = pipeline.session.value
+        val dictatingNote = noteToResumeOnMic(previous.status.isBusy, notes.activeNoteId)
         if (dictatingNote != null) {
             context.toast("Há um ditado de nota em andamento: pare-o na nota.")
             openNote(dictatingNote)
             return
         }
-        if (previous.isBusy) {
+        if (previous.status.isBusy) {
             context.toast("Já há um ditado em andamento.")
             return
         }
@@ -199,10 +200,7 @@ private class DictationStarter(
         )
         scope.launch {
             val status = withTimeoutOrNull(START_TIMEOUT_MS) {
-                pipeline.status.first {
-                    it !== previous &&
-                        (it == DictationPipelineStatus.Recording || it is DictationPipelineStatus.Failed)
-                }
+                pipeline.session.mapNotNull { startOutcome(previous, it) }.first()
             }
             when (status) {
                 DictationPipelineStatus.Recording -> context.findActivity()?.moveTaskToBack(true)
