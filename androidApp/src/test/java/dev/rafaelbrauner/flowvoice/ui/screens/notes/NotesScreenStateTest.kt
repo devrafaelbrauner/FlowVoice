@@ -209,6 +209,33 @@ class NotesScreenStateTest {
     }
 
     @Test
+    fun initialSelectionPrefersTheDictatingNoteOverTheRequestedOne() {
+        val dictating = store.create("ditando")
+        val requested = store.create("pedida pela rota")
+        val notes = store.list()
+
+        assertEquals(dictating.id, NoteSelection.initial(notes, requested.id, dictating.id))
+        assertEquals(requested.id, NoteSelection.initial(notes, requested.id, null))
+        assertEquals(requested.id, NoteSelection.initial(notes, requested.id, "apagada"))
+    }
+
+    @Test
+    fun screenRecreatedDuringANoteDictationSelectsTheDictatingNote() {
+        val coordinator = NoteDictationCoordinator(store)
+        val dictating = store.create("ditando")
+        val requested = store.create("pedida pela rota")
+        coordinator.begin(dictating.id, DictationPipelineStatus.Idle)
+
+        val recreated = NotesScreenState(store, requested.id, coordinator)
+        assertEquals(dictating.id, recreated.selectedId)
+
+        recreated.refresh()
+        recreated.selectInitial(requested.id)
+        assertEquals(dictating.id, recreated.selectedId)
+        assertEquals(dictating.id, recreated.dictationNoteId)
+    }
+
+    @Test
     fun snippetUsesFirstNonBlankLine() {
         assertEquals("café, azeite", NoteBodies.snippet("\n  café, azeite\npilha"))
         assertEquals("", NoteBodies.snippet("   "))

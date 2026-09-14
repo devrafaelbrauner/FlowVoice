@@ -24,7 +24,7 @@ class NotesScreenState(
 ) {
     var notes by mutableStateOf(store.list())
         private set
-    var selectedId by mutableStateOf(NoteSelection.resolve(notes, initialNoteId))
+    var selectedId by mutableStateOf(NoteSelection.initial(notes, initialNoteId, dictation.activeNoteId))
         private set
     var panelOpen by mutableStateOf(true)
         private set
@@ -53,6 +53,12 @@ class NotesScreenState(
         if (notes.none { it.id == id }) return
         selectedId = id
         pendingDeleteId = null
+    }
+
+    fun selectInitial(requestedId: String?) {
+        val dictatingId = dictation.activeNoteId
+        if (requestedId == null && dictatingId == null) return
+        NoteSelection.initial(notes, requestedId, dictatingId)?.let(::select)
     }
 
     fun togglePanel() {
@@ -131,6 +137,9 @@ class NotesScreenState(
 object NoteSelection {
     fun resolve(notes: List<Note>, requestedId: String?): String? =
         notes.firstOrNull { it.id == requestedId }?.id ?: notes.firstOrNull()?.id
+
+    fun initial(notes: List<Note>, requestedId: String?, dictatingId: String?): String? =
+        resolve(notes, dictatingId?.takeIf { id -> notes.any { it.id == id } } ?: requestedId)
 
     fun afterDelete(notes: List<Note>, deletedId: String): String? {
         val index = notes.indexOfFirst { it.id == deletedId }
