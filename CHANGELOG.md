@@ -6,6 +6,26 @@ estão em [`docs/tasks/`](docs/tasks/README.md).
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-09-13
+
+Correções dos achados da auditoria de segurança da 0.3.1 (SEG-1 a SEG-7).
+
+### Security
+
+- SEG-6: a chave OpenRouter passa a ser cifrada direto no Android Keystore
+  (AES-256-GCM, cofre `flowvoice_vault`), sem o fallback do Tink que gravava o
+  keyset em claro; a chave do cofre antigo é migrada na primeira abertura e o
+  arquivo antigo só é apagado depois de a chave ser confirmada no cofre novo.
+- SEG-1: notas, dicionário, conta e os cofres saem do backup em nuvem, da
+  transferência entre aparelhos e do backup completo.
+- SEG-7: a rota direta recusa campo de senha, e a inserção é recusada se o app em
+  foco mudou desde o início do ditado.
+- SEG-5: o serviço de acessibilidade não assina mais nenhum tipo de evento.
+- SEG-4: o diagnóstico do campo focado não devolve conteúdo, e o caminho de
+  depuração saiu do código principal.
+- SEG-3: o log não registra mais o pacote do app em que se dita.
+- SEG-2: apagados os APKs debug antigos publicados pelo CI a partir da `main`.
+
 ## [0.4.0] - 2026-09-13
 
 Redesign do app a partir do handoff de design (F12 UX).

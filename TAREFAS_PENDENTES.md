@@ -89,13 +89,13 @@ Veredito: com ressalvas (0 críticos, 0 altos). gitleaks (histórico), semgrep (
 
 | ID | Severidade | Tarefa | Status | Encaminhar |
 | --- | --- | --- | --- | --- |
-| SEG-1 | Média | Notas, dicionário e e-mail em SharedPreferences sem cifra; só `flowvoice_secrets.xml` sai do backup, então notas (uso clínico, LGPD) vão para o backup em nuvem e a transferência entre aparelhos (`data_extraction_rules.xml`, `backup_rules.xml`, `Prefs*Persist.kt`) | pendente: decidir se ficam no backup; cifrar em repouso junto com P14 | usuário, depois /corrigir |
-| SEG-2 | Média | Repositório **público**: a `main` ainda tem `FlowVoiceAdbReceiver` exportado sem permissão, e há 2 artefatos `flowvoice-debug` da `main` publicados pelo CI (expiram em 2026-12-12) | pendente: mesclar o PR #2 e apagar os artefatos antigos | usuário |
-| SEG-3 | Baixa | O release loga no logcat o pacote de cada app em que se dita (`FlowVoiceAccessibilityService.kt:95`); parte do P42 | pendente | /corrigir |
-| SEG-4 | Baixa | Caminho de debug do `onStartCommand` no source set `main`; `diagnoseFocusedField` devolve 40 caracteres do campo de qualquer app sem checar `isPassword`; parte do P42 | pendente | /corrigir |
-| SEG-5 | Baixa | `typeAllMask` no serviço de acessibilidade com `onAccessibilityEvent` vazio: recebe eventos de todos os apps sem necessidade (`accessibility_flowvoice.xml:3`) | pendente | /corrigir |
-| SEG-6 | Baixa | Tink 1.5.0 grava e aceita keyset em claro quando o Keystore falha (P57); `security-crypto` descontinuado | pendente | /corrigir |
-| SEG-7 | Baixa | A rota direta `commitText` não recusa campo de senha, e o destino não é conferido entre iniciar e finalizar: se o foco mudar durante a transcrição, o texto cai em outro app | pendente | /corrigir |
+| SEG-1 | Média | Notas, dicionário e e-mail em SharedPreferences sem cifra entravam no backup em nuvem e na transferência entre aparelhos | concluída (0.4.1): excluídos do backup (`BackupRulesTest`); cifrar em repouso segue com P14 | /corrigir |
+| SEG-2 | Média | Repositório **público**: a `main` ainda tem `FlowVoiceAdbReceiver` exportado sem permissão, e havia 2 artefatos `flowvoice-debug` da `main` publicados pelo CI | parcial (0.4.1): artefatos apagados; falta o merge do PR #2, autorizado, depois do /verificar da 0.4.1 | usuário |
+| SEG-3 | Baixa | O release logava no logcat o pacote de cada app em que se dita; parte do P42 | concluída (0.4.1) | /corrigir |
+| SEG-4 | Baixa | Caminho de debug do `onStartCommand` no `main`; `diagnoseFocusedField` devolvia conteúdo do campo sem checar `isPassword`; parte do P42 | concluída (0.4.1): `FocusedFieldDiagnostic` | /corrigir |
+| SEG-5 | Baixa | `typeAllMask` no serviço de acessibilidade com `onAccessibilityEvent` vazio | concluída (0.4.1): nenhum evento assinado; validar fallback e barra no aparelho (P65) | /corrigir |
+| SEG-6 | Baixa | Tink 1.5.0 gravava e aceitava keyset em claro quando o Keystore falhava (P57) | concluída (0.4.1): Keystore direto + migração; validar a migração no S26 (P65) | /corrigir |
+| SEG-7 | Baixa | A rota direta não recusava campo de senha, e o destino não era conferido entre iniciar e finalizar | concluída (0.4.1): `InsertionGuard` + `captureTarget`; validar no aparelho (P65) | /corrigir |
 | SEG-8 | Info | `SyncModels.kt:15`: a trava `contains("sk-")` derruba o sync com termo legítimo e não cobre notas | pendente | /aprimorar |
 | SEG-9 | Info | Nenhuma tela usa `filterTouchesWhenObscured` (tapjacking); avaliar nas telas de chave e permissões | pendente | /aprimorar |
 
@@ -109,3 +109,10 @@ Veredito: com ressalvas (0 críticos, 0 altos). gitleaks (histórico), semgrep (
 | P61 | Baixa | "sincronizado" por nota e "Limite de gasto" do design não têm funcionalidade por trás; omitidos | pendente (depende de P06) | /construir |
 | P62 | Baixa | Logo do Google no login e ícone do app ainda são placeholders (ver P19) | pendente | usuário |
 | P63 | Baixa | `flagRetrieveInteractiveWindows` (para ancorar a barra acima do teclado) amplia o que o serviço de acessibilidade pode ler; revisar junto com SEG-5 | pendente | /seguranca |
+
+## Correções de segurança 0.4.1 (2026-09-13)
+
+| ID | Prioridade | Tarefa | Status | Encaminhar |
+| --- | --- | --- | --- | --- |
+| P64 | Baixa | Remover `androidx.security:security-crypto` (e o tink-android que ele traz) e o código de migração do cofre antigo numa versão futura, quando nenhum aparelho tiver mais `flowvoice_secrets.xml` | pendente | /aprimorar |
+| P65 | Média | Validar no S26: (1) migração da chave para `flowvoice_vault` (Ajustes mostra CONFIGURADA, logcat `legacy_vault_Migrated`, `flowvoice_secrets.xml` removido); (2) fallback `ACTION_SET_TEXT` e barra acima do teclado sem eventos de acessibilidade (SEG-5); (3) recusa em campo de senha e quando o foco muda de app (SEG-7) | pendente: aparelho em uso na entrega | usuário / /verificar |
