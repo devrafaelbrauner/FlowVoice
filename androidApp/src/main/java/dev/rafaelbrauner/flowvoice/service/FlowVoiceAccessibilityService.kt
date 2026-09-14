@@ -104,7 +104,7 @@ class FlowVoiceAccessibilityService : AccessibilityService() {
             return InsertResult(false, "commitText", "commitText falhou: ${error.message}")
         }
 
-        Log.i(TAG, "commitText executado no pacote=$packageName")
+        Log.i(TAG, "commitText executado")
         return InsertResult(true, "commitText", "commitText(...) executado")
     }
 
