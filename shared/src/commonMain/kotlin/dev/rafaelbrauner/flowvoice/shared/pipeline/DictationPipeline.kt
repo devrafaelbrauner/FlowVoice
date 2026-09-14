@@ -28,6 +28,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlin.time.TimeSource
 
 class DictationPipeline(
     private val controller: DictationSessionController,
@@ -39,7 +40,8 @@ class DictationPipeline(
     private val secrets: SecretStore,
     private val inserter: TextInserter,
     private val scope: CoroutineScope,
-    private val eventLog: TranscriptionEventLog = TranscriptionEventLog.NoOp
+    private val eventLog: TranscriptionEventLog = TranscriptionEventLog.NoOp,
+    private val timeSource: TimeSource = TimeSource.Monotonic
 ) {
     private val eventLines = MutableSharedFlow<String>(extraBufferCapacity = EVENT_BUFFER)
     private val transcription = IncrementalTranscriptionController(
@@ -65,6 +67,9 @@ class DictationPipeline(
 
     val model: String
         get() = config.model
+
+    val proofreadingEnabled: Boolean
+        get() = preferences.read().proofreadingEnabled
 
     init {
         scope.launch(start = CoroutineStart.UNDISPATCHED) {
@@ -106,6 +111,14 @@ class DictationPipeline(
         )
     }
 
+    fun liveText(): LivePreview {
+        val split = LiveDictationText.split(segments.value)
+        return LivePreview(
+            finalized = dictionary.apply(split.finalized),
+            provisional = dictionary.apply(split.provisional)
+        )
+    }
+
     suspend fun start() {
         if (statusState.value.isBusy) return
         val token = ++sessionToken
@@ -138,38 +151,19 @@ class DictationPipeline(
         val token = sessionToken
         statusState.value = DictationPipelineStatus.Transcribing
         val outcome = try {
-            controller.finalize()
-            submittedWindows.first { it >= controller.emittedWindowCount }
-            transcription.awaitIdle()
-            val failures = TranscriptionFailureSummary.from(
-                segments = transcription.segments.value,
-                totalWindows = controller.emittedWindowCount
-            )
-            val text = reviseFinalText()
+            val final = transcribeFinalText()
             if (token != sessionToken) {
                 DictationPipelineStatus.Cancelled
-            } else if (text.isBlank() && failures != null) {
-                log(
-                    "dictation_failed",
-                    mapOf("stage" to "transcription", "failedWindows" to failures.failedCount.toString())
-                )
-                DictationPipelineStatus.Failed(failures.noTextMessage)
+            } else if (final.text.isBlank() && final.failures != null) {
+                noTextFailure(final.failures)
             } else {
-                dictionary.suggestFrom(text)
-                val insertion = if (text.isBlank()) {
-                    TextInsertionResult(success = false, route = "pipeline", message = "sem texto para inserir")
-                } else {
-                    inserter.insert(text)
-                }
-                log(
-                    "dictation_finalized",
-                    mapOf(
-                        "chars" to text.length.toString(),
-                        "inserted" to insertion.success.toString(),
-                        "failedWindows" to (failures?.failedCount ?: 0).toString()
-                    )
+                dictionary.suggestFrom(final.text)
+                insert(
+                    text = final.text,
+                    warning = final.failures?.partialMessage,
+                    latencyMs = null,
+                    failedWindows = final.failures?.failedCount ?: 0
                 )
-                DictationPipelineStatus.Completed(text, insertion, warning = failures?.partialMessage)
             }
         } catch (error: CancellationException) {
             throw error
@@ -180,6 +174,49 @@ class DictationPipeline(
         if (token == sessionToken) {
             statusState.value = outcome
         }
+        return outcome
+    }
+
+    suspend fun finalizeForReview(): DictationPipelineStatus {
+        if (statusState.value != DictationPipelineStatus.Recording) return statusState.value
+        val token = sessionToken
+        val mark = timeSource.markNow()
+        statusState.value = DictationPipelineStatus.Transcribing
+        val outcome = try {
+            val final = transcribeFinalText()
+            if (token != sessionToken) {
+                DictationPipelineStatus.Cancelled
+            } else if (final.text.isBlank() && final.failures != null) {
+                noTextFailure(final.failures)
+            } else {
+                dictionary.suggestFrom(final.text)
+                val latencyMs = mark.elapsedNow().inWholeMilliseconds
+                log(
+                    "dictation_ready",
+                    mapOf(
+                        "chars" to final.text.length.toString(),
+                        "latencyMs" to latencyMs.toString(),
+                        "failedWindows" to (final.failures?.failedCount ?: 0).toString()
+                    )
+                )
+                DictationPipelineStatus.Ready(final.text, final.failures?.partialMessage, latencyMs)
+            }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            log("dictation_failed", mapOf("stage" to "finalize"))
+            DictationPipelineStatus.Failed(error.message ?: "erro desconhecido")
+        }
+        if (token == sessionToken) {
+            statusState.value = outcome
+        }
+        return outcome
+    }
+
+    fun insertReady(): DictationPipelineStatus {
+        val ready = statusState.value as? DictationPipelineStatus.Ready ?: return statusState.value
+        val outcome = insert(ready.text, ready.warning, ready.latencyMs)
+        statusState.value = outcome
         return outcome
     }
 
@@ -199,7 +236,52 @@ class DictationPipeline(
 
     fun requestFinalize(): Job = scope.launch { finalize() }
 
+    fun requestFinalizeForReview(): Job = scope.launch { finalizeForReview() }
+
+    fun requestInsertReady(): Job = scope.launch { insertReady() }
+
     fun requestCancel(): Job = scope.launch { cancel() }
+
+    private suspend fun transcribeFinalText(): FinalText {
+        controller.finalize()
+        submittedWindows.first { it >= controller.emittedWindowCount }
+        transcription.awaitIdle()
+        val failures = TranscriptionFailureSummary.from(
+            segments = transcription.segments.value,
+            totalWindows = controller.emittedWindowCount
+        )
+        return FinalText(reviseFinalText(), failures)
+    }
+
+    private fun noTextFailure(failures: TranscriptionFailureSummary): DictationPipelineStatus {
+        log(
+            "dictation_failed",
+            mapOf("stage" to "transcription", "failedWindows" to failures.failedCount.toString())
+        )
+        return DictationPipelineStatus.Failed(failures.noTextMessage)
+    }
+
+    private fun insert(
+        text: String,
+        warning: String?,
+        latencyMs: Long?,
+        failedWindows: Int? = null
+    ): DictationPipelineStatus {
+        val insertion = if (text.isBlank()) {
+            TextInsertionResult(success = false, route = "pipeline", message = "sem texto para inserir")
+        } else {
+            inserter.insert(text)
+        }
+        log(
+            "dictation_finalized",
+            buildMap {
+                put("chars", text.length.toString())
+                put("inserted", insertion.success.toString())
+                if (failedWindows != null) put("failedWindows", failedWindows.toString())
+            }
+        )
+        return DictationPipelineStatus.Completed(text, insertion, warning, latencyMs)
+    }
 
     private suspend fun reviseFinalText(): String {
         val assembled = LivePreviewAssembler.assemble(
@@ -237,6 +319,8 @@ class DictationPipeline(
             }
         )
     }
+
+    private class FinalText(val text: String, val failures: TranscriptionFailureSummary?)
 
     private companion object {
         const val EVENT_BUFFER = 64

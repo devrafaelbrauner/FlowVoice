@@ -299,6 +299,115 @@ class DictationPipelineTest {
         assertEquals(listOf("o médico pediu o exame de sangue"), env.inserter.inserted)
     }
 
+    @Test
+    fun finalizeForReviewStopsAtReadyWithoutInserting() = runTest {
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = listOf(frame(100L), frame(50L)),
+            texts = mapOf(0 to "o médico", 1 to "pediu o exame")
+        )
+
+        env.pipeline.start()
+        runCurrent()
+        val ready = assertIs<DictationPipelineStatus.Ready>(env.pipeline.finalizeForReview())
+
+        assertEquals("o médico pediu o exame", ready.text)
+        assertEquals(ready, env.pipeline.status.value)
+        assertTrue(env.pipeline.status.value.isBusy)
+        assertTrue(ready.latencyMs != null)
+        assertTrue(env.inserter.inserted.isEmpty())
+    }
+
+    @Test
+    fun insertReadyInsertsOnce() = runTest {
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = listOf(frame(50L)),
+            texts = mapOf(0 to "o médico")
+        )
+
+        env.pipeline.start()
+        runCurrent()
+        val ready = assertIs<DictationPipelineStatus.Ready>(env.pipeline.finalizeForReview())
+        val completed = assertIs<DictationPipelineStatus.Completed>(env.pipeline.insertReady())
+        env.pipeline.insertReady()
+
+        assertTrue(completed.insertion.success)
+        assertEquals("o médico", completed.text)
+        assertEquals(ready.latencyMs, completed.latencyMs)
+        assertEquals(completed, env.pipeline.status.value)
+        assertEquals(listOf("o médico"), env.inserter.inserted)
+    }
+
+    @Test
+    fun cancelFromReadyDoesNotInsert() = runTest {
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = listOf(frame(50L)),
+            texts = mapOf(0 to "o médico")
+        )
+
+        env.pipeline.start()
+        runCurrent()
+        assertIs<DictationPipelineStatus.Ready>(env.pipeline.finalizeForReview())
+        env.pipeline.cancel()
+        env.pipeline.insertReady()
+
+        assertEquals(DictationPipelineStatus.Cancelled, env.pipeline.status.value)
+        assertTrue(env.inserter.inserted.isEmpty())
+    }
+
+    @Test
+    fun readyCarriesWarningWhenAWindowFails() = runTest {
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = listOf(frame(100L), frame(100L), frame(50L)),
+            texts = mapOf(0 to "o médico", 2 to "de sangue"),
+            failures = mapOf(1 to TranscriptionError.Timeout())
+        )
+
+        env.pipeline.start()
+        runCurrent()
+        val ready = assertIs<DictationPipelineStatus.Ready>(env.pipeline.finalizeForReview())
+
+        assertEquals("o médico de sangue", ready.text)
+        assertEquals("Trecho 2 de 3 falhou (timeout): texto incompleto", ready.warning)
+        assertTrue(env.inserter.inserted.isEmpty())
+    }
+
+    @Test
+    fun reviewWithoutAnyTranscribedWindowFails() = runTest {
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = listOf(frame(100L), frame(50L)),
+            apiKey = null
+        )
+
+        env.pipeline.start()
+        runCurrent()
+        val failed = assertIs<DictationPipelineStatus.Failed>(env.pipeline.finalizeForReview())
+
+        assertTrue(failed.message.contains("chave OpenRouter"), failed.message)
+        assertTrue(env.inserter.inserted.isEmpty())
+    }
+
+    @Test
+    fun startWhileReadyIsIgnored() = runTest {
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = listOf(frame(50L)),
+            texts = mapOf(0 to "o médico")
+        )
+
+        env.pipeline.start()
+        runCurrent()
+        val ready = assertIs<DictationPipelineStatus.Ready>(env.pipeline.finalizeForReview())
+        env.pipeline.start()
+
+        assertEquals(ready, env.pipeline.status.value)
+        assertTrue(env.inserter.inserted.isEmpty())
+    }
+
     private fun frame(durationMs: Long): AudioFrame =
         AudioFrame(ByteArray((durationMs * 16).toInt() * 2), AudioFormat.DEFAULT)
 }
