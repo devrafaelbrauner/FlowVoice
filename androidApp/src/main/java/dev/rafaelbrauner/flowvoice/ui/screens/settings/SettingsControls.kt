@@ -25,6 +25,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.VisualTransformation
@@ -45,14 +47,15 @@ internal fun FvDarkField(
     visualTransformation: VisualTransformation = VisualTransformation.None,
     keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
     keyboardActions: KeyboardActions = KeyboardActions.Default,
-    enabled: Boolean = true
+    enabled: Boolean = true,
+    label: String? = placeholder
 ) {
     val colors = FlowVoiceTheme.colors
     val shape = RoundedCornerShape(FlowVoiceRadius.field)
     BasicTextField(
         value = value,
         onValueChange = onValueChange,
-        modifier = modifier,
+        modifier = if (label != null) modifier.semantics { contentDescription = label } else modifier,
         enabled = enabled,
         singleLine = singleLine,
         textStyle = textStyle.copy(color = colors.chipContent),

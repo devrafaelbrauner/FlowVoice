@@ -27,6 +27,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.tooling.preview.PreviewParameter
@@ -67,6 +68,7 @@ fun SettingsRow(
             .heightIn(min = FlowVoiceSpacing.minTouchTarget)
             .background(if (highlighted) colors.rowHighlight else Color.Transparent)
             .then(clickable)
+            .semantics(mergeDescendants = true) {}
             .padding(14.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically
