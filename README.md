@@ -80,6 +80,9 @@ adb install -r androidApp/build/outputs/apk/debug/androidApp-debug.apk
 - Na barra: o texto aparece ao vivo (o trecho ainda não revisado fica pontilhado).
   "Inserir" encerra a gravação, mostra o texto final e, com outro toque, escreve no
   campo focado. "Cancelar" descarta.
+- Se o app em foco mudou antes do toque em "Inserir", nada é escrito: o texto
+  fica na barra, e o aviso diz que um novo toque escreve no app atual. Um toque
+  até 1 s depois da recusa (toque duplo) é ignorado.
 - **Nas Notas:** "Nova nota" ou o microfone do detalhe ditam direto no corpo da nota.
 
 ## Licença

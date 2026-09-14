@@ -8,7 +8,7 @@ estão em [`docs/tasks/`](docs/tasks/README.md).
 
 ## [0.4.4] - 2026-09-14
 
-Correções dos achados P110, P111 e P112 do `/verificar` da 0.4.3.
+Correções dos achados P110 a P113 do `/verificar` da 0.4.3.
 
 ### Fixed
 
@@ -26,6 +26,11 @@ Correções dos achados P110, P111 e P112 do `/verificar` da 0.4.3.
 - P112: HTTP 403 (guardrail, moderação ou permissão, segundo a documentação da
   OpenRouter) era tratado como chave inválida e encerrava a sessão; agora só o
   trecho falha, com o motivo "recusado pela OpenRouter".
+- P113: depois de uma recusa porque o foco mudou de app, o próximo toque em
+  Inserir escreve no app atual, mas o aviso dizia só "texto mantido na barra", e
+  num toque duplo o segundo toque inseria sem o usuário ver a recusa. O aviso
+  agora diz "toque em Inserir de novo para inserir no app atual", e um toque até
+  1 s depois da recusa é ignorado.
 
 Coberto por testes unitários; ainda não validado no aparelho (ver P94).
 
