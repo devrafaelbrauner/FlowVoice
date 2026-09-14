@@ -18,6 +18,7 @@ import dev.rafaelbrauner.flowvoice.shared.transcription.InMemorySecretStore
 import dev.rafaelbrauner.flowvoice.shared.transcription.OpenRouterConfig
 import dev.rafaelbrauner.flowvoice.shared.transcription.TranscriptionClient
 import dev.rafaelbrauner.flowvoice.shared.transcription.TranscriptionError
+import dev.rafaelbrauner.flowvoice.shared.transcription.TranscriptionErrorClassifier
 import dev.rafaelbrauner.flowvoice.shared.transcription.TranscriptionResult
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -73,6 +74,24 @@ class DictationPipelineTest {
 
         assertEquals(listOf("o médico de sangue"), env.inserter.inserted)
         assertEquals("Trecho 2 de 3 falhou (timeout): texto incompleto", completed.warning)
+    }
+
+    @Test
+    fun windowRefusedWithForbiddenFailsOnlyThatWindowAndTheSessionContinues() = runTest {
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = listOf(frame(100L), frame(100L), frame(50L)),
+            texts = mapOf(0 to "o médico", 2 to "de sangue"),
+            failures = mapOf(1 to TranscriptionErrorClassifier.fromHttpStatus(403))
+        )
+
+        env.pipeline.start()
+        runCurrent()
+        val completed = assertIs<DictationPipelineStatus.Completed>(env.pipeline.reviewAndInsert())
+
+        assertEquals("o médico de sangue", completed.text)
+        assertEquals("Trecho 2 de 3 falhou (recusado pela OpenRouter): texto incompleto", completed.warning)
+        assertEquals(listOf("o médico de sangue"), env.inserter.inserted)
     }
 
     @Test

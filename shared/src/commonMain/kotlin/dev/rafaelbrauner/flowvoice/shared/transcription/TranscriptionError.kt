@@ -8,6 +8,7 @@ sealed class TranscriptionError(
     class Timeout(cause: Throwable? = null) : TranscriptionError("timeout", cause)
     class RateLimit(val retryAfterMs: Long? = null) : TranscriptionError("rate limited")
     class InvalidKey : TranscriptionError("invalid api key")
+    class Forbidden : TranscriptionError("request refused")
     class InvalidResponse(detail: String) : TranscriptionError(detail)
     class Server(val statusCode: Int) : TranscriptionError("server error $statusCode")
     class SessionBudgetExceeded : TranscriptionError("session request budget exceeded")
@@ -21,6 +22,7 @@ sealed class TranscriptionError(
             is Timeout -> "timeout"
             is RateLimit -> "rate_limit"
             is InvalidKey -> "invalid_key"
+            is Forbidden -> "forbidden"
             is InvalidResponse -> "invalid_response"
             is Server -> "server"
             is SessionBudgetExceeded -> "budget"

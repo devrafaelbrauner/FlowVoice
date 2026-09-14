@@ -96,6 +96,23 @@ class OpenRouterTranscriptionClientTest {
         )
     }
 
+    @Test
+    fun mapsForbiddenToARefusedRequestNotAnInvalidKey() = runTest {
+        val engine = MockEngine {
+            respond(
+                content = ByteReadChannel("""{"error":{"code":403,"message":"Blocked by guardrail"}}"""),
+                status = HttpStatusCode.Forbidden,
+                headers = jsonHeaders()
+            )
+        }
+        val client = OpenRouterTranscriptionClient(httpClient(engine), OpenRouterConfig())
+
+        val error = assertFailsWith<TranscriptionError> { client.transcribe(testWindow(), SECRET_KEY) }
+
+        assertFalse(error is TranscriptionError.InvalidKey)
+        assertEquals("forbidden", error.kind)
+    }
+
     private fun httpClient(engine: MockEngine): HttpClient = HttpClient(engine) {
         install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
         install(HttpTimeout)
