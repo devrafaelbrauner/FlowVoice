@@ -4,11 +4,13 @@ import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
 import android.content.Intent
 import android.content.pm.ApplicationInfo
+import android.graphics.Rect
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import android.view.accessibility.AccessibilityWindowInfo
 import dev.rafaelbrauner.flowvoice.shared.insertion.CursorInsertion
 import dev.rafaelbrauner.flowvoice.shared.insertion.InsertionTarget
 
@@ -28,13 +30,23 @@ class FlowVoiceAccessibilityService : AccessibilityService() {
         super.onServiceConnected()
         instance = this
         val current = serviceInfo ?: AccessibilityServiceInfo()
+        val base = current.flags or AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS
         val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            current.flags or AccessibilityServiceInfo.FLAG_INPUT_METHOD_EDITOR
+            base or AccessibilityServiceInfo.FLAG_INPUT_METHOD_EDITOR
         } else {
-            current.flags
+            base
         }
         serviceInfo = current.apply { this.flags = flags }
         Log.i(TAG, "Serviço de acessibilidade conectado (flags=0x${flags.toString(16)})")
+    }
+
+    fun inputMethodTopOnScreen(): Int? {
+        val keyboard = runCatching { windows }.getOrNull()
+            ?.firstOrNull { it.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD }
+            ?: return null
+        val bounds = Rect()
+        keyboard.getBoundsInScreen(bounds)
+        return bounds.top.takeIf { bounds.height() > 0 }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
