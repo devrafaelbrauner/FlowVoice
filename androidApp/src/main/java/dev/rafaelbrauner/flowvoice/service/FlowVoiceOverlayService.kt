@@ -25,6 +25,7 @@ import dev.rafaelbrauner.flowvoice.shared.pipeline.DictationPipeline
 import dev.rafaelbrauner.flowvoice.ui.overlay.DictationOverlay
 import dev.rafaelbrauner.flowvoice.ui.overlay.OverlayLifecycleOwner
 import dev.rafaelbrauner.flowvoice.ui.overlay.OverlayMode
+import dev.rafaelbrauner.flowvoice.ui.overlay.OverlaySessionPolicy
 import dev.rafaelbrauner.flowvoice.ui.overlay.OverlayStartRequests
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -50,7 +51,7 @@ class FlowVoiceOverlayService : Service(), KoinComponent {
     private var mode = OverlayMode.Bubble
     private var barOffsetPx = -1
     private var keyboardTracking: Job? = null
-    private var startedHere = false
+    private var ownsSession = false
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -74,7 +75,7 @@ class FlowVoiceOverlayService : Service(), KoinComponent {
     }
 
     override fun onDestroy() {
-        if (startedHere && pipeline.status.value.isBusy) {
+        if (OverlaySessionPolicy.cancelOnDestroy(ownsSession, pipeline.target.value, pipeline.status.value)) {
             pipeline.requestCancel()
         }
         keyboardTracking?.cancel()
@@ -153,7 +154,7 @@ class FlowVoiceOverlayService : Service(), KoinComponent {
             DictationOverlay(
                 pipeline = pipeline,
                 onModeChange = ::applyMode,
-                onSessionStarted = { startedHere = true }
+                onSessionOwned = { ownsSession = true }
             )
         }
         try {
@@ -171,6 +172,7 @@ class FlowVoiceOverlayService : Service(), KoinComponent {
         runningState.value = true
         scope.launch {
             pipeline.status.drop(1).collect { status ->
+                ownsSession = OverlaySessionPolicy.ownedAfter(ownsSession, status)
                 Log.i(TAG, "overlay_status ${status::class.simpleName}")
             }
         }
