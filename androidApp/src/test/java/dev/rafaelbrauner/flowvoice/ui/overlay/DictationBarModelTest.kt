@@ -2,9 +2,11 @@ package dev.rafaelbrauner.flowvoice.ui.overlay
 
 import dev.rafaelbrauner.flowvoice.shared.insertion.TextInsertionResult
 import dev.rafaelbrauner.flowvoice.shared.pipeline.DictationPipelineStatus
+import dev.rafaelbrauner.flowvoice.shared.pipeline.DictationTarget
 import dev.rafaelbrauner.flowvoice.shared.preview.LivePreview
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
@@ -118,6 +120,50 @@ class DictationBarModelTest {
     }
 
     @Test
+    fun noteSessionAdoptedByTheBubbleOffersStopInsteadOfInsert() {
+        val recording = assertIs<DictationBarState.Live>(
+            state(DictationPipelineStatus.Recording, target = DictationTarget.Note)
+        )
+        val transcribing = assertIs<DictationBarState.Live>(
+            state(DictationPipelineStatus.Transcribing, target = DictationTarget.Note)
+        )
+
+        assertEquals(DictationTarget.Note, recording.destination)
+        assertEquals(DictationBarModel.ROUTE_NOTE, recording.route)
+        assertFalse(recording.canInsert)
+        assertTrue(recording.canStop)
+        assertFalse(transcribing.canInsert)
+        assertFalse(transcribing.canStop)
+    }
+
+    @Test
+    fun activeFieldSessionOffersInsertAndNeverStop() {
+        val bar = assertIs<DictationBarState.Live>(state(DictationPipelineStatus.Recording))
+
+        assertEquals(DictationTarget.ActiveField, bar.destination)
+        assertTrue(bar.canInsert)
+        assertFalse(bar.canStop)
+    }
+
+    @Test
+    fun completedNoteSessionReportsTextSavedToTheNote() {
+        val result = assertIs<DictationBarState.Result>(
+            state(
+                DictationPipelineStatus.Completed(
+                    text = "Bom dia",
+                    insertion = TextInsertionResult(false, "nota", "texto entregue à nota"),
+                    warning = "Trecho 2 de 3 falhou (timeout): texto incompleto"
+                ),
+                target = DictationTarget.Note
+            )
+        )
+
+        assertTrue(result.success)
+        assertEquals(DictationBarModel.SAVED_TO_NOTE, result.message)
+        assertEquals("Trecho 2 de 3 falhou (timeout): texto incompleto", result.detail)
+    }
+
+    @Test
     fun failureIsShownUntilDismissed() {
         val failed = DictationPipelineStatus.Failed("Nenhum trecho transcrito (sem rede)")
 
@@ -150,9 +196,11 @@ class DictationBarModelTest {
         elapsedMs: Long = 0L,
         proofreading: Boolean = false,
         owned: Boolean = true,
-        dismissed: Boolean = false
+        dismissed: Boolean = false,
+        target: DictationTarget = DictationTarget.ActiveField
     ): DictationBarState = DictationBarModel.from(
         status = status,
+        target = target,
         live = live,
         elapsedMs = elapsedMs,
         proofreadingEnabled = proofreading,

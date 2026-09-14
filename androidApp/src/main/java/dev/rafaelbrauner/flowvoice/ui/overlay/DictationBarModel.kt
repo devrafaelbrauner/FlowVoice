@@ -1,6 +1,7 @@
 package dev.rafaelbrauner.flowvoice.ui.overlay
 
 import dev.rafaelbrauner.flowvoice.shared.pipeline.DictationPipelineStatus
+import dev.rafaelbrauner.flowvoice.shared.pipeline.DictationTarget
 import dev.rafaelbrauner.flowvoice.shared.preview.LivePreview
 
 enum class OverlayMode { Bubble, Bar }
@@ -17,7 +18,9 @@ sealed interface DictationBarState {
         val clock: String,
         val route: String,
         val canInsert: Boolean,
-        val warning: String? = null
+        val warning: String? = null,
+        val destination: DictationTarget = DictationTarget.ActiveField,
+        val canStop: Boolean = false
     ) : DictationBarState
 
     data class Result(
@@ -34,10 +37,13 @@ object DictationBarModel {
     const val ROUTE_PROOFREADING = "revisando pontuação · IA"
     const val ROUTE_READY = "transcrição concluída"
     const val ROUTE_NOT_INSERTED = "não inserido · tente de novo"
+    const val ROUTE_NOTE = "ouvindo · vai para a nota"
     const val NOTHING_TRANSCRIBED = "Nada transcrito."
+    const val SAVED_TO_NOTE = "Salvo na nota"
 
     fun from(
         status: DictationPipelineStatus,
+        target: DictationTarget,
         live: LivePreview,
         elapsedMs: Long,
         proofreadingEnabled: Boolean,
@@ -46,6 +52,7 @@ object DictationBarModel {
     ): DictationBarState {
         if (!owned) return DictationBarState.Hidden
         val clock = clock(elapsedMs)
+        val toNote = target == DictationTarget.Note
         return when (status) {
             DictationPipelineStatus.Idle,
             DictationPipelineStatus.Cancelled -> DictationBarState.Hidden
@@ -55,15 +62,18 @@ object DictationBarModel {
                 provisional = "",
                 clock = clock,
                 route = ROUTE_STARTING,
-                canInsert = false
+                canInsert = false,
+                destination = target
             )
             DictationPipelineStatus.Recording -> DictationBarState.Live(
                 phase = BarPhase.Recording,
                 finalized = live.finalized,
                 provisional = live.provisional,
                 clock = clock,
-                route = ROUTE_LISTENING,
-                canInsert = true
+                route = if (toNote) ROUTE_NOTE else ROUTE_LISTENING,
+                canInsert = !toNote,
+                destination = target,
+                canStop = toNote
             )
             DictationPipelineStatus.Transcribing -> DictationBarState.Live(
                 phase = BarPhase.Transcribing,
@@ -71,7 +81,8 @@ object DictationBarModel {
                 provisional = live.provisional,
                 clock = clock,
                 route = if (proofreadingEnabled) ROUTE_PROOFREADING else ROUTE_TRANSCRIBING,
-                canInsert = false
+                canInsert = false,
+                destination = target
             )
             is DictationPipelineStatus.Ready -> DictationBarState.Live(
                 phase = BarPhase.Ready,
@@ -79,11 +90,17 @@ object DictationBarModel {
                 provisional = "",
                 clock = clock,
                 route = if (status.refusal != null) ROUTE_NOT_INSERTED else ROUTE_READY,
-                canInsert = status.text.isNotBlank(),
-                warning = status.refusal ?: status.warning ?: NOTHING_TRANSCRIBED.takeIf { status.text.isBlank() }
+                canInsert = !toNote && status.text.isNotBlank(),
+                warning = status.refusal ?: status.warning ?: NOTHING_TRANSCRIBED.takeIf { status.text.isBlank() },
+                destination = target
             )
             is DictationPipelineStatus.Completed -> when {
                 dismissed -> DictationBarState.Hidden
+                toNote && status.text.isNotBlank() -> DictationBarState.Result(
+                    success = true,
+                    message = SAVED_TO_NOTE,
+                    detail = status.warning
+                )
                 status.insertion.success -> DictationBarState.Result(
                     success = true,
                     message = listOfNotNull("Inserido no campo ativo", status.latencyMs?.let(::latency))

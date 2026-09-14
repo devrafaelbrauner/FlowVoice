@@ -197,10 +197,11 @@ class DictationPipeline(
     }
 
     suspend fun finalizeForReview(): DictationPipelineStatus {
+        if (targetState.value == DictationTarget.Note) return finalize()
         if (statusState.value != DictationPipelineStatus.Recording) return statusState.value
         val token = sessionToken
         val mark = timeSource.markNow()
-        if (targetState.value == DictationTarget.ActiveField) inserter.captureTargetIfUnknown()
+        inserter.captureTargetIfUnknown()
         statusState.value = DictationPipelineStatus.Transcribing
         val outcome = try {
             val final = transcribeFinalText()

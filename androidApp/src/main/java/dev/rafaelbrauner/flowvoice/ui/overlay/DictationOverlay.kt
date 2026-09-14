@@ -61,6 +61,7 @@ fun DictationOverlay(
     onSessionStarted: () -> Unit
 ) {
     val status by pipeline.status.collectAsState()
+    val target by pipeline.target.collectAsState()
     val segments by pipeline.segments.collectAsState()
     var ownership by remember { mutableStateOf(OverlayOwnership.released()) }
     val owned = ownership.owned
@@ -107,6 +108,7 @@ fun DictationOverlay(
     val proofreading = remember(status) { pipeline.proofreadingEnabled }
     val state = DictationBarModel.from(
         status = status,
+        target = target,
         live = live,
         elapsedMs = elapsedMs,
         proofreadingEnabled = proofreading,
@@ -139,7 +141,8 @@ fun DictationOverlay(
                         is DictationPipelineStatus.Ready -> pipeline.requestInsertReady()
                         else -> Unit
                     }
-                }
+                },
+                onStop = { pipeline.requestFinalize() }
             )
             is DictationBarState.Result -> DictationResult(
                 state = state,
@@ -180,6 +183,7 @@ fun DictationBar(
     state: DictationBarState.Live,
     onCancel: () -> Unit,
     onInsert: () -> Unit,
+    onStop: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val colors = FlowVoiceTheme.colors
@@ -248,13 +252,23 @@ fun DictationBar(
                 style = typography.monoRoute,
                 maxLines = 2
             )
-            PillButton(
-                text = "Inserir",
-                onClick = onInsert,
-                variant = PillButtonVariant.Primary,
-                height = 34.dp,
-                enabled = state.canInsert
-            )
+            if (state.destination == DictationTarget.Note) {
+                PillButton(
+                    text = "Parar",
+                    onClick = onStop,
+                    variant = PillButtonVariant.Primary,
+                    height = 34.dp,
+                    enabled = state.canStop
+                )
+            } else {
+                PillButton(
+                    text = "Inserir",
+                    onClick = onInsert,
+                    variant = PillButtonVariant.Primary,
+                    height = 34.dp,
+                    enabled = state.canInsert
+                )
+            }
         }
     }
 }
@@ -322,7 +336,8 @@ private fun DictationBarPreview(@PreviewParameter(ThemePreviewParameter::class) 
                 canInsert = true
             ),
             onCancel = {},
-            onInsert = {}
+            onInsert = {},
+            onStop = {}
         )
         DictationBar(
             state = DictationBarState.Live(
@@ -334,7 +349,8 @@ private fun DictationBarPreview(@PreviewParameter(ThemePreviewParameter::class) 
                 canInsert = true
             ),
             onCancel = {},
-            onInsert = {}
+            onInsert = {},
+            onStop = {}
         )
         DictationResult(
             state = DictationBarState.Result(success = true, message = "Inserido no campo ativo · 1,1 s"),
