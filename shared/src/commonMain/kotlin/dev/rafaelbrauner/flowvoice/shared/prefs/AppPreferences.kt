@@ -7,7 +7,9 @@ data class AppPreferences(
     val proofreadingEnabled: Boolean = false,
     val proofreadingModel: String = DEFAULT_PROOFREADING_MODEL,
     val googleWebClientId: String = "",
-    val syncEndpoint: String = ""
+    val syncEndpoint: String = "",
+    val loginCompleted: Boolean = false,
+    val onboardingCompleted: Boolean = false
 ) {
     companion object {
         const val DEFAULT_PROOFREADING_MODEL = "openai/gpt-4o-mini"
