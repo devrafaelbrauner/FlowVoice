@@ -32,6 +32,9 @@ jobs:
       - name: Run shared (desktop) tests
         run: ./gradlew :shared:desktopTest --stacktrace
 
+      - name: Run Android unit tests
+        run: ./gradlew :androidApp:testDebugUnitTest --stacktrace
+
       - name: Lint Android (debug)
         run: ./gradlew :androidApp:lintDebug --stacktrace
 
