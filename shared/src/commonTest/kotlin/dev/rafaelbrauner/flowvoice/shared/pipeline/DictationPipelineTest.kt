@@ -889,6 +889,88 @@ class DictationPipelineTest {
         assertEquals("o médico pediu o exame", note.body())
     }
 
+    @Test
+    fun keyRejectedWhileStartingStopsCaptureAsSoonAsRecordingBegins() = runTest {
+        val engine = FramesThenGatedAudioCaptureEngine(List(2) { frame(100L) })
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = emptyList(),
+            texts = mapOf(0 to "um"),
+            failures = mapOf(1 to TranscriptionError.InvalidKey()),
+            captureEngine = engine
+        )
+
+        val starting = async { env.pipeline.start() }
+        runCurrent()
+        assertEquals(DictationPipelineStatus.Starting, env.pipeline.status.value)
+        assertEquals("invalid_key", env.pipeline.segments.value[1].errorKind)
+
+        engine.release()
+        starting.await()
+        runCurrent()
+
+        val ready = assertIs<DictationPipelineStatus.Ready>(env.pipeline.status.value)
+        assertEquals("um", ready.text)
+        assertTrue(ready.warning.orEmpty().contains("chave OpenRouter ausente ou inválida"), ready.warning)
+        assertEquals(1, engine.stopCount)
+        assertFalse(engine.isRunning)
+    }
+
+    @Test
+    fun budgetExhaustedWhileStartingStopsCaptureAsSoonAsRecordingBegins() = runTest {
+        val engine = FramesThenGatedAudioCaptureEngine(List(2) { frame(100L) })
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = emptyList(),
+            texts = mapOf(0 to "um"),
+            captureEngine = engine,
+            config = OpenRouterConfig(maxRequestsPerSession = 1)
+        )
+
+        val starting = async { env.pipeline.start() }
+        runCurrent()
+        assertEquals(DictationPipelineStatus.Starting, env.pipeline.status.value)
+        assertEquals("budget", env.pipeline.segments.value[1].errorKind)
+
+        engine.release()
+        starting.await()
+        runCurrent()
+
+        val ready = assertIs<DictationPipelineStatus.Ready>(env.pipeline.status.value)
+        assertEquals("um", ready.text)
+        assertTrue(ready.warning.orEmpty().contains("teto de requisições da sessão"), ready.warning)
+        assertEquals(1, engine.stopCount)
+        assertFalse(engine.isRunning)
+    }
+
+    // Entrega os frames e só então fica preso no start: as janelas são transcritas com o pipeline
+    // ainda em Starting, como num AudioRecord que demora a confirmar o início.
+    private class FramesThenGatedAudioCaptureEngine(private val frames: List<AudioFrame>) : AudioCaptureEngine {
+        override val format: AudioFormat = AudioFormat.DEFAULT
+        private val gate = CompletableDeferred<Unit>()
+        private var running = false
+        var stopCount = 0
+            private set
+
+        override val isRunning: Boolean
+            get() = running
+
+        override suspend fun start(onFrame: suspend (AudioFrame) -> Unit) {
+            running = true
+            frames.forEach { onFrame(it) }
+            gate.await()
+        }
+
+        override fun stop() {
+            stopCount++
+            running = false
+        }
+
+        fun release() {
+            gate.complete(Unit)
+        }
+    }
+
     private suspend fun DictationPipeline.reviewAndInsert(): DictationPipelineStatus {
         finalizeForReview()
         return insertReady()

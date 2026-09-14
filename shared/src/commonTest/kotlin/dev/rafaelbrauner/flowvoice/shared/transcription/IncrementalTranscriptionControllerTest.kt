@@ -136,7 +136,7 @@ class IncrementalTranscriptionControllerTest {
         advanceUntilIdle()
         watcher.join()
 
-        assertTrue(submittedWhenExhausted in 1..3, "janelas capturadas ao esgotar: $submittedWhenExhausted")
+        assertEquals(3, submittedWhenExhausted, "janelas capturadas ao esgotar")
         assertEquals(listOf(0, 1), client.started)
     }
 

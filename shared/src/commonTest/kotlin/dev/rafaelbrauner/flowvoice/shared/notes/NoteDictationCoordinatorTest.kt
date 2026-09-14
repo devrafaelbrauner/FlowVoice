@@ -92,6 +92,23 @@ class NoteDictationCoordinatorTest {
     }
 
     @Test
+    fun newSessionWithTheSameStatusAsTheBaselineIsStillFollowed() = runTest {
+        val keyMissing = DictationPipelineStatus.Failed("chave OpenRouter ausente ou inválida")
+        sessions.value = session(1, keyMissing)
+        val coordinator = NoteDictationCoordinator(store)
+        coordinator.attach(sessions, backgroundScope)
+        val note = store.create("corpo")
+
+        coordinator.begin(note.id, sessions.value)
+        sessions.value = session(2, keyMissing)
+        runCurrent()
+
+        assertNull(coordinator.activeNoteId)
+        assertEquals(NoteDictationMessage(keyMissing.message, isError = true), coordinator.state.value.message)
+        assertEquals("corpo", store.get(note.id)?.body)
+    }
+
+    @Test
     fun sessionNotStartedForANoteIsIgnored() = runTest {
         val coordinator = NoteDictationCoordinator(store)
         coordinator.attach(sessions, backgroundScope)
