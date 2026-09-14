@@ -55,6 +55,7 @@ class DictationPipeline(
     private val windowsState = MutableStateFlow<List<DictationWindow>>(emptyList())
     private val submittedWindows = MutableStateFlow(0)
     private var sessionToken = 0
+    private var reviewSession = false
 
     val status: StateFlow<DictationPipelineStatus> = statusState.asStateFlow()
     val sessionState: StateFlow<DictationSessionState> = controller.state
@@ -98,6 +99,11 @@ class DictationPipeline(
                 }
             }
         }
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            transcription.budgetExhausted.collect { exhausted ->
+                if (exhausted) stopAtRequestBudget()
+            }
+        }
     }
 
     fun preview(): LivePreview {
@@ -119,9 +125,10 @@ class DictationPipeline(
         )
     }
 
-    suspend fun start() {
+    suspend fun start(review: Boolean = false) {
         if (statusState.value.isBusy) return
         val token = ++sessionToken
+        reviewSession = review
         statusState.value = DictationPipelineStatus.Starting
         transcription.reset()
         windowsState.value = emptyList()
@@ -136,6 +143,7 @@ class DictationPipeline(
             if (statusState.value == DictationPipelineStatus.Starting) {
                 statusState.value = DictationPipelineStatus.Recording
                 log("dictation_started", emptyMap())
+                if (transcription.budgetExhausted.value) stopAtRequestBudget()
             }
         } catch (error: CancellationException) {
             throw error
@@ -145,6 +153,12 @@ class DictationPipeline(
                 log("dictation_failed", mapOf("stage" to "start"))
             }
         }
+    }
+
+    private fun stopAtRequestBudget() {
+        if (statusState.value != DictationPipelineStatus.Recording) return
+        log("dictation_budget_stop", mapOf("review" to reviewSession.toString()))
+        if (reviewSession) requestFinalizeForReview() else requestFinalize()
     }
 
     suspend fun finalize(): DictationPipelineStatus {
@@ -246,7 +260,7 @@ class DictationPipeline(
         }
     }
 
-    fun requestStart(): Job = scope.launch { start() }
+    fun requestStart(review: Boolean = false): Job = scope.launch { start(review) }
 
     fun requestFinalize(): Job = scope.launch { finalize() }
 
