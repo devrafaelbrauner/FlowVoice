@@ -20,6 +20,7 @@ import dev.rafaelbrauner.flowvoice.shared.transcription.TranscriptionClient
 import dev.rafaelbrauner.flowvoice.shared.transcription.TranscriptionError
 import dev.rafaelbrauner.flowvoice.shared.transcription.TranscriptionErrorClassifier
 import dev.rafaelbrauner.flowvoice.shared.transcription.TranscriptionResult
+import dev.rafaelbrauner.flowvoice.shared.transcription.voicedPcm
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -868,13 +869,35 @@ class DictationPipelineTest {
         assertTrue(env.inserter.inserted.isEmpty())
     }
 
+    @Test
+    fun noteSessionNeverSendsDigitallySilentAudioSoNoInventedTextReachesTheNote() = runTest {
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = listOf(frame(100L), frame(100L, silent = true), frame(50L)),
+            texts = mapOf(0 to "o médico", 1 to "texto inventado", 2 to "pediu o exame")
+        )
+        val note = NoteHarness(env.pipeline, backgroundScope)
+
+        env.pipeline.start(DictationTarget.Note)
+        runCurrent()
+        val completed = assertIs<DictationPipelineStatus.Completed>(env.pipeline.finalize())
+        runCurrent()
+
+        assertEquals(listOf(0, 2), env.client.requested)
+        assertEquals("o médico pediu o exame", completed.text)
+        assertNull(completed.warning)
+        assertEquals("o médico pediu o exame", note.body())
+    }
+
     private suspend fun DictationPipeline.reviewAndInsert(): DictationPipelineStatus {
         finalizeForReview()
         return insertReady()
     }
 
-    private fun frame(durationMs: Long): AudioFrame =
-        AudioFrame(ByteArray((durationMs * 16).toInt() * 2), AudioFormat.DEFAULT)
+    private fun frame(durationMs: Long, silent: Boolean = false): AudioFrame {
+        val byteCount = (durationMs * 16).toInt() * 2
+        return AudioFrame(if (silent) ByteArray(byteCount) else voicedPcm(byteCount), AudioFormat.DEFAULT)
+    }
 
     private class TargetInserter : TextInserter {
         var focused: String? = null
@@ -1031,7 +1054,10 @@ private class ScriptedTranscriptionClient(
     private val delayMs: Long,
     private val failures: Map<Int, Throwable> = emptyMap()
 ) : TranscriptionClient {
+    val requested = mutableListOf<Int>()
+
     override suspend fun transcribe(window: DictationWindow, apiKey: String, model: String?): TranscriptionResult {
+        requested += window.index
         if (delayMs > 0L) delay(delayMs)
         failures[window.index]?.let { throw it }
         return TranscriptionResult(texts[window.index] ?: "w${window.index}", "fake")

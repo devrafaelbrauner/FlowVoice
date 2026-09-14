@@ -119,13 +119,16 @@ private class OneFrameAudioCaptureEngine : AudioCaptureEngine {
 
     override suspend fun start(onFrame: suspend (AudioFrame) -> Unit) {
         startCount++
-        onFrame(AudioFrame(ByteArray(FRAME_BYTES), format))
+        onFrame(AudioFrame(ByteArray(FRAME_BYTES) { VOICED_PATTERN[it % VOICED_PATTERN.size] }, format))
     }
 
     override fun stop() = Unit
 
     private companion object {
         const val FRAME_BYTES = 3_200
+
+        // Amostras de ±1000: silêncio digital (ByteArray zerado) não vai à transcrição.
+        val VOICED_PATTERN = byteArrayOf(0xE8.toByte(), 0x03, 0x18, 0xFC.toByte())
     }
 }
 

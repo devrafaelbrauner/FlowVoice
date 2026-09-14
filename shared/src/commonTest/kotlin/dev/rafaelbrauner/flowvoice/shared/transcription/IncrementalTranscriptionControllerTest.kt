@@ -141,6 +141,50 @@ class IncrementalTranscriptionControllerTest {
     }
 
     @Test
+    fun digitallySilentWindowIsNotSentAndLeavesNoText() = runTest {
+        val client = FakeTranscriptionClient(
+            results = mapOf(
+                0 to TranscriptionResult("o médico", "fake"),
+                1 to TranscriptionResult("texto inventado", "fake"),
+                2 to TranscriptionResult("pediu o exame", "fake")
+            )
+        )
+        val controller = IncrementalTranscriptionController(
+            client = client,
+            config = OpenRouterConfig(),
+            scope = this,
+            apiKeyProvider = { "sk-or-v1-testkey123456" }
+        )
+
+        controller.submit(testWindow(0))
+        controller.submit(testWindow(1, silent = true))
+        controller.submit(testWindow(2))
+        advanceUntilIdle()
+
+        assertEquals(listOf(0, 2), client.started)
+        assertEquals("o médico pediu o exame", controller.provisionalText.value)
+        assertEquals(TranscriptionSegment(1, TranscriptionSegment.Status.Ok), controller.segments.value[1])
+    }
+
+    @Test
+    fun silentWindowsStillCountTowardTheSessionBudgetSoAMutedCaptureEnds() = runTest {
+        val client = FakeTranscriptionClient()
+        val controller = IncrementalTranscriptionController(
+            client = client,
+            config = OpenRouterConfig(maxRequestsPerSession = 2),
+            scope = this,
+            apiKeyProvider = { "sk-or-v1-testkey123456" }
+        )
+
+        repeat(3) { controller.submit(testWindow(it, silent = true)) }
+        advanceUntilIdle()
+
+        assertEquals(emptyList(), client.started)
+        assertTrue(controller.budgetExhausted.value)
+        assertEquals("budget", controller.segments.value[2].errorKind)
+    }
+
+    @Test
     fun missingOrRejectedKeyBecomesTerminalAndStopsFurtherRequests() = runTest {
         val missing = IncrementalTranscriptionController(
             client = FakeTranscriptionClient(),

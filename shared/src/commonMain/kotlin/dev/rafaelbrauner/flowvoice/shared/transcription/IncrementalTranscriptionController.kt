@@ -1,6 +1,7 @@
 package dev.rafaelbrauner.flowvoice.shared.transcription
 
 import dev.rafaelbrauner.flowvoice.shared.dictation.DictationWindow
+import dev.rafaelbrauner.flowvoice.shared.dictation.SilentWindow
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -93,6 +94,10 @@ class IncrementalTranscriptionController(
 
     private suspend fun process(window: DictationWindow) {
         if (cancelled) return
+        if (SilentWindow.detect(window)) {
+            skipSilent(window)
+            return
+        }
         upsert(
             TranscriptionSegment(
                 windowIndex = window.index,
@@ -127,6 +132,19 @@ class IncrementalTranscriptionController(
         } catch (error: Throwable) {
             fail(window, TranscriptionErrorClassifier.fromThrowable(error))
         }
+    }
+
+    // A janela silenciosa já ocupou uma vaga do teto na submissão: sem isso, uma captura muda
+    // nunca atingiria o teto e o microfone ficaria aberto (P107).
+    private suspend fun skipSilent(window: DictationWindow) {
+        upsert(TranscriptionSegment(windowIndex = window.index, status = TranscriptionSegment.Status.Ok))
+        eventLog.log(
+            "transcription_silent_window",
+            mapOf(
+                "window" to window.index.toString(),
+                "durationMs" to window.durationMs.toString()
+            )
+        )
     }
 
     private suspend fun failFatally(window: DictationWindow, error: TranscriptionError) {
