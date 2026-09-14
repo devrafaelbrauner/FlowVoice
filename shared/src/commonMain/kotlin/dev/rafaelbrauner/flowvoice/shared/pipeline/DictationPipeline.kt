@@ -112,7 +112,7 @@ class DictationPipeline(
         }
         scope.launch(start = CoroutineStart.UNDISPATCHED) {
             transcription.fatalError.collect { error ->
-                if (error != null) failOnInvalidKey()
+                if (error != null) stopOnInvalidKey()
             }
         }
     }
@@ -161,7 +161,7 @@ class DictationPipeline(
                 publish(DictationPipelineStatus.Recording)
                 log("dictation_started", emptyMap())
                 when {
-                    transcription.fatalError.value != null -> failOnInvalidKey()
+                    transcription.fatalError.value != null -> stopOnInvalidKey()
                     transcription.budgetExhausted.value -> stopAtRequestBudget()
                 }
             }
@@ -175,18 +175,13 @@ class DictationPipeline(
         }
     }
 
-    private fun failOnInvalidKey() {
-        if (statusState.value != DictationPipelineStatus.Recording) return
-        sessionToken++
-        transcription.cancel()
-        publish(DictationPipelineStatus.Failed(INVALID_KEY_MESSAGE))
-        log("dictation_failed", mapOf("stage" to "key"))
-        scope.launch { controller.cancel() }
-    }
+    private fun stopOnInvalidKey() = stopEarly("dictation_key_stop")
 
-    private fun stopAtRequestBudget() {
+    private fun stopAtRequestBudget() = stopEarly("dictation_budget_stop")
+
+    private fun stopEarly(event: String) {
         if (statusState.value != DictationPipelineStatus.Recording) return
-        log("dictation_budget_stop", mapOf("target" to targetState.value.name))
+        log(event, mapOf("target" to targetState.value.name))
         when (targetState.value) {
             DictationTarget.Note -> requestFinalize()
             DictationTarget.ActiveField -> scope.launch { finalizeForReview(captureTarget = false) }
@@ -365,7 +360,7 @@ class DictationPipeline(
         )
         val revised = dictionary.apply(assembled.finalized)
         val prefs = preferences.read()
-        if (!prefs.proofreadingEnabled || revised.isBlank()) return revised
+        if (!prefs.proofreadingEnabled || revised.isBlank() || transcription.fatalError.value != null) return revised
         val apiKey = secrets.readOpenRouterKey().orEmpty()
         if (apiKey.isBlank()) return revised
         return try {

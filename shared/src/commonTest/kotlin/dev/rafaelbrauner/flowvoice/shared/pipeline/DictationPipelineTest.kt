@@ -715,7 +715,7 @@ class DictationPipelineTest {
     }
 
     @Test
-    fun keyRejectedMidSessionFailsTheSessionAndStopsCapture() = runTest {
+    fun keyRejectedMidActiveFieldSessionStopsCaptureAndKeepsTheTranscribedTextForReview() = runTest {
         val env = PipelineEnv(
             scope = backgroundScope,
             frames = List(4) { frame(100L) },
@@ -726,11 +726,67 @@ class DictationPipelineTest {
         env.pipeline.start()
         runCurrent()
 
-        val failed = assertIs<DictationPipelineStatus.Failed>(env.pipeline.status.value)
-        assertEquals("chave OpenRouter ausente ou inválida", failed.message)
+        val ready = assertIs<DictationPipelineStatus.Ready>(env.pipeline.status.value)
+        assertEquals("um", ready.text)
+        assertTrue(ready.warning.orEmpty().contains("chave OpenRouter ausente ou inválida"), ready.warning)
         assertEquals(1, env.engine.stopCount)
         assertFalse(env.engine.isRunning)
         assertTrue(env.inserter.inserted.isEmpty())
+    }
+
+    @Test
+    fun keyRejectedMidNoteSessionAppendsTheTranscribedTextToTheNoteWithWarning() = runTest {
+        val inserter = CallRecordingInserter()
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = List(4) { frame(100L) },
+            texts = mapOf(0 to "um"),
+            failures = mapOf(1 to TranscriptionError.InvalidKey()),
+            textInserter = inserter
+        )
+        val note = NoteHarness(env.pipeline, backgroundScope)
+
+        env.pipeline.start(DictationTarget.Note)
+        runCurrent()
+
+        assertIs<DictationPipelineStatus.Completed>(env.pipeline.status.value)
+        assertEquals("um", note.body())
+        assertTrue(note.message().orEmpty().contains("chave OpenRouter ausente ou inválida"), note.message())
+        assertFalse(env.engine.isRunning)
+        assertEquals(emptyList(), inserter.calls)
+    }
+
+    @Test
+    fun keyRejectedBeforeAnyTextFailsWithTheKeyReasonAndStopsCapture() = runTest {
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = List(4) { frame(100L) },
+            failures = mapOf(0 to TranscriptionError.InvalidKey())
+        )
+
+        env.pipeline.start()
+        runCurrent()
+
+        val failed = assertIs<DictationPipelineStatus.Failed>(env.pipeline.status.value)
+        assertEquals("Nenhum trecho transcrito (chave OpenRouter ausente ou inválida)", failed.message)
+        assertFalse(env.engine.isRunning)
+    }
+
+    @Test
+    fun textKeptAfterTheKeyIsRejectedIsNotSentToProofreading() = runTest {
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = List(4) { frame(100L) },
+            texts = mapOf(0 to "um"),
+            failures = mapOf(1 to TranscriptionError.InvalidKey()),
+            preferences = AppPreferences(proofreadingEnabled = true)
+        )
+
+        env.pipeline.start()
+        runCurrent()
+
+        assertEquals("um", assertIs<DictationPipelineStatus.Ready>(env.pipeline.status.value).text)
+        assertTrue(env.proofreader.received.isEmpty())
     }
 
     @Test
