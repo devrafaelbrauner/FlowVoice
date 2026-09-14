@@ -6,6 +6,29 @@ estão em [`docs/tasks/`](docs/tasks/README.md).
 
 ## [Unreleased]
 
+## [0.4.4] - 2026-09-14
+
+Correções dos achados P110, P111 e P112 do `/verificar` da 0.4.3.
+
+### Fixed
+
+- P110: depois de uma segunda tentativa de ditar numa nota sem chave, a nota
+  ficava armada e o texto da sessão seguinte, ditado em outro app, também ia
+  para ela; o Início mostrava "O microfone não respondeu a tempo." e a barra
+  ficava sem liberação. Cada sessão do pipeline passa a ter identidade
+  (`session`), e Notas, Início e barra acompanham a sessão em vez de comparar
+  status. Parar numa sessão de campo ativo leva à revisão e não insere sem
+  toque em Inserir.
+- P111: chave rejeitada no meio da gravação descartava todo o texto já
+  transcrito. Agora a captura para e o texto é entregue com aviso: na barra,
+  para revisar; na nota, anexado. A revisão por IA não é chamada com a chave
+  recusada.
+- P112: HTTP 403 (guardrail, moderação ou permissão, segundo a documentação da
+  OpenRouter) era tratado como chave inválida e encerrava a sessão; agora só o
+  trecho falha, com o motivo "recusado pela OpenRouter".
+
+Coberto por testes unitários; ainda não validado no aparelho (ver P94).
+
 ## [0.4.3] - 2026-09-14
 
 Correções dos achados do `/verificar` da 0.4.2 e do `/debugar` de P95 e P106.
