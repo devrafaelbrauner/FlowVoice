@@ -26,17 +26,25 @@ class IncrementalTranscriptionController(
     private var cancelled = false
     private var requestCount = 0
     private val budgetState = MutableStateFlow(false)
+    private val fatalState = MutableStateFlow<TranscriptionError?>(null)
 
     val provisionalText: StateFlow<String> = provisional.asStateFlow()
     val segments: StateFlow<List<TranscriptionSegment>> = segmentState.asStateFlow()
     val budgetExhausted: StateFlow<Boolean> = budgetState.asStateFlow()
+    val fatalError: StateFlow<TranscriptionError?> = fatalState.asStateFlow()
 
     fun submit(window: DictationWindow) {
         if (cancelled) return
+        val withinBudget = requestCount < config.maxRequestsPerSession
+        if (withinBudget) requestCount++ else budgetState.value = true
         val job = scope.launch {
-            processMutex.withLock {
-                if (!cancelled) {
-                    process(window)
+            if (!withinBudget) {
+                rejectOverBudget(window)
+            } else {
+                processMutex.withLock {
+                    if (!cancelled) {
+                        process(window)
+                    }
                 }
             }
         }
@@ -56,6 +64,7 @@ class IncrementalTranscriptionController(
         cancelled = false
         requestCount = 0
         budgetState.value = false
+        fatalState.value = null
         provisional.value = ""
         segmentState.value = emptyList()
     }
@@ -64,39 +73,41 @@ class IncrementalTranscriptionController(
         jobs.toList().forEach { it.join() }
     }
 
+    private suspend fun rejectOverBudget(window: DictationWindow) {
+        upsert(
+            TranscriptionSegment(
+                windowIndex = window.index,
+                status = TranscriptionSegment.Status.Failed,
+                errorKind = TranscriptionError.SessionBudgetExceeded().kind
+            )
+        )
+        eventLog.log(
+            "transcription_budget",
+            mapOf(
+                "window" to window.index.toString(),
+                "durationMs" to window.durationMs.toString(),
+                "model" to config.model
+            )
+        )
+    }
+
     private suspend fun process(window: DictationWindow) {
         if (cancelled) return
-        if (requestCount >= config.maxRequestsPerSession) {
-            upsert(
-                TranscriptionSegment(
-                    windowIndex = window.index,
-                    status = TranscriptionSegment.Status.Failed,
-                    errorKind = TranscriptionError.SessionBudgetExceeded().kind
-                )
-            )
-            budgetState.value = true
-            eventLog.log(
-                "transcription_budget",
-                mapOf(
-                    "window" to window.index.toString(),
-                    "durationMs" to window.durationMs.toString(),
-                    "model" to config.model
-                )
-            )
-            return
-        }
         upsert(
             TranscriptionSegment(
                 windowIndex = window.index,
                 status = TranscriptionSegment.Status.Transcribing
             )
         )
-        val apiKey = apiKeyProvider().orEmpty()
-        if (apiKey.isBlank()) {
-            fail(window, TranscriptionError.InvalidKey())
+        fatalState.value?.let { fatal ->
+            fail(window, fatal)
             return
         }
-        requestCount++
+        val apiKey = apiKeyProvider().orEmpty()
+        if (apiKey.isBlank()) {
+            failFatally(window, TranscriptionError.InvalidKey())
+            return
+        }
         try {
             val result = client.transcribe(window, apiKey)
             upsert(
@@ -109,11 +120,18 @@ class IncrementalTranscriptionController(
             rebuildProvisionalText()
         } catch (error: CancellationException) {
             throw error
+        } catch (error: TranscriptionError.InvalidKey) {
+            failFatally(window, error)
         } catch (error: TranscriptionError) {
             fail(window, error)
         } catch (error: Throwable) {
             fail(window, TranscriptionErrorClassifier.fromThrowable(error))
         }
+    }
+
+    private suspend fun failFatally(window: DictationWindow, error: TranscriptionError) {
+        fail(window, error)
+        fatalState.value = error
     }
 
     private suspend fun fail(window: DictationWindow, error: TranscriptionError) {

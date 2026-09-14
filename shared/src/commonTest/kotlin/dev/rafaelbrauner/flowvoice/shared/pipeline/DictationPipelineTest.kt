@@ -635,6 +635,59 @@ class DictationPipelineTest {
     }
 
     @Test
+    fun startWithoutKeyFailsBeforeOpeningTheMicrophone() = runTest {
+        val env = PipelineEnv(scope = backgroundScope, frames = listOf(frame(100L)), apiKey = null)
+
+        env.pipeline.start()
+        runCurrent()
+
+        val failed = assertIs<DictationPipelineStatus.Failed>(env.pipeline.status.value)
+        assertEquals("chave OpenRouter ausente ou inválida", failed.message)
+        assertEquals(0, env.engine.startCount)
+        assertEquals(0, env.inserter.captures)
+        assertTrue(env.inserter.inserted.isEmpty())
+    }
+
+    @Test
+    fun noteSessionWithoutKeyTellsTheNoteWithoutTouchingTheInserter() = runTest {
+        val inserter = CallRecordingInserter()
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = listOf(frame(100L)),
+            apiKey = null,
+            textInserter = inserter
+        )
+        val note = NoteHarness(env.pipeline, backgroundScope)
+
+        env.pipeline.start(DictationTarget.Note)
+        runCurrent()
+
+        assertIs<DictationPipelineStatus.Failed>(env.pipeline.status.value)
+        assertEquals("chave OpenRouter ausente ou inválida", note.message())
+        assertEquals(emptyList(), inserter.calls)
+        assertEquals("", note.body())
+    }
+
+    @Test
+    fun keyRejectedMidSessionFailsTheSessionAndStopsCapture() = runTest {
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = List(4) { frame(100L) },
+            texts = mapOf(0 to "um"),
+            failures = mapOf(1 to TranscriptionError.InvalidKey())
+        )
+
+        env.pipeline.start()
+        runCurrent()
+
+        val failed = assertIs<DictationPipelineStatus.Failed>(env.pipeline.status.value)
+        assertEquals("chave OpenRouter ausente ou inválida", failed.message)
+        assertEquals(1, env.engine.stopCount)
+        assertFalse(env.engine.isRunning)
+        assertTrue(env.inserter.inserted.isEmpty())
+    }
+
+    @Test
     fun reachingRequestBudgetInActiveFieldSessionStopsCaptureAtReady() = runTest {
         val env = PipelineEnv(
             scope = backgroundScope,
@@ -729,6 +782,8 @@ private class NoteHarness(pipeline: DictationPipeline, scope: CoroutineScope) {
     }
 
     fun body(): String? = store.get(noteId)?.body
+
+    fun message(): String? = coordinator.state.value.message?.text
 }
 
 private class CallRecordingInserter : TextInserter {
@@ -816,12 +871,15 @@ private class ScriptedAudioCaptureEngine(
     override val format: AudioFormat = AudioFormat.DEFAULT
     var stopCount = 0
         private set
+    var startCount = 0
+        private set
     private var running = false
 
     override val isRunning: Boolean
         get() = running
 
     override suspend fun start(onFrame: suspend (AudioFrame) -> Unit) {
+        startCount++
         startError?.let { throw it }
         running = true
         for (frame in frames) {
