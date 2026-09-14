@@ -194,6 +194,7 @@ class DictationPipeline(
     }
 
     suspend fun finalize(): DictationPipelineStatus {
+        if (targetState.value == DictationTarget.ActiveField) return finalizeForReview()
         if (statusState.value != DictationPipelineStatus.Recording) return statusState.value
         val token = sessionToken
         publish(DictationPipelineStatus.Transcribing)
@@ -331,10 +332,10 @@ class DictationPipeline(
         latencyMs: Long?,
         failedWindows: Int? = null
     ): DictationPipelineStatus {
-        val insertion = when {
-            text.isBlank() -> TextInsertionResult(success = false, route = "pipeline", message = "sem texto para inserir")
-            targetState.value == DictationTarget.Note -> NOTE_DELIVERY
-            else -> inserter.insert(text)
+        val insertion = if (text.isBlank()) {
+            TextInsertionResult(success = false, route = "pipeline", message = "sem texto para inserir")
+        } else {
+            NOTE_DELIVERY
         }
         return completed(text, insertion, warning, latencyMs, failedWindows)
     }

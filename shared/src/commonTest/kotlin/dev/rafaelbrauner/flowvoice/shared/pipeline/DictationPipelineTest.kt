@@ -49,7 +49,7 @@ class DictationPipelineTest {
 
         env.pipeline.start()
         runCurrent()
-        val status = env.pipeline.finalize()
+        val status = env.pipeline.reviewAndInsert()
 
         val completed = assertIs<DictationPipelineStatus.Completed>(status)
         assertEquals("o médico pediu o exame de sangue", completed.text)
@@ -69,7 +69,7 @@ class DictationPipelineTest {
 
         env.pipeline.start()
         runCurrent()
-        val completed = assertIs<DictationPipelineStatus.Completed>(env.pipeline.finalize())
+        val completed = assertIs<DictationPipelineStatus.Completed>(env.pipeline.reviewAndInsert())
 
         assertEquals(listOf("o médico de sangue"), env.inserter.inserted)
         assertEquals("Trecho 2 de 3 falhou (timeout): texto incompleto", completed.warning)
@@ -102,7 +102,7 @@ class DictationPipelineTest {
         env.dictionary.approve("Dipirona")
 
         env.pipeline.start()
-        val status = env.pipeline.finalize()
+        val status = env.pipeline.reviewAndInsert()
 
         assertEquals(listOf("tomar Dipirona"), env.proofreader.received)
         assertEquals("Tomar Dipirona.", assertIs<DictationPipelineStatus.Completed>(status).text)
@@ -121,7 +121,7 @@ class DictationPipelineTest {
         env.dictionary.approve("Dipirona")
 
         env.pipeline.start()
-        env.pipeline.finalize()
+        env.pipeline.reviewAndInsert()
 
         assertEquals(listOf("tomar Dipirona"), env.inserter.inserted)
     }
@@ -135,7 +135,7 @@ class DictationPipelineTest {
         )
 
         env.pipeline.start()
-        val status = assertIs<DictationPipelineStatus.Completed>(env.pipeline.finalize())
+        val status = assertIs<DictationPipelineStatus.Completed>(env.pipeline.reviewAndInsert())
 
         assertEquals("", status.text)
         assertEquals(false, status.insertion.success)
@@ -237,11 +237,11 @@ class DictationPipelineTest {
 
         env.pipeline.start()
         runCurrent()
-        val first = assertIs<DictationPipelineStatus.Completed>(env.pipeline.finalize())
+        val first = assertIs<DictationPipelineStatus.Completed>(env.pipeline.reviewAndInsert())
         env.client.texts = mapOf(0 to "segunda", 1 to "fala")
         env.pipeline.start()
         runCurrent()
-        val second = assertIs<DictationPipelineStatus.Completed>(env.pipeline.finalize())
+        val second = assertIs<DictationPipelineStatus.Completed>(env.pipeline.reviewAndInsert())
 
         assertEquals("primeira sessão", first.text)
         assertEquals("segunda fala", second.text)
@@ -250,7 +250,7 @@ class DictationPipelineTest {
     }
 
     @Test
-    fun failingInserterCompletesWithoutSuccess() = runTest {
+    fun failingInserterKeepsTheTextReadyWithTheReason() = runTest {
         val env = PipelineEnv(
             scope = backgroundScope,
             frames = listOf(frame(50L)),
@@ -260,10 +260,10 @@ class DictationPipelineTest {
 
         env.pipeline.start()
         runCurrent()
-        val completed = assertIs<DictationPipelineStatus.Completed>(env.pipeline.finalize())
+        val refused = assertIs<DictationPipelineStatus.Ready>(env.pipeline.reviewAndInsert())
 
-        assertEquals("texto", completed.text)
-        assertFalse(completed.insertion.success)
+        assertEquals("texto", refused.text)
+        assertEquals("campo indisponível", refused.refusal)
         assertEquals(listOf("texto"), env.inserter.inserted)
     }
 
@@ -295,11 +295,27 @@ class DictationPipelineTest {
 
         env.pipeline.start()
         threaded.awaitDelivered()
-        val completed = assertIs<DictationPipelineStatus.Completed>(env.pipeline.finalize())
+        val completed = assertIs<DictationPipelineStatus.Completed>(env.pipeline.reviewAndInsert())
 
         assertEquals("o médico pediu o exame de sangue", completed.text)
         assertEquals(3, env.pipeline.sessionWindows.value.size)
         assertEquals(listOf("o médico pediu o exame de sangue"), env.inserter.inserted)
+    }
+
+    @Test
+    fun stoppingAnActiveFieldSessionGoesToReviewWithoutInserting() = runTest {
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = listOf(frame(50L)),
+            texts = mapOf(0 to "texto do whatsapp")
+        )
+
+        env.pipeline.start()
+        runCurrent()
+        val ready = assertIs<DictationPipelineStatus.Ready>(env.pipeline.finalize())
+
+        assertEquals("texto do whatsapp", ready.text)
+        assertTrue(env.inserter.inserted.isEmpty())
     }
 
     @Test
@@ -734,6 +750,11 @@ class DictationPipelineTest {
         assertEquals("um dois", ready.text)
         assertTrue(ready.warning.orEmpty().contains("teto de requisições da sessão"), ready.warning)
         assertTrue(env.inserter.inserted.isEmpty())
+    }
+
+    private suspend fun DictationPipeline.reviewAndInsert(): DictationPipelineStatus {
+        finalizeForReview()
+        return insertReady()
     }
 
     private fun frame(durationMs: Long): AudioFrame =
