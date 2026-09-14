@@ -25,6 +25,7 @@ import dev.rafaelbrauner.flowvoice.shared.pipeline.DictationPipeline
 import dev.rafaelbrauner.flowvoice.ui.overlay.DictationOverlay
 import dev.rafaelbrauner.flowvoice.ui.overlay.OverlayLifecycleOwner
 import dev.rafaelbrauner.flowvoice.ui.overlay.OverlayMode
+import dev.rafaelbrauner.flowvoice.ui.overlay.OverlayStartRequests
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -64,6 +65,10 @@ class FlowVoiceOverlayService : Service(), KoinComponent {
         }
         if (overlayView == null && !showOverlay()) {
             stopOverlay()
+            return START_NOT_STICKY
+        }
+        if (intent?.action == OverlayStartRequests.ACTION_START_DICTATION) {
+            OverlayStartRequests.request()
         }
         return START_NOT_STICKY
     }

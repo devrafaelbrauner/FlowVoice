@@ -65,6 +65,22 @@ fun DictationOverlay(
     var dismissed by remember { mutableStateOf<DictationPipelineStatus?>(null) }
     var elapsedMs by remember { mutableLongStateOf(0L) }
     val latestModeChange by rememberUpdatedState(onModeChange)
+    val latestSessionStarted by rememberUpdatedState(onSessionStarted)
+    val startRequest by OverlayStartRequests.count.collectAsState()
+
+    val beginSession = {
+        owned = true
+        dismissed = null
+        elapsedMs = 0L
+        latestSessionStarted()
+        pipeline.requestStart()
+    }
+
+    LaunchedEffect(startRequest) {
+        if (OverlayStartRequests.takePending() && !pipeline.status.value.isBusy) {
+            beginSession()
+        }
+    }
 
     LaunchedEffect(status) {
         when (status) {
@@ -103,13 +119,7 @@ fun DictationOverlay(
             DictationBarState.Hidden -> DictationBubble(
                 busy = status.isBusy,
                 onTap = {
-                    if (!status.isBusy) {
-                        owned = true
-                        dismissed = null
-                        elapsedMs = 0L
-                        onSessionStarted()
-                        pipeline.requestStart()
-                    }
+                    if (!status.isBusy) beginSession()
                 }
             )
             is DictationBarState.Live -> DictationBar(

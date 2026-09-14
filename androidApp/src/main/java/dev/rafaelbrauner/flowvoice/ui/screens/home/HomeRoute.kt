@@ -67,6 +67,7 @@ import dev.rafaelbrauner.flowvoice.ui.components.StatCard
 import dev.rafaelbrauner.flowvoice.ui.components.StatusPill
 import dev.rafaelbrauner.flowvoice.ui.components.ThemePreviewParameter
 import dev.rafaelbrauner.flowvoice.ui.components.Wordmark
+import dev.rafaelbrauner.flowvoice.ui.overlay.OverlayStartRequests
 import dev.rafaelbrauner.flowvoice.ui.rememberKoin
 import dev.rafaelbrauner.flowvoice.ui.shell.findActivity
 import dev.rafaelbrauner.flowvoice.ui.shell.startActivitySafely
@@ -172,13 +173,22 @@ private class DictationStarter(
     private val scope: CoroutineScope
 ) {
     fun start() {
-        if (!FlowVoiceOverlayService.running) {
-            ContextCompat.startForegroundService(context, Intent(context, FlowVoiceOverlayService::class.java))
+        val previous = pipeline.status.value
+        if (previous.isBusy) {
+            context.toast("Já há um ditado em andamento.")
+            return
         }
-        pipeline.requestStart()
+        ContextCompat.startForegroundService(
+            context,
+            Intent(context, FlowVoiceOverlayService::class.java)
+                .setAction(OverlayStartRequests.ACTION_START_DICTATION)
+        )
         scope.launch {
             val status = withTimeoutOrNull(START_TIMEOUT_MS) {
-                pipeline.status.first { it != DictationPipelineStatus.Starting }
+                pipeline.status.first {
+                    it !== previous &&
+                        (it == DictationPipelineStatus.Recording || it is DictationPipelineStatus.Failed)
+                }
             }
             when (status) {
                 DictationPipelineStatus.Recording -> context.findActivity()?.moveTaskToBack(true)
