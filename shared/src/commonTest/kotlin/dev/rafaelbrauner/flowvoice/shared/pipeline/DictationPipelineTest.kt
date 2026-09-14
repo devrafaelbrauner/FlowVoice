@@ -418,6 +418,53 @@ class DictationPipelineTest {
         assertEquals(DictationPipelineStatus.Recording, env.pipeline.status.value)
     }
 
+    @Test
+    fun refusedInsertionKeepsReadyWithTextAndReason() = runTest {
+        val inserter = ScriptedInserter(outcomes = mutableListOf(false, true))
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = listOf(frame(50L)),
+            texts = mapOf(0 to "o médico"),
+            textInserter = inserter
+        )
+
+        env.pipeline.start()
+        runCurrent()
+        assertIs<DictationPipelineStatus.Ready>(env.pipeline.finalizeForReview())
+        val refused = assertIs<DictationPipelineStatus.Ready>(env.pipeline.insertReady())
+
+        assertEquals("o médico", refused.text)
+        assertEquals("foco mudou", refused.refusal)
+        assertEquals(refused, env.pipeline.status.value)
+        assertTrue(env.pipeline.status.value.isBusy)
+
+        val completed = assertIs<DictationPipelineStatus.Completed>(env.pipeline.insertReady())
+        assertTrue(completed.insertion.success)
+        assertEquals(listOf("o médico", "o médico"), inserter.attempts)
+        assertEquals(listOf("o médico"), inserter.inserted)
+    }
+
+    @Test
+    fun cancelAfterRefusedInsertionDoesNotInsert() = runTest {
+        val inserter = ScriptedInserter(outcomes = mutableListOf(false))
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = listOf(frame(50L)),
+            texts = mapOf(0 to "o médico"),
+            textInserter = inserter
+        )
+
+        env.pipeline.start()
+        runCurrent()
+        assertIs<DictationPipelineStatus.Ready>(env.pipeline.finalizeForReview())
+        assertIs<DictationPipelineStatus.Ready>(env.pipeline.insertReady())
+        env.pipeline.cancel()
+        env.pipeline.insertReady()
+
+        assertEquals(DictationPipelineStatus.Cancelled, env.pipeline.status.value)
+        assertTrue(inserter.inserted.isEmpty())
+    }
+
     private fun frame(durationMs: Long): AudioFrame =
         AudioFrame(ByteArray((durationMs * 16).toInt() * 2), AudioFormat.DEFAULT)
 }
@@ -433,7 +480,9 @@ private class PipelineEnv(
     failures: Map<Int, Throwable> = emptyMap(),
     apiKey: String? = "sk-or-v1-testkey123456",
     captureEngine: AudioCaptureEngine? = null,
-    inserterSucceeds: Boolean = true
+    inserterSucceeds: Boolean = true,
+    textInserter: TextInserter? = null,
+    config: OpenRouterConfig = OpenRouterConfig()
 ) {
     val engine = ScriptedAudioCaptureEngine(frames, startError)
     val dictionary = InMemoryPersonalDictionary()
@@ -443,14 +492,29 @@ private class PipelineEnv(
     val pipeline = DictationPipeline(
         controller = DictationSessionController(captureEngine ?: engine, windowTargetDurationMs = 100L),
         client = client,
-        config = OpenRouterConfig(),
+        config = config,
         dictionary = dictionary,
         proofreading = proofreader,
         preferences = InMemoryPreferencesStore(preferences),
         secrets = InMemorySecretStore().apply { apiKey?.let { writeOpenRouterKey(it) } },
-        inserter = inserter,
+        inserter = textInserter ?: inserter,
         scope = scope
     )
+}
+
+private class ScriptedInserter(private val outcomes: MutableList<Boolean>) : TextInserter {
+    val attempts = mutableListOf<String>()
+    val inserted = mutableListOf<String>()
+
+    override val isAvailable: Boolean = true
+
+    override fun insert(text: String): TextInsertionResult {
+        attempts += text
+        val succeeds = if (outcomes.isEmpty()) true else outcomes.removeAt(0)
+        if (!succeeds) return TextInsertionResult(success = false, route = "teste", message = "foco mudou")
+        inserted += text
+        return TextInsertionResult(success = true, route = "teste", message = "ok")
+    }
 }
 
 private class RecordingInserter(private val succeeds: Boolean = true) : TextInserter {

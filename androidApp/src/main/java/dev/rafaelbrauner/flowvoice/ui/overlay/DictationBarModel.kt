@@ -33,6 +33,7 @@ object DictationBarModel {
     const val ROUTE_TRANSCRIBING = "transcrevendo"
     const val ROUTE_PROOFREADING = "revisando pontuação · IA"
     const val ROUTE_READY = "transcrição concluída"
+    const val ROUTE_NOT_INSERTED = "não inserido · tente de novo"
     const val NOTHING_TRANSCRIBED = "Nada transcrito."
 
     fun from(
@@ -77,9 +78,9 @@ object DictationBarModel {
                 finalized = status.text,
                 provisional = "",
                 clock = clock,
-                route = ROUTE_READY,
+                route = if (status.refusal != null) ROUTE_NOT_INSERTED else ROUTE_READY,
                 canInsert = status.text.isNotBlank(),
-                warning = status.warning ?: NOTHING_TRANSCRIBED.takeIf { status.text.isBlank() }
+                warning = status.refusal ?: status.warning ?: NOTHING_TRANSCRIBED.takeIf { status.text.isBlank() }
             )
             is DictationPipelineStatus.Completed -> when {
                 dismissed -> DictationBarState.Hidden

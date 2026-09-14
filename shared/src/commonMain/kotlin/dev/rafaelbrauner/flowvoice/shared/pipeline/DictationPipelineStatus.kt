@@ -17,7 +17,8 @@ sealed interface DictationPipelineStatus {
     data class Ready(
         val text: String,
         val warning: String? = null,
-        val latencyMs: Long? = null
+        val latencyMs: Long? = null,
+        val refusal: String? = null
     ) : DictationPipelineStatus
 
     data class Completed(
