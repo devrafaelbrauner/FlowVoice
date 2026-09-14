@@ -28,6 +28,8 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlin.time.Duration.Companion.seconds
+import kotlin.time.TimeMark
 import kotlin.time.TimeSource
 
 class DictationPipeline(
@@ -56,6 +58,7 @@ class DictationPipeline(
     private val submittedWindows = MutableStateFlow(0)
     private val targetState = MutableStateFlow(DictationTarget.ActiveField)
     private var sessionToken = 0
+    private var refusalMark: TimeMark? = null
     private var sessionId = 0
     private val pipelineSessionState = MutableStateFlow(
         DictationPipelineSession(sessionId, DictationTarget.ActiveField, DictationPipelineStatus.Idle)
@@ -262,10 +265,15 @@ class DictationPipeline(
 
     fun insertReady(): DictationPipelineStatus {
         val ready = statusState.value as? DictationPipelineStatus.Ready ?: return statusState.value
+        if (ready.refusal != null && refusalMark?.let { it.elapsedNow() < RETRY_GUARD } == true) {
+            log("dictation_insert_retry_ignored", emptyMap())
+            return ready
+        }
         if (ready.text.isNotBlank() && targetState.value == DictationTarget.ActiveField) {
             if (ready.refusal == null) inserter.captureTargetIfUnknown() else inserter.captureTarget()
             val insertion = inserter.insert(ready.text)
             if (!insertion.success) {
+                refusalMark = timeSource.markNow()
                 log("dictation_insert_refused", mapOf("chars" to ready.text.length.toString()))
                 val retry = ready.copy(refusal = insertion.message)
                 publish(retry)
@@ -400,6 +408,7 @@ class DictationPipeline(
     private companion object {
         const val EVENT_BUFFER = 64
         const val INVALID_KEY_MESSAGE = "chave OpenRouter ausente ou inválida"
+        val RETRY_GUARD = 1.seconds
         val NOTE_DELIVERY = TextInsertionResult(success = false, route = "nota", message = "texto entregue à nota")
     }
 }

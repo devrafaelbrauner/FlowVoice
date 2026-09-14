@@ -37,6 +37,10 @@ import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
+import kotlin.time.TestTimeSource
+import kotlin.time.TimeSource
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class DictationPipelineTest {
@@ -458,12 +462,14 @@ class DictationPipelineTest {
 
     @Test
     fun refusedInsertionKeepsReadyWithTextAndReason() = runTest {
+        val clock = TestTimeSource()
         val inserter = ScriptedInserter(outcomes = mutableListOf(false, true))
         val env = PipelineEnv(
             scope = backgroundScope,
             frames = listOf(frame(50L)),
             texts = mapOf(0 to "o médico"),
-            textInserter = inserter
+            textInserter = inserter,
+            timeSource = clock
         )
 
         env.pipeline.start()
@@ -476,6 +482,7 @@ class DictationPipelineTest {
         assertEquals(refused, env.pipeline.status.value)
         assertTrue(env.pipeline.status.value.isBusy)
 
+        clock += 1.seconds
         val completed = assertIs<DictationPipelineStatus.Completed>(env.pipeline.insertReady())
         assertTrue(completed.insertion.success)
         assertEquals(listOf("o médico", "o médico"), inserter.attempts)
@@ -505,12 +512,14 @@ class DictationPipelineTest {
 
     @Test
     fun finalizeForReviewCapturesTargetWhenStartSawNoneAndInsertRefusesAnotherApp() = runTest {
+        val clock = TestTimeSource()
         val inserter = TargetInserter()
         val env = PipelineEnv(
             scope = backgroundScope,
             frames = listOf(frame(50L)),
             texts = mapOf(0 to "o médico"),
-            textInserter = inserter
+            textInserter = inserter,
+            timeSource = clock
         )
 
         env.pipeline.start()
@@ -527,6 +536,7 @@ class DictationPipelineTest {
         assertTrue(inserter.inserted.isEmpty())
 
         inserter.focused = "com.whatsapp"
+        clock += 1.seconds
         assertIs<DictationPipelineStatus.Completed>(env.pipeline.insertReady())
         assertEquals(listOf("o médico"), inserter.inserted)
     }
@@ -556,13 +566,43 @@ class DictationPipelineTest {
     }
 
     @Test
-    fun retryAfterRefusedInsertRecapturesTheDestination() = runTest {
+    fun insertTapRightAfterARefusalIsIgnoredSoADoubleTapDoesNotInsertInTheNewApp() = runTest {
+        val clock = TestTimeSource()
         val inserter = TargetInserter()
         val env = PipelineEnv(
             scope = backgroundScope,
             frames = listOf(frame(50L)),
             texts = mapOf(0 to "o médico"),
-            textInserter = inserter
+            textInserter = inserter,
+            timeSource = clock
+        )
+
+        inserter.focused = "com.whatsapp"
+        env.pipeline.start()
+        runCurrent()
+        assertIs<DictationPipelineStatus.Ready>(env.pipeline.finalizeForReview())
+
+        inserter.focused = "com.android.chrome"
+        assertIs<DictationPipelineStatus.Ready>(env.pipeline.insertReady())
+        clock += 200.milliseconds
+        assertIs<DictationPipelineStatus.Ready>(env.pipeline.insertReady())
+        assertTrue(inserter.inserted.isEmpty())
+
+        clock += 1.seconds
+        assertIs<DictationPipelineStatus.Completed>(env.pipeline.insertReady())
+        assertEquals(listOf("o médico"), inserter.inserted)
+    }
+
+    @Test
+    fun retryAfterRefusedInsertRecapturesTheDestination() = runTest {
+        val clock = TestTimeSource()
+        val inserter = TargetInserter()
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = listOf(frame(50L)),
+            texts = mapOf(0 to "o médico"),
+            textInserter = inserter,
+            timeSource = clock
         )
 
         inserter.focused = "com.whatsapp"
@@ -575,6 +615,7 @@ class DictationPipelineTest {
         assertEquals(TargetInserter.CHANGED, refused.refusal)
         assertTrue(inserter.inserted.isEmpty())
 
+        clock += 1.seconds
         assertIs<DictationPipelineStatus.Completed>(env.pipeline.insertReady())
         assertEquals("com.android.chrome", inserter.target)
         assertEquals(listOf("o médico"), inserter.inserted)
@@ -878,7 +919,8 @@ private class PipelineEnv(
     captureEngine: AudioCaptureEngine? = null,
     inserterSucceeds: Boolean = true,
     textInserter: TextInserter? = null,
-    config: OpenRouterConfig = OpenRouterConfig()
+    config: OpenRouterConfig = OpenRouterConfig(),
+    timeSource: TimeSource = TimeSource.Monotonic
 ) {
     val engine = ScriptedAudioCaptureEngine(frames, startError)
     val dictionary = InMemoryPersonalDictionary()
@@ -895,7 +937,8 @@ private class PipelineEnv(
         preferences = InMemoryPreferencesStore(preferences),
         secrets = secrets,
         inserter = textInserter ?: inserter,
-        scope = scope
+        scope = scope,
+        timeSource = timeSource
     )
 }
 
