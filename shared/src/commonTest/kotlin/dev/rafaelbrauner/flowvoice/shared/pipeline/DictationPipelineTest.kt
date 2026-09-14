@@ -9,6 +9,8 @@ import dev.rafaelbrauner.flowvoice.shared.dictation.DictationWindow
 import dev.rafaelbrauner.flowvoice.shared.dictionary.InMemoryPersonalDictionary
 import dev.rafaelbrauner.flowvoice.shared.insertion.TextInserter
 import dev.rafaelbrauner.flowvoice.shared.insertion.TextInsertionResult
+import dev.rafaelbrauner.flowvoice.shared.notes.InMemoryNoteStore
+import dev.rafaelbrauner.flowvoice.shared.notes.NoteDictationCoordinator
 import dev.rafaelbrauner.flowvoice.shared.prefs.AppPreferences
 import dev.rafaelbrauner.flowvoice.shared.prefs.InMemoryPreferencesStore
 import dev.rafaelbrauner.flowvoice.shared.proofreading.ProofreadingClient
@@ -495,7 +497,74 @@ class DictationPipelineTest {
     }
 
     @Test
-    fun reachingRequestBudgetStopsCaptureAndCompletesWithWarning() = runTest {
+    fun noteSessionReachingRequestBudgetDeliversToTheNoteWithoutTouchingTheInserter() = runTest {
+        val inserter = CallRecordingInserter()
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = List(4) { frame(100L) },
+            texts = mapOf(0 to "um", 1 to "dois", 2 to "três", 3 to "quatro"),
+            textInserter = inserter,
+            config = OpenRouterConfig(maxRequestsPerSession = 2)
+        )
+        val note = NoteHarness(env.pipeline, backgroundScope)
+
+        env.pipeline.start(DictationTarget.Note)
+        runCurrent()
+
+        val completed = assertIs<DictationPipelineStatus.Completed>(env.pipeline.status.value)
+        assertEquals(1, env.engine.stopCount)
+        assertEquals("um dois", completed.text)
+        assertTrue(completed.warning.orEmpty().contains("teto de requisições da sessão"), completed.warning)
+        assertFalse(completed.insertion.success)
+        assertEquals(emptyList(), inserter.calls)
+        assertEquals("um dois", note.body())
+    }
+
+    @Test
+    fun noteSessionFinalizedManuallyDeliversToTheNoteWithoutTouchingTheInserter() = runTest {
+        val inserter = CallRecordingInserter()
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = listOf(frame(100L), frame(50L)),
+            texts = mapOf(0 to "o médico", 1 to "pediu o exame"),
+            textInserter = inserter
+        )
+        val note = NoteHarness(env.pipeline, backgroundScope)
+
+        env.pipeline.start(DictationTarget.Note)
+        runCurrent()
+        val completed = assertIs<DictationPipelineStatus.Completed>(env.pipeline.finalize())
+        runCurrent()
+
+        assertEquals("o médico pediu o exame", completed.text)
+        assertEquals(emptyList(), inserter.calls)
+        assertEquals("o médico pediu o exame", note.body())
+    }
+
+    @Test
+    fun noteSessionDrivenByTheOverlayControlsNeverInserts() = runTest {
+        val inserter = CallRecordingInserter()
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = listOf(frame(50L)),
+            texts = mapOf(0 to "o médico"),
+            textInserter = inserter
+        )
+        val note = NoteHarness(env.pipeline, backgroundScope)
+
+        env.pipeline.start(DictationTarget.Note)
+        runCurrent()
+        env.pipeline.finalizeForReview()
+        env.pipeline.insertReady()
+        runCurrent()
+
+        assertEquals(emptyList(), inserter.calls)
+        assertEquals("o médico", note.body())
+        assertFalse(env.pipeline.status.value.isBusy)
+    }
+
+    @Test
+    fun reachingRequestBudgetInActiveFieldSessionStopsCaptureAtReady() = runTest {
         val env = PipelineEnv(
             scope = backgroundScope,
             frames = List(4) { frame(100L) },
@@ -504,25 +573,6 @@ class DictationPipelineTest {
         )
 
         env.pipeline.start()
-        runCurrent()
-
-        val completed = assertIs<DictationPipelineStatus.Completed>(env.pipeline.status.value)
-        assertEquals(1, env.engine.stopCount)
-        assertEquals("um dois", completed.text)
-        assertTrue(completed.warning.orEmpty().contains("teto de requisições da sessão"), completed.warning)
-        assertEquals(listOf("um dois"), env.inserter.inserted)
-    }
-
-    @Test
-    fun reachingRequestBudgetInReviewSessionStopsCaptureAtReady() = runTest {
-        val env = PipelineEnv(
-            scope = backgroundScope,
-            frames = List(4) { frame(100L) },
-            texts = mapOf(0 to "um", 1 to "dois", 2 to "três", 3 to "quatro"),
-            config = OpenRouterConfig(maxRequestsPerSession = 2)
-        )
-
-        env.pipeline.start(review = true)
         runCurrent()
 
         val ready = assertIs<DictationPipelineStatus.Ready>(env.pipeline.status.value)
@@ -596,6 +646,37 @@ private class PipelineEnv(
         inserter = textInserter ?: inserter,
         scope = scope
     )
+}
+
+private class NoteHarness(pipeline: DictationPipeline, scope: CoroutineScope) {
+    private val store = InMemoryNoteStore()
+    private val coordinator = NoteDictationCoordinator(store).apply { attach(pipeline.status, scope) }
+    private val noteId = store.create(body = "").id
+
+    init {
+        coordinator.begin(noteId, pipeline.status.value)
+    }
+
+    fun body(): String? = store.get(noteId)?.body
+}
+
+private class CallRecordingInserter : TextInserter {
+    val calls = mutableListOf<String>()
+
+    override val isAvailable: Boolean = true
+
+    override fun captureTarget() {
+        calls += "captureTarget"
+    }
+
+    override fun captureTargetIfUnknown() {
+        calls += "captureTargetIfUnknown"
+    }
+
+    override fun insert(text: String): TextInsertionResult {
+        calls += "insert:$text"
+        return TextInsertionResult(success = true, route = "teste", message = "ok")
+    }
 }
 
 private class ScriptedInserter(private val outcomes: MutableList<Boolean>) : TextInserter {
