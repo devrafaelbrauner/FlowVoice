@@ -25,13 +25,13 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import dev.rafaelbrauner.flowvoice.ui.components.fieldDescription
 import dev.rafaelbrauner.flowvoice.ui.theme.FlowVoiceRadius
 import dev.rafaelbrauner.flowvoice.ui.theme.FlowVoiceSpacing
 import dev.rafaelbrauner.flowvoice.ui.theme.FlowVoiceTheme
@@ -55,7 +55,7 @@ internal fun FvDarkField(
     BasicTextField(
         value = value,
         onValueChange = onValueChange,
-        modifier = if (label != null) modifier.semantics { contentDescription = label } else modifier,
+        modifier = modifier.fieldDescription(label, value),
         enabled = enabled,
         singleLine = singleLine,
         textStyle = textStyle.copy(color = colors.chipContent),
@@ -80,7 +80,8 @@ internal fun FvDarkField(
                         style = textStyle,
                         color = colors.textTertiary,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.clearAndSetSemantics {}
                     )
                 }
                 inner()

@@ -26,8 +26,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.tooling.preview.PreviewParameter
@@ -39,6 +38,7 @@ import dev.rafaelbrauner.flowvoice.ui.components.MonoLabel
 import dev.rafaelbrauner.flowvoice.ui.components.PillButton
 import dev.rafaelbrauner.flowvoice.ui.components.PillButtonVariant
 import dev.rafaelbrauner.flowvoice.ui.components.ThemePreviewParameter
+import dev.rafaelbrauner.flowvoice.ui.components.fieldDescription
 import dev.rafaelbrauner.flowvoice.ui.rememberKoin
 import dev.rafaelbrauner.flowvoice.ui.theme.FlowVoiceRadius
 import dev.rafaelbrauner.flowvoice.ui.theme.FlowVoiceTheme
@@ -214,7 +214,12 @@ private fun NewTermRow(draft: String, onDraftChange: (String) -> Unit, onAdd: ()
             contentAlignment = Alignment.CenterStart
         ) {
             if (draft.isEmpty()) {
-                Text(text = "Novo termo", style = typography.monoKey, color = colors.textTertiary)
+                Text(
+                    text = "Novo termo",
+                    style = typography.monoKey,
+                    color = colors.textTertiary,
+                    modifier = Modifier.clearAndSetSemantics {}
+                )
             }
             BasicTextField(
                 value = draft,
@@ -226,7 +231,7 @@ private fun NewTermRow(draft: String, onDraftChange: (String) -> Unit, onAdd: ()
                 keyboardActions = KeyboardActions(onDone = { onAdd() }),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .semantics { contentDescription = "Novo termo" }
+                    .fieldDescription("Novo termo", draft)
             )
         }
         PillButton(
