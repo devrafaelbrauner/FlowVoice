@@ -23,6 +23,7 @@ import dev.rafaelbrauner.flowvoice.shared.sync.RemoteSync
 import dev.rafaelbrauner.flowvoice.shared.sync.SyncEngine
 import dev.rafaelbrauner.flowvoice.shared.transcription.EncryptedSecretStore
 import dev.rafaelbrauner.flowvoice.shared.transcription.SecretStore
+import dev.rafaelbrauner.flowvoice.ui.screens.diagnostics.DiagnosticsLog
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -82,5 +83,10 @@ private val dictationModule = module {
                 Log.i(DICTATION_TAG, metadata.entries.joinToString(" ", prefix = "$event ") { "${it.key}=${it.value}" })
             }
         )
+    }
+    single(createdAtStart = true) {
+        DiagnosticsLog().also { log ->
+            log.attach(get<DictationPipeline>().events, CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate))
+        }
     }
 }
