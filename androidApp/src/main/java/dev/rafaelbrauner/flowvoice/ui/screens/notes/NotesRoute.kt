@@ -457,6 +457,7 @@ private fun NoteDetail(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(start = 18.dp, end = 18.dp, top = 2.dp)
+                .semantics { contentDescription = "Título da nota" }
         )
         Column(
             modifier = Modifier
@@ -488,7 +489,9 @@ private fun NoteDetail(
                         onValueChange = onBodyChange,
                         textStyle = typography.body.copy(color = colors.noteBody),
                         cursorBrush = SolidColor(colors.accent),
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .semantics { contentDescription = "Corpo da nota" }
                     )
                 }
             }
