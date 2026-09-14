@@ -41,7 +41,16 @@ class FlowVoiceAccessibilityService : AccessibilityService() {
         Log.i(TAG, "Serviço de acessibilidade conectado (flags=0x${flags.toString(16)})")
     }
 
+    // Sem tipos de evento assinados (SEG-5) o cache de janelas e nós nunca é invalidado;
+    // limpar antes de cada leitura garante posição do teclado e texto do campo atuais.
+    private fun freshAccessibilityData() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            runCatching { clearCache() }
+        }
+    }
+
     fun inputMethodTopOnScreen(): Int? {
+        freshAccessibilityData()
         val keyboard = runCatching { windows }.getOrNull()
             ?.firstOrNull { it.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD }
             ?: return null
@@ -67,6 +76,7 @@ class FlowVoiceAccessibilityService : AccessibilityService() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             runCatching { inputMethod?.currentInputEditorInfo?.packageName }.getOrNull()?.let { return it }
         }
+        freshAccessibilityData()
         val root = runCatching { rootInActiveWindow }.getOrNull() ?: return null
         return try {
             root.packageName?.toString()
@@ -109,6 +119,7 @@ class FlowVoiceAccessibilityService : AccessibilityService() {
             return InsertResult(false, "ACTION_SET_TEXT", "requer Android 8+ para inserir sem apagar o texto do campo")
         }
 
+        freshAccessibilityData()
         val node = rootInActiveWindow?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
             ?: return InsertResult(false, "ACTION_SET_TEXT", "nenhum foco de edição encontrado")
 
@@ -157,6 +168,7 @@ class FlowVoiceAccessibilityService : AccessibilityService() {
     }
 
     fun diagnoseFocusedField(): InsertResult {
+        freshAccessibilityData()
         val node = rootInActiveWindow?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
             ?: return InsertResult(false, "diagnóstico", "nenhum foco de edição encontrado")
 
