@@ -3,6 +3,8 @@ package dev.rafaelbrauner.flowvoice.shared.insertion
 interface TextInserter {
     val isAvailable: Boolean
 
+    fun captureTarget() = Unit
+
     fun insert(text: String): TextInsertionResult
 }
 
