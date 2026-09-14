@@ -564,6 +564,28 @@ class DictationPipelineTest {
     }
 
     @Test
+    fun noteSessionStoppedFromTheBubbleGoesStraightToTheNoteAndReleasesThePipeline() = runTest {
+        val inserter = CallRecordingInserter()
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = listOf(frame(100L), frame(50L)),
+            texts = mapOf(0 to "o médico", 1 to "pediu o exame"),
+            textInserter = inserter
+        )
+        val note = NoteHarness(env.pipeline, backgroundScope)
+
+        env.pipeline.start(DictationTarget.Note)
+        runCurrent()
+        val completed = assertIs<DictationPipelineStatus.Completed>(env.pipeline.finalizeForReview())
+        runCurrent()
+
+        assertEquals("o médico pediu o exame", completed.text)
+        assertFalse(env.pipeline.status.value.isBusy)
+        assertEquals("o médico pediu o exame", note.body())
+        assertEquals(emptyList(), inserter.calls)
+    }
+
+    @Test
     fun reachingRequestBudgetInActiveFieldSessionStopsCaptureAtReady() = runTest {
         val env = PipelineEnv(
             scope = backgroundScope,
