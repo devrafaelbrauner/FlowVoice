@@ -27,6 +27,14 @@ class TranscriptionErrorClassifierTest {
     }
 
     @Test
+    fun classifiesRequestTimeoutAsRetryableTimeout() {
+        val error = TranscriptionErrorClassifier.fromHttpStatus(408, bodyMessage = "Your request timed out")
+        assertIs<TranscriptionError.Timeout>(error)
+        assertTrue(error.isRetryable)
+        assertEquals("timeout", error.kind)
+    }
+
+    @Test
     fun classifiesTooManyRequestsWithRetryAfter() {
         val error = TranscriptionErrorClassifier.fromHttpStatus(429, "2")
         assertIs<TranscriptionError.RateLimit>(error)

@@ -44,6 +44,31 @@ class RetryingTranscriptionClientTest {
     }
 
     @Test
+    fun retriesRequestTimeoutThenSucceeds() = runTest {
+        var calls = 0
+        val engine = MockEngine {
+            calls++
+            if (calls == 1) {
+                respond(content = ByteReadChannel(""), status = HttpStatusCode.RequestTimeout)
+            } else {
+                respond(
+                    content = ByteReadChannel("""{"text":"depois do timeout"}"""),
+                    status = HttpStatusCode.OK,
+                    headers = jsonHeaders()
+                )
+            }
+        }
+        val delays = mutableListOf<Long>()
+        val client = retryingClient(engine, delays)
+
+        val result = client.transcribe(testWindow(), SECRET_KEY)
+
+        assertEquals("depois do timeout", result.text)
+        assertEquals(2, calls)
+        assertEquals(1, delays.size)
+    }
+
+    @Test
     fun respectsRetryAfterOnTooManyRequests() = runTest {
         var calls = 0
         val engine = MockEngine {
