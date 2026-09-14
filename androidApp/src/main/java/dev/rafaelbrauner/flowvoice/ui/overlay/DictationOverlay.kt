@@ -74,7 +74,7 @@ fun DictationOverlay(
         dismissed = null
         elapsedMs = 0L
         latestSessionStarted()
-        pipeline.requestStart()
+        pipeline.requestStart(review = true)
     }
 
     LaunchedEffect(startRequest) {

@@ -494,6 +494,44 @@ class DictationPipelineTest {
         assertEquals(listOf("o médico"), inserter.inserted)
     }
 
+    @Test
+    fun reachingRequestBudgetStopsCaptureAndCompletesWithWarning() = runTest {
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = List(4) { frame(100L) },
+            texts = mapOf(0 to "um", 1 to "dois", 2 to "três", 3 to "quatro"),
+            config = OpenRouterConfig(maxRequestsPerSession = 2)
+        )
+
+        env.pipeline.start()
+        runCurrent()
+
+        val completed = assertIs<DictationPipelineStatus.Completed>(env.pipeline.status.value)
+        assertEquals(1, env.engine.stopCount)
+        assertEquals("um dois", completed.text)
+        assertTrue(completed.warning.orEmpty().contains("teto de requisições da sessão"), completed.warning)
+        assertEquals(listOf("um dois"), env.inserter.inserted)
+    }
+
+    @Test
+    fun reachingRequestBudgetInReviewSessionStopsCaptureAtReady() = runTest {
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = List(4) { frame(100L) },
+            texts = mapOf(0 to "um", 1 to "dois", 2 to "três", 3 to "quatro"),
+            config = OpenRouterConfig(maxRequestsPerSession = 2)
+        )
+
+        env.pipeline.start(review = true)
+        runCurrent()
+
+        val ready = assertIs<DictationPipelineStatus.Ready>(env.pipeline.status.value)
+        assertEquals(1, env.engine.stopCount)
+        assertEquals("um dois", ready.text)
+        assertTrue(ready.warning.orEmpty().contains("teto de requisições da sessão"), ready.warning)
+        assertTrue(env.inserter.inserted.isEmpty())
+    }
+
     private fun frame(durationMs: Long): AudioFrame =
         AudioFrame(ByteArray((durationMs * 16).toInt() * 2), AudioFormat.DEFAULT)
 

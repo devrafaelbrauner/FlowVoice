@@ -25,9 +25,11 @@ class IncrementalTranscriptionController(
     private val jobs = mutableListOf<Job>()
     private var cancelled = false
     private var requestCount = 0
+    private val budgetState = MutableStateFlow(false)
 
     val provisionalText: StateFlow<String> = provisional.asStateFlow()
     val segments: StateFlow<List<TranscriptionSegment>> = segmentState.asStateFlow()
+    val budgetExhausted: StateFlow<Boolean> = budgetState.asStateFlow()
 
     fun submit(window: DictationWindow) {
         if (cancelled) return
@@ -53,6 +55,7 @@ class IncrementalTranscriptionController(
         jobs.clear()
         cancelled = false
         requestCount = 0
+        budgetState.value = false
         provisional.value = ""
         segmentState.value = emptyList()
     }
@@ -71,6 +74,7 @@ class IncrementalTranscriptionController(
                     errorKind = TranscriptionError.SessionBudgetExceeded().kind
                 )
             )
+            budgetState.value = true
             eventLog.log(
                 "transcription_budget",
                 mapOf(
