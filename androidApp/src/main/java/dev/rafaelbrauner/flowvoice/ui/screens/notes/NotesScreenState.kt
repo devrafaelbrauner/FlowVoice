@@ -4,7 +4,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import dev.rafaelbrauner.flowvoice.shared.notes.Note
+import dev.rafaelbrauner.flowvoice.shared.notes.NoteDictationCoordinator
 import dev.rafaelbrauner.flowvoice.shared.notes.NoteStore
+import dev.rafaelbrauner.flowvoice.shared.notes.NoteText
 import dev.rafaelbrauner.flowvoice.shared.pipeline.DictationPipelineStatus
 
 sealed interface NotesMessage {
@@ -17,7 +19,8 @@ sealed interface NotesMessage {
 
 class NotesScreenState(
     private val store: NoteStore,
-    initialNoteId: String? = null
+    initialNoteId: String? = null,
+    private val dictation: NoteDictationCoordinator = NoteDictationCoordinator(store)
 ) {
     var notes by mutableStateOf(store.list())
         private set
@@ -27,13 +30,16 @@ class NotesScreenState(
         private set
     var pendingDeleteId by mutableStateOf<String?>(null)
         private set
-    var dictationNoteId by mutableStateOf<String?>(null)
-        private set
-    var message by mutableStateOf<NotesMessage?>(null)
-        private set
 
-    private var dictationBaseline: DictationPipelineStatus? = null
-    private var dictationStarted = false
+    private var localMessage by mutableStateOf<NotesMessage?>(null)
+
+    val dictationNoteId: String?
+        get() = dictation.state.value.noteId
+
+    val message: NotesMessage?
+        get() = localMessage ?: dictation.state.value.message?.let {
+            if (it.isError) NotesMessage.Error(it.text) else NotesMessage.Warning(it.text)
+        }
 
     val selected: Note?
         get() = notes.firstOrNull { it.id == selectedId }
@@ -83,7 +89,7 @@ class NotesScreenState(
         val next = NoteSelection.afterDelete(notes, id)
         store.delete(id)
         pendingDeleteId = null
-        if (dictationNoteId == id) dictationNoteId = null
+        dictation.forget(id)
         refresh()
         selectedId = NoteSelection.resolve(notes, next)
         return true
@@ -94,61 +100,31 @@ class NotesScreenState(
     }
 
     fun beginDictation(noteId: String, currentStatus: DictationPipelineStatus) {
-        dictationNoteId = noteId
-        dictationBaseline = currentStatus
-        dictationStarted = false
-        message = null
+        localMessage = null
+        dictation.begin(noteId, currentStatus)
     }
 
     fun onPipelineStatus(status: DictationPipelineStatus) {
-        val target = dictationNoteId ?: return
-        if (!dictationStarted) {
-            if (status == dictationBaseline && !status.isBusy) return
-            dictationStarted = true
-        }
-        when (status) {
-            is DictationPipelineStatus.Completed -> {
-                appendDictation(target, status.text)
-                message = status.warning?.let { NotesMessage.Warning(it) }
-                finishDictation()
-            }
-            is DictationPipelineStatus.Failed -> {
-                message = NotesMessage.Error(status.message)
-                finishDictation()
-            }
-            DictationPipelineStatus.Cancelled -> finishDictation()
-            else -> Unit
-        }
-    }
-
-    fun showError(text: String) {
-        message = NotesMessage.Error(text)
-    }
-
-    fun dismissMessage() {
-        message = null
-    }
-
-    fun appendDictation(noteId: String, dictated: String) {
-        val note = store.get(noteId) ?: return
-        if (dictated.isBlank()) return
-        val title = if (note.title == UNTITLED && note.body.isBlank()) {
-            NoteBodies.titleFrom(dictated)
-        } else {
-            note.title
-        }
-        store.upsert(note.copy(title = title, body = NoteBodies.append(note.body, dictated)))
+        dictation.onStatus(status)
         refresh()
     }
 
-    private fun finishDictation() {
-        dictationNoteId = null
-        dictationBaseline = null
-        dictationStarted = false
+    fun showError(text: String) {
+        localMessage = NotesMessage.Error(text)
+    }
+
+    fun dismissMessage() {
+        localMessage = null
+        dictation.dismissMessage()
+    }
+
+    fun appendDictation(noteId: String, dictated: String) {
+        dictation.append(noteId, dictated)
+        refresh()
     }
 
     companion object {
-        const val UNTITLED = "Sem título"
+        const val UNTITLED = NoteDictationCoordinator.UNTITLED
     }
 }
 
@@ -164,18 +140,9 @@ object NoteSelection {
 }
 
 object NoteBodies {
-    private const val TITLE_MAX = 48
+    fun append(body: String, dictated: String): String = NoteText.append(body, dictated)
 
-    fun append(body: String, dictated: String): String {
-        val text = dictated.trim()
-        if (text.isEmpty()) return body
-        if (body.isBlank()) return text
-        return if (body.last().isWhitespace()) body + text else "$body $text"
-    }
-
-    fun titleFrom(text: String): String =
-        text.trim().lineSequence().firstOrNull().orEmpty().trim().take(TITLE_MAX)
-            .ifBlank { NotesScreenState.UNTITLED }
+    fun titleFrom(text: String): String = NoteText.titleFrom(text)
 
     fun snippet(body: String): String =
         body.lineSequence().map { it.trim() }.firstOrNull { it.isNotEmpty() }.orEmpty()

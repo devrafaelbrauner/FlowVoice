@@ -36,6 +36,7 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -57,6 +58,7 @@ import androidx.core.net.toUri
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import dev.rafaelbrauner.flowvoice.service.FlowVoiceAccessibilityService
 import dev.rafaelbrauner.flowvoice.service.FlowVoiceOverlayService
+import dev.rafaelbrauner.flowvoice.shared.notes.NoteDictationCoordinator
 import dev.rafaelbrauner.flowvoice.shared.notes.NoteStore
 import dev.rafaelbrauner.flowvoice.shared.pipeline.DictationPipeline
 import dev.rafaelbrauner.flowvoice.shared.pipeline.DictationPipelineStatus
@@ -115,7 +117,11 @@ fun HomeRoute(
         onPauseOrDispose { }
     }
 
-    val starter = remember(context, pipeline, scope) { DictationStarter(context, pipeline, scope) }
+    val coordinator = rememberKoin<NoteDictationCoordinator>()
+    val latestOpenNote by rememberUpdatedState(onOpenNote)
+    val starter = remember(context, pipeline, scope, coordinator) {
+        DictationStarter(context, pipeline, scope, coordinator) { latestOpenNote(it) }
+    }
     val notificationLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
         starter.start()
     }
@@ -170,10 +176,18 @@ fun HomeRoute(
 private class DictationStarter(
     private val context: Context,
     private val pipeline: DictationPipeline,
-    private val scope: CoroutineScope
+    private val scope: CoroutineScope,
+    private val notes: NoteDictationCoordinator,
+    private val openNote: (String) -> Unit
 ) {
     fun start() {
         val previous = pipeline.status.value
+        val dictatingNote = noteToResumeOnMic(previous.isBusy, notes.activeNoteId)
+        if (dictatingNote != null) {
+            context.toast("Há um ditado de nota em andamento: pare-o na nota.")
+            openNote(dictatingNote)
+            return
+        }
         if (previous.isBusy) {
             context.toast("Já há um ditado em andamento.")
             return

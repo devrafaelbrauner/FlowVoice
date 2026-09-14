@@ -2,6 +2,7 @@ package dev.rafaelbrauner.flowvoice.ui.screens.notes
 
 import dev.rafaelbrauner.flowvoice.shared.insertion.TextInsertionResult
 import dev.rafaelbrauner.flowvoice.shared.notes.InMemoryNoteStore
+import dev.rafaelbrauner.flowvoice.shared.notes.NoteDictationCoordinator
 import dev.rafaelbrauner.flowvoice.shared.pipeline.DictationPipelineStatus
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -190,6 +191,21 @@ class NotesScreenStateTest {
         state.onPipelineStatus(completed("de outro lugar"))
 
         assertEquals("corpo", store.get(note.id)?.body)
+    }
+
+    @Test
+    fun recreatedScreenStateStillSeesTheActiveDictation() {
+        val coordinator = NoteDictationCoordinator(store)
+        val note = store.create("corpo")
+        NotesScreenState(store, note.id, coordinator).beginDictation(note.id, DictationPipelineStatus.Idle)
+
+        val recreated = NotesScreenState(store, note.id, coordinator)
+        assertEquals(note.id, recreated.dictationNoteId)
+
+        recreated.onPipelineStatus(DictationPipelineStatus.Recording)
+        recreated.onPipelineStatus(completed("novo"))
+        assertEquals("corpo novo", store.get(note.id)?.body)
+        assertNull(recreated.dictationNoteId)
     }
 
     @Test
