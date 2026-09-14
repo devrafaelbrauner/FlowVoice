@@ -182,6 +182,7 @@ class DictationPipeline(
         if (statusState.value != DictationPipelineStatus.Recording) return statusState.value
         val token = sessionToken
         val mark = timeSource.markNow()
+        inserter.captureTargetIfUnknown()
         statusState.value = DictationPipelineStatus.Transcribing
         val outcome = try {
             val final = transcribeFinalText()

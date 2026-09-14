@@ -5,6 +5,8 @@ interface TextInserter {
 
     fun captureTarget() = Unit
 
+    fun captureTargetIfUnknown() = Unit
+
     fun insert(text: String): TextInsertionResult
 }
 
