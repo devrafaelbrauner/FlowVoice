@@ -6,6 +6,39 @@ estão em [`docs/tasks/`](docs/tasks/README.md).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-13
+
+Redesign do app a partir do handoff de design (F12 UX).
+
+### Added
+
+- Sistema visual: tema escuro (principal) e claro, Instrument Sans e JetBrains
+  Mono empacotadas (SIL OFL 1.1), ícones vetoriais e componentes (pílula de
+  status, botão de microfone com pulso, waveform, texto provisório pontilhado,
+  toggle, cartões, barra de navegação).
+- Telas novas: login, onboarding com as três permissões reais, Início (estado do
+  serviço, microfone, últimas notas), Notas em mestre-detalhe com painel
+  colapsável e ditado na nota, Dicionário, Ajustes e Diagnóstico (log do
+  serviço, exportar relatório e benchmark F05).
+- Barra de ditado ao vivo (variação 1b) no botão flutuante: texto finalizado e
+  provisório, cronômetro, Cancelar e Inserir, ancorada acima do teclado.
+- Pipeline com revisão antes de inserir (`finalizeForReview` → `Ready` →
+  `insertReady`), sem mudar o `finalize` usado pelas Notas.
+
+### Changed
+
+- A `MainActivity` virou só hospedeiro da navegação; o microfone do Início abre
+  a barra de ditado no app anterior.
+- A chave salva só aparece mascarada (`sk-or-v1-••••` + 4 últimos caracteres).
+- Login opcional enquanto não há backend (P07).
+- O serviço de acessibilidade passa a ler os limites da janela do teclado
+  (`flagRetrieveInteractiveWindows`) para posicionar a barra.
+
+### Removed
+
+- Tela POC antiga da `MainActivity`; as funções dela foram para Ajustes e
+  Diagnóstico.
+
 ## [0.3.1] - 2026-09-13
 
 Correções dos achados da verificação de `9d527d7` (ver `TAREFAS_PENDENTES.md`).

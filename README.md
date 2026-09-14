@@ -13,9 +13,9 @@ Histórico: [`CHANGELOG.md`](CHANGELOG.md). O que falta:
 
 | Área | Situação |
 | --- | --- |
-| Android: ditado, transcrição incremental, prévia, dicionário, notas, revisão | funcional |
-| Android: botão flutuante que dita no app aberto | funcional; falta validar com fala real |
-| Login Google | local, sem validação do token em backend |
+| Android: ditado, transcrição incremental, dicionário, notas, revisão | funcional |
+| Android: barra de ditado sobre o app aberto (Inserir no campo ativo) | funcional; falta validar com fala real e o visual no aparelho |
+| Login Google | opcional e local, sem validação do token em backend |
 | Sincronização | motor pronto, servidor remoto ainda em memória |
 | Windows (`desktopApp`) | compila; inserção, cofre e microfone só validados num Windows real |
 
@@ -23,7 +23,8 @@ Histórico: [`CHANGELOG.md`](CHANGELOG.md). O que falta:
 
 - `shared/` — Kotlin Multiplatform (Android + JVM desktop): sessão de ditado,
   cliente OpenRouter, pipeline, dicionário, notas, sync.
-- `androidApp/` — app Android (Compose), serviço de acessibilidade e botão flutuante.
+- `androidApp/` — app Android em Compose (`ui/theme`, `ui/components`,
+  `ui/screens`, `ui/overlay`), serviço de acessibilidade e botão flutuante.
 - `desktopApp/` — app Compose Desktop (F13).
 
 ## Requisitos
@@ -36,12 +37,15 @@ Histórico: [`CHANGELOG.md`](CHANGELOG.md). O que falta:
 
 ```bash
 ./gradlew :shared:desktopTest          # testes do shared
+./gradlew :androidApp:testDebugUnitTest # testes das telas e componentes
+./gradlew :desktopApp:desktopTest      # testes do app desktop
 ./gradlew :androidApp:assembleDebug    # APK debug
 ./gradlew :androidApp:lintDebug        # lint Android
 ./gradlew :desktopApp:run              # app desktop
 ```
 
-O CI (GitHub Actions) roda os quatro passos acima (com `desktopJar` no lugar de `run`).
+O CI (GitHub Actions) roda build, testes, lint, o jar do desktop e confere que o
+runtime empacotado do desktop inclui `java.net.http`.
 
 ## Instalação no Android
 
@@ -51,25 +55,27 @@ adb install -r androidApp/build/outputs/apk/debug/androidApp-debug.apk
 
 `install -r` preserva os dados do app, inclusive a chave salva.
 
-## Configuração no app
+## Primeiro uso
 
-1. **Chave OpenRouter:** em "Nova chave OpenRouter", toque em "Validar e salvar
-   chave". A chave fica cifrada no aparelho, não entra em logs nem na sincronização
-   e fica fora do backup.
-2. **Acessibilidade:** "Abrir configurações de acessibilidade" → Serviços
-   instalados → FlowVoice. É por esse serviço que o texto é inserido no campo focado.
-3. **Botão flutuante:** ligue na tela principal e conceda microfone, notificações e
-   "sobrepor a outros apps".
-4. **Opcional:** revisão de pontuação e ortografia (toggle) e Google Web Client ID
-   para o login.
+1. **Login:** "Continuar com o Google". Sem Google Web Client ID configurado, segue
+   direto (o login ainda não tem backend).
+2. **Onboarding:** ligue o serviço de acessibilidade, conceda o microfone e salve a
+   chave OpenRouter em Ajustes. A chave fica cifrada no aparelho, fora do backup e
+   da sincronização, e só aparece mascarada.
+3. **Ajustes:** ligue o botão flutuante (pede microfone, notificações e "sobrepor a
+   outros apps"), a revisão por IA e, se quiser, o Google Web Client ID.
 
-## Uso do botão flutuante
+## Ditando
 
-- Um toque começa a gravar (`● Gravando`).
-- Outro toque finaliza, transcreve e insere o texto no campo focado do app aberto.
-- Um toque longo cancela sem inserir.
+- **Pelo Início:** toque no microfone. O FlowVoice volta para o app em que você
+  estava e abre a barra de ditado acima do teclado.
+- **Pela bolha flutuante:** toque na bolha no app em que está digitando.
+- Na barra: o texto aparece ao vivo (o trecho ainda não revisado fica pontilhado).
+  "Inserir" encerra a gravação, mostra o texto final e, com outro toque, escreve no
+  campo focado. "Cancelar" descarta.
+- **Nas Notas:** "Nova nota" ou o microfone do detalhe ditam direto no corpo da nota.
 
 ## Licença
 
-A definir (ver `TAREFAS_PENDENTES.md`, P08). Dependências e referências:
+A definir (ver `TAREFAS_PENDENTES.md`, P08). Dependências, fontes e referências:
 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) e [`ATTRIBUTIONS.md`](ATTRIBUTIONS.md).

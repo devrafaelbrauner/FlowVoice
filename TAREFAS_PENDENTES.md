@@ -98,3 +98,14 @@ Veredito: com ressalvas (0 críticos, 0 altos). gitleaks (histórico), semgrep (
 | SEG-7 | Baixa | A rota direta `commitText` não recusa campo de senha, e o destino não é conferido entre iniciar e finalizar: se o foco mudar durante a transcrição, o texto cai em outro app | pendente | /corrigir |
 | SEG-8 | Info | `SyncModels.kt:15`: a trava `contains("sk-")` derruba o sync com termo legítimo e não cobre notas | pendente | /aprimorar |
 | SEG-9 | Info | Nenhuma tela usa `filterTouchesWhenObscured` (tapjacking); avaliar nas telas de chave e permissões | pendente | /aprimorar |
+
+## Redesign 0.4.0 (2026-09-13)
+
+| ID | Prioridade | Tarefa | Status | Encaminhar |
+| --- | --- | --- | --- | --- |
+| P58 | Média | Conferir no S26 o visual das telas e da barra de ditado contra as capturas do handoff (`~/Downloads/design_handoff_flowvoice_app/screenshots`), incluindo a barra ancorada acima do teclado e o tema claro | pendente: o aparelho estava em uso na entrega | usuário / /verificar |
+| P59 | Baixa | Estatísticas do Início (latência média, ditados hoje, gasto hoje) e latência p50/p95 do Diagnóstico sem fonte persistida: aparecem como "—" | pendente | /construir |
+| P60 | Baixa | O dicionário não guarda a forma ouvida nem o contexto ("brauner → Brauner"); os termos pendentes ficam só em memória e somem ao reiniciar | pendente | /construir |
+| P61 | Baixa | "sincronizado" por nota e "Limite de gasto" do design não têm funcionalidade por trás; omitidos | pendente (depende de P06) | /construir |
+| P62 | Baixa | Logo do Google no login e ícone do app ainda são placeholders (ver P19) | pendente | usuário |
+| P63 | Baixa | `flagRetrieveInteractiveWindows` (para ancorar a barra acima do teclado) amplia o que o serviço de acessibilidade pode ler; revisar junto com SEG-5 | pendente | /seguranca |

@@ -42,6 +42,16 @@ O que falta para o produto ficar completo está em
   hoje significa só "não lançou exceção". Avaliar conferir o texto do nó focado
   depois da inserção.
 
+## Design
+
+- Algumas cores do tema claro não estão no handoff e foram escolhidas na
+  implementação (riscado `#C0392B`, subtítulo do herói `#8B9098`, toggle ligado
+  com trilho `#101114`): revisar com o design.
+- `findActivity` existe em `ui/shell/ContextExt.kt` e duplicado, privado, em
+  `SettingsRoute.kt`: unificar.
+- Botões de 34dp do design ocupam 44dp de área de toque, e as barras ficam ~10dp
+  mais altas que no protótipo: avaliar se o design aceita.
+
 ## Build e dependências
 
 - O lint aponta versões novas: AGP 9.4, Gradle 8.14.5, Compose BOM 2026.09,
