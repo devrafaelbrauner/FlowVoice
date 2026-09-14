@@ -32,6 +32,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -465,8 +466,65 @@ class DictationPipelineTest {
         assertTrue(inserter.inserted.isEmpty())
     }
 
+    @Test
+    fun finalizeForReviewCapturesTargetWhenStartSawNoneAndInsertRefusesAnotherApp() = runTest {
+        val inserter = TargetInserter()
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = listOf(frame(50L)),
+            texts = mapOf(0 to "o médico"),
+            textInserter = inserter
+        )
+
+        env.pipeline.start()
+        runCurrent()
+        assertNull(inserter.target)
+
+        inserter.focused = "com.whatsapp"
+        assertIs<DictationPipelineStatus.Ready>(env.pipeline.finalizeForReview())
+        assertEquals("com.whatsapp", inserter.target)
+
+        inserter.focused = "com.android.chrome"
+        val refused = assertIs<DictationPipelineStatus.Ready>(env.pipeline.insertReady())
+        assertEquals(TargetInserter.CHANGED, refused.refusal)
+        assertTrue(inserter.inserted.isEmpty())
+
+        inserter.focused = "com.whatsapp"
+        assertIs<DictationPipelineStatus.Completed>(env.pipeline.insertReady())
+        assertEquals(listOf("o médico"), inserter.inserted)
+    }
+
     private fun frame(durationMs: Long): AudioFrame =
         AudioFrame(ByteArray((durationMs * 16).toInt() * 2), AudioFormat.DEFAULT)
+
+    private class TargetInserter : TextInserter {
+        var focused: String? = null
+        var target: String? = null
+        val inserted = mutableListOf<String>()
+
+        override val isAvailable: Boolean = true
+
+        override fun captureTarget() {
+            target = focused
+        }
+
+        override fun captureTargetIfUnknown() {
+            if (target == null) target = focused
+        }
+
+        override fun insert(text: String): TextInsertionResult {
+            val expected = target
+            if (expected != null && focused != null && focused != expected) {
+                return TextInsertionResult(success = false, route = "teste", message = CHANGED)
+            }
+            inserted += text
+            return TextInsertionResult(success = true, route = "teste", message = "ok")
+        }
+
+        companion object {
+            const val CHANGED = "o foco mudou de app"
+        }
+    }
 }
 
 private class PipelineEnv(

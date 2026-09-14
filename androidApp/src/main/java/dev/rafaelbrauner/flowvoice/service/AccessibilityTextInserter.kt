@@ -16,6 +16,10 @@ object AccessibilityTextInserter : TextInserter {
         startPackage = service?.focusedPackage()?.takeUnless { it == service.packageName }
     }
 
+    override fun captureTargetIfUnknown() {
+        if (startPackage == null) captureTarget()
+    }
+
     override fun insert(text: String): TextInsertionResult {
         val service = FlowVoiceAccessibilityService.service
             ?: return TextInsertionResult(false, "acessibilidade", "serviço inativo — nada inserido")
