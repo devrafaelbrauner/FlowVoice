@@ -204,7 +204,7 @@ private class DictationStarter(
                 pipeline.session.mapNotNull { startOutcome(previous, it) }.first()
             }
             when (status) {
-                DictationPipelineStatus.Recording -> context.findActivity()?.moveTaskToBack(true)
+                DictationPipelineStatus.Recording -> returnToPreviousApp()
                 is DictationPipelineStatus.Failed -> context.toast("Não foi possível iniciar o ditado: ${status.message}")
                 null -> {
                     context.toast("O microfone não respondeu a tempo; ditado cancelado.")
@@ -215,6 +215,15 @@ private class DictationStarter(
                 }
                 else -> Unit
             }
+        }
+    }
+
+    // moveTaskToBack sozinho mostra a tarefa de baixo, que no One UI é o launcher mesmo vindo
+    // pelos recentes (P130); reabrir o app anotado pelo serviço retoma a tarefa dele.
+    private fun returnToPreviousApp() {
+        val previousApp = FlowVoiceAccessibilityService.service?.previousAppLaunchIntent()
+        if (previousApp == null || !context.startActivitySafely(previousApp)) {
+            context.findActivity()?.moveTaskToBack(true)
         }
     }
 }
