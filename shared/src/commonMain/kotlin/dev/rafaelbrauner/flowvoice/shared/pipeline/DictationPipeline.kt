@@ -29,6 +29,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.TimeMark
 import kotlin.time.TimeSource
@@ -64,6 +65,7 @@ class DictationPipeline(
     private var sessionToken = 0
     private var refusalMark: TimeMark? = null
     private var sessionApiKey: String? = null
+    private var abandonedStartGuard: Job? = null
     private var sessionId = 0
     private val pipelineSessionState = MutableStateFlow(
         DictationPipelineSession(sessionId, DictationTarget.ActiveField, DictationPipelineStatus.Idle)
@@ -315,6 +317,22 @@ class DictationPipeline(
     fun requestInsertReady(): Job = scope.launch { insertReady() }
 
     fun requestCancel(): Job = scope.launch { cancel() }
+
+    // Depois do aviso de timeout do microfone do Início, a sessão pedida por aquele toque não pode
+    // seguir gravando: se abrir em até graceMs, é cancelada. Roda no escopo do pipeline, que não
+    // morre com a tela (rotação, Voltar), e um novo pedido de início descarta a guarda (P133).
+    fun abandonStart(previousSessionId: Int, graceMs: Long) {
+        abandonedStartGuard?.cancel()
+        abandonedStartGuard = scope.launch {
+            val late = withTimeoutOrNull(graceMs) { session.first { it.id > previousSessionId } } ?: return@launch
+            if (late.id == previousSessionId + 1 && late.status.isBusy) cancel()
+        }
+    }
+
+    fun clearAbandonedStart() {
+        abandonedStartGuard?.cancel()
+        abandonedStartGuard = null
+    }
 
     private suspend fun transcribeFinalText(): FinalText {
         controller.finalize()

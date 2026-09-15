@@ -26,11 +26,6 @@ fun startOutcome(previous: DictationPipelineSession, session: DictationPipelineS
         session.id > previous.id && (it == DictationPipelineStatus.Recording || it is DictationPipelineStatus.Failed)
     }
 
-// Depois do aviso "O microfone não respondeu a tempo.", a sessão pedida por aquele toque (a
-// seguinte à anterior) não pode seguir gravando sem controle: se ainda estiver ocupada, é cancelada (P133).
-fun cancelAfterStartTimeout(previous: DictationPipelineSession, session: DictationPipelineSession): Boolean =
-    session.id == previous.id + 1 && session.status.isBusy
-
 fun noteSnippet(title: String, body: String): String {
     val lines = body.lineSequence().map { it.trim() }.filter { it.isNotEmpty() }.toList()
     val first = lines.firstOrNull() ?: return ""

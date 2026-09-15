@@ -194,6 +194,7 @@ private class DictationStarter(
             context.toast("Já há um ditado em andamento.")
             return
         }
+        pipeline.clearAbandonedStart()
         ContextCompat.startForegroundService(
             context,
             Intent(context, FlowVoiceOverlayService::class.java)
@@ -207,11 +208,8 @@ private class DictationStarter(
                 DictationPipelineStatus.Recording -> returnToPreviousApp()
                 is DictationPipelineStatus.Failed -> context.toast("Não foi possível iniciar o ditado: ${status.message}")
                 null -> {
+                    pipeline.abandonStart(previous.id, LATE_START_GRACE_MS)
                     context.toast("O microfone não respondeu a tempo; ditado cancelado.")
-                    val late = withTimeoutOrNull(LATE_START_GRACE_MS) {
-                        pipeline.session.first { it.id > previous.id }
-                    }
-                    if (late != null && cancelAfterStartTimeout(previous, late)) pipeline.cancel()
                 }
                 else -> Unit
             }

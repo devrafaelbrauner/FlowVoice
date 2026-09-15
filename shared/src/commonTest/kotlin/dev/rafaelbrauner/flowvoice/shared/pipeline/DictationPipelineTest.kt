@@ -32,6 +32,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -197,6 +198,48 @@ class DictationPipelineTest {
         assertEquals("primeiro ditado pelo início", completed.text)
         assertTrue(env.log.events.any { it.event == "proofreading_rejected" })
         assertTrue(env.log.events.none { it.event == "proofreading_applied" })
+    }
+
+    @Test
+    fun abandonedStartCancelsTheSessionThatOpensWithinTheGraceSoTheMicrophoneNeverStaysOpenSilently() = runTest {
+        val env = PipelineEnv(scope = backgroundScope, frames = emptyList())
+        val previous = env.pipeline.session.value
+
+        env.pipeline.abandonStart(previous.id, graceMs = 10_000L)
+        runCurrent()
+        env.pipeline.start()
+        runCurrent()
+
+        assertEquals(DictationPipelineStatus.Cancelled, env.pipeline.status.value)
+        assertTrue(env.engine.stopCount >= 1)
+    }
+
+    @Test
+    fun newStartRequestDropsTheAbandonedStartGuardSoASecondTapIsNotCancelled() = runTest {
+        val env = PipelineEnv(scope = backgroundScope, frames = emptyList())
+        val previous = env.pipeline.session.value
+
+        env.pipeline.abandonStart(previous.id, graceMs = 10_000L)
+        runCurrent()
+        env.pipeline.clearAbandonedStart()
+        env.pipeline.start()
+        runCurrent()
+
+        assertEquals(DictationPipelineStatus.Recording, env.pipeline.status.value)
+    }
+
+    @Test
+    fun sessionOpeningAfterTheGraceIsNotCancelled() = runTest {
+        val env = PipelineEnv(scope = backgroundScope, frames = emptyList())
+        val previous = env.pipeline.session.value
+
+        env.pipeline.abandonStart(previous.id, graceMs = 10_000L)
+        runCurrent()
+        advanceTimeBy(11_000L)
+        env.pipeline.start()
+        runCurrent()
+
+        assertEquals(DictationPipelineStatus.Recording, env.pipeline.status.value)
     }
 
     @Test
