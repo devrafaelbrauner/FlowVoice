@@ -33,6 +33,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.shadow
@@ -310,11 +311,14 @@ fun DictationBubble(
                 }
                 true
             }
+            // A janela é retangular: sombra e anel pulsante que passam da folga eram cortados nas bordas dela e
+            // formavam um halo quadrado. O recorte em círculo mantém tudo redondo, e a sombra menor esmaece antes.
+            .clip(CircleShape)
             .padding(10.dp)
     ) {
         Box(
             modifier = Modifier
-                .shadow(12.dp, CircleShape, ambientColor = Color.Black, spotColor = Color.Black)
+                .shadow(4.dp, CircleShape, ambientColor = Color.Black, spotColor = Color.Black)
                 .background(colors.surface, CircleShape)
                 .border(1.dp, colors.accentBorder, CircleShape)
                 .padding(8.dp),
