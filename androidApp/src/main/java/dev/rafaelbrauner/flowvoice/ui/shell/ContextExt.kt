@@ -5,6 +5,7 @@ import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
+import dev.rafaelbrauner.flowvoice.service.FlowVoiceAccessibilityService
 
 tailrec fun Context.findActivity(): Activity? = when (this) {
     is Activity -> this
@@ -21,6 +22,8 @@ fun Context.startActivitySafely(intent: Intent): Boolean = try {
     val target = intent.component?.packageName ?: intent.`package`
     intent.flags = ExternalLaunch.flagsFor(intent.flags, target, packageName)
     startActivity(intent)
+    // Ajustes, compartilhamento e afins abertos daqui não viram destino do retorno do Início (P130).
+    if (target != packageName) FlowVoiceAccessibilityService.service?.noteExternalLaunch()
     true
 } catch (_: ActivityNotFoundException) {
     false

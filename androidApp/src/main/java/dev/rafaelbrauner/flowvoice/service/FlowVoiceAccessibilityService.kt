@@ -44,13 +44,20 @@ class FlowVoiceAccessibilityService : AccessibilityService() {
         Log.i(TAG, "Serviço de acessibilidade conectado (flags=0x${flags.toString(16)})")
     }
 
-    @Volatile
-    private var previousApp: String? = null
+    private val previousApps by lazy { PreviousAppTracker(packageName) }
     private var homePackages: Set<String> = emptySet()
 
     fun previousAppLaunchIntent(): Intent? =
-        previousApp?.let { packageManager.getLaunchIntentForPackage(it) }
+        previousApps.target?.let { packageManager.getLaunchIntentForPackage(it) }
             ?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
+
+    fun noteExternalLaunch() = previousApps.noteExternalLaunch()
+
+    private fun isActiveAppWindow(windowId: Int): Boolean {
+        freshAccessibilityData()
+        val active = runCatching { windows }.getOrNull()?.firstOrNull { it.isActive } ?: return false
+        return active.id == windowId && active.type == AccessibilityWindowInfo.TYPE_APPLICATION
+    }
 
     private fun resolveHomePackages(): Set<String> = runCatching {
         packageManager.queryIntentActivities(
@@ -79,9 +86,13 @@ class FlowVoiceAccessibilityService : AccessibilityService() {
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event?.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
-        previousApp = PreviousApp.next(previousApp, activeWindowPackage(), packageName, homePackages) {
-            packageManager.getLaunchIntentForPackage(it) != null
-        }
+        val windowId = event.windowId
+        previousApps.onWindowStateChanged(
+            packageName = event.packageName?.toString(),
+            homePackages = homePackages,
+            isActiveAppWindow = { isActiveAppWindow(windowId) },
+            isLaunchable = { packageManager.getLaunchIntentForPackage(it) != null }
+        )
     }
 
     override fun onInterrupt() = Unit

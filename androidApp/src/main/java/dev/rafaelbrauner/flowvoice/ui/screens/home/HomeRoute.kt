@@ -220,9 +220,9 @@ private class DictationStarter(
     // pelos recentes (P130); reabrir o app anotado pelo serviço retoma a tarefa dele.
     private fun returnToPreviousApp() {
         val previousApp = FlowVoiceAccessibilityService.service?.previousAppLaunchIntent()
-        if (previousApp == null || !context.startActivitySafely(previousApp)) {
-            context.findActivity()?.moveTaskToBack(true)
-        }
+        // startActivity direto: startActivitySafely marcaria o app de origem como aberto pelo FlowVoice.
+        val reopened = previousApp != null && runCatching { context.startActivity(previousApp) }.isSuccess
+        if (!reopened) context.findActivity()?.moveTaskToBack(true)
     }
 }
 
