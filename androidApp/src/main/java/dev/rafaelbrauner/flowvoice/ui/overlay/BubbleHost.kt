@@ -1,21 +1,35 @@
 package dev.rafaelbrauner.flowvoice.ui.overlay
 
-import kotlinx.coroutines.flow.StateFlow
+import dev.rafaelbrauner.flowvoice.shared.pipeline.DictationPipeline
 
-// Lado da bolha e direção em que a prévia cresce; durante o arraste só a bolha é desenhada.
-data class BubbleLayout(
-    val side: BubbleSide = BubblePosition.Default.side,
-    val growsUp: Boolean = false,
-    val dragging: Boolean = false
+// Ações do cartão da prévia, que mora numa janela própria (P139) mas mexe no estado da composição da bolha.
+class PreviewActions(
+    val onCancel: () -> Unit,
+    val onInsertHere: () -> Unit,
+    val onDismiss: () -> Unit
 )
 
-// Janela do overlay vista pela composição: a posição da bolha mora no serviço, que move a janela.
-interface BubbleHost {
-    val layout: StateFlow<BubbleLayout>
+// O que a janela da prévia desenha: o estado e a altura máxima que o serviço escolheu longe do cursor.
+data class PreviewCardUi(
+    val state: DirectPreviewState = DirectPreviewState.Hidden,
+    val maxHeightPx: Int = 0,
+    val compact: Boolean = false,
+    val actions: PreviewActions? = null
+)
 
+// Janelas do overlay vistas pela composição da bolha: o serviço move a bolha e abre, posiciona e fecha a prévia.
+interface BubbleHost {
     fun onDrag(dx: Float, dy: Float)
 
     fun onDragEnd()
 
     fun onMove(move: BubbleMove)
+
+    fun updatePreview(state: DirectPreviewState, actions: PreviewActions)
 }
+
+internal fun previewActionsFor(pipeline: DictationPipeline, onDismiss: () -> Unit) = PreviewActions(
+    onCancel = { pipeline.requestCancel() },
+    onInsertHere = { pipeline.requestInsertPending() },
+    onDismiss = onDismiss
+)

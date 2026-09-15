@@ -35,12 +35,8 @@ data class SafeArea(val left: Int, val top: Int, val right: Int, val bottom: Int
 
 data class BubblePoint(val x: Int, val y: Int)
 
-// Janela da prévia colada à bolha (P139). Com fromBottom, y conta a partir da base da tela.
-data class PreviewWindow(val x: Int, val y: Int, val width: Int, val fromBottom: Boolean)
-
 object BubblePlacement {
     private const val MOVE_STEP = 0.1f
-    private const val LOWER_HALF = 0.5f
 
     fun pointOf(position: BubblePosition, area: SafeArea, size: Int): BubblePoint {
         val x = if (position.side == BubbleSide.Left) area.left else maxX(area, size)
@@ -67,23 +63,6 @@ object BubblePlacement {
         BubbleMove.OtherSide -> position.copy(
             side = if (position.side == BubbleSide.Left) BubbleSide.Right else BubbleSide.Left
         )
-    }
-
-    // A prévia se estende da bolha para o centro da tela e cresce para longe da borda mais próxima
-    // (para baixo na metade de cima, para cima na de baixo), sem mudar o ponto da bolha.
-    fun previewWindow(
-        position: BubblePosition,
-        area: SafeArea,
-        size: Int,
-        maxWidthPx: Int,
-        screenHeight: Int
-    ): PreviewWindow {
-        val bubble = pointOf(position, area, size)
-        val width = minOf(maxWidthPx, area.right - area.left).coerceAtLeast(size)
-        val x = if (position.side == BubbleSide.Left) area.left else area.right - width
-        val fromBottom = position.fraction > LOWER_HALF
-        val y = if (fromBottom) screenHeight - (bubble.y + size) else bubble.y
-        return PreviewWindow(x = x, y = y, width = width, fromBottom = fromBottom)
     }
 
     private fun maxX(area: SafeArea, size: Int): Int = maxOf(area.left, area.right - size)

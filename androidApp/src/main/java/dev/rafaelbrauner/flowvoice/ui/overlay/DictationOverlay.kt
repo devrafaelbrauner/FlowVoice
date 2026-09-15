@@ -8,17 +8,21 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
@@ -35,6 +39,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInteropFilter
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -65,6 +70,7 @@ import dev.rafaelbrauner.flowvoice.ui.components.ThemePreviewParameter
 import dev.rafaelbrauner.flowvoice.ui.components.Waveform
 import dev.rafaelbrauner.flowvoice.ui.theme.FlowVoiceTheme
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.StateFlow
 
 private const val CLOCK_REFRESH_MS = 200L
 private const val RESULT_VISIBLE_MS = 4_000L
@@ -87,7 +93,6 @@ fun DictationOverlay(
     val target by pipeline.target.collectAsState()
     val segments by pipeline.segments.collectAsState()
     val direct by pipeline.directInsertion.collectAsState()
-    val bubbleLayout by host.layout.collectAsState()
     var ownership by remember { mutableStateOf(OverlayOwnership.released()) }
     val owned = ownership.owned
     var dismissed by remember { mutableStateOf<DictationPipelineSession?>(null) }
@@ -167,6 +172,17 @@ fun DictationOverlay(
     }
     LaunchedEffect(mode) { latestModeChange(mode) }
 
+    // A prévia mora numa janela própria, posicionada pelo serviço longe do cursor (P139).
+    val previewActions = remember(pipeline) {
+        previewActionsFor(pipeline) {
+            dismissed = session
+            ownership = OverlayOwnership.released()
+        }
+    }
+    SideEffect {
+        host.updatePreview(if (mode == OverlayMode.Preview) previewState else DirectPreviewState.Hidden, previewActions)
+    }
+
     val onBubbleTap: () -> Unit = {
         val current = pipeline.session.value
         val currentDirect = pipeline.directInsertion.value.let { it.active && it.sessionId == current.id }
@@ -214,50 +230,36 @@ fun DictationOverlay(
                 DictationBarState.Hidden -> Unit
             }
         } else {
-            // A bolha fica sempre no mesmo lugar da composição: mostrar ou esconder a prévia não recria o
-            // gesto, e um arraste que começa com a prévia aberta continua até soltar.
-            val showCard = mode == OverlayMode.Preview && !bubbleLayout.dragging
-            val cardOnLeft = showCard && bubbleLayout.side == BubbleSide.Right
-            val cardOnRight = showCard && bubbleLayout.side == BubbleSide.Left
-            Row(
-                modifier = if (showCard) Modifier.fillMaxWidth() else Modifier,
-                verticalAlignment = if (bubbleLayout.growsUp) Alignment.Bottom else Alignment.Top
-            ) {
-                if (cardOnLeft) {
-                    DirectPreviewCard(
-                        state = previewState,
-                        onCancel = { pipeline.requestCancel() },
-                        onInsertHere = { pipeline.requestInsertPending() },
-                        onDismiss = {
-                            dismissed = session
-                            ownership = OverlayOwnership.released()
-                        },
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-                DictationBubble(
-                    label = bubbleLabel,
-                    pulsing = status.isBusy,
-                    touchSlopPx = touchSlop,
-                    onTap = onBubbleTap,
-                    onDrag = host::onDrag,
-                    onDragEnd = host::onDragEnd,
-                    onMove = host::onMove
-                )
-                if (cardOnRight) {
-                    DirectPreviewCard(
-                        state = previewState,
-                        onCancel = { pipeline.requestCancel() },
-                        onInsertHere = { pipeline.requestInsertPending() },
-                        onDismiss = {
-                            dismissed = session
-                            ownership = OverlayOwnership.released()
-                        },
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-            }
+            DictationBubble(
+                label = bubbleLabel,
+                pulsing = status.isBusy,
+                touchSlopPx = touchSlop,
+                onTap = onBubbleTap,
+                onDrag = host::onDrag,
+                onDragEnd = host::onDragEnd,
+                onMove = host::onMove
+            )
         }
+    }
+}
+
+// Conteúdo da janela da prévia: largura dada pela janela e altura limitada ao espaço livre longe do cursor.
+@Composable
+fun PreviewCardOverlay(card: StateFlow<PreviewCardUi>) {
+    val ui by card.collectAsState()
+    val maxHeight = with(LocalDensity.current) { ui.maxHeightPx.toDp() }
+    val actions = ui.actions
+    FlowVoiceTheme {
+        DirectPreviewCard(
+            state = ui.state,
+            compact = ui.compact,
+            onCancel = { actions?.onCancel?.invoke() },
+            onInsertHere = { actions?.onInsertHere?.invoke() },
+            onDismiss = { actions?.onDismiss?.invoke() },
+            modifier = Modifier
+                .fillMaxWidth()
+                .then(if (ui.maxHeightPx > 0) Modifier.heightIn(max = maxHeight) else Modifier)
+        )
     }
 }
 
@@ -335,29 +337,36 @@ fun DirectPreviewCard(
     onCancel: () -> Unit,
     onInsertHere: () -> Unit,
     onDismiss: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    compact: Boolean = false
 ) {
     val colors = FlowVoiceTheme.colors
     val shape = RoundedCornerShape(16.dp)
     Column(
         modifier = modifier
-            .padding(horizontal = 4.dp, vertical = 10.dp)
-            .shadow(10.dp, shape, ambientColor = Color.Black, spotColor = Color.Black)
+            .padding(6.dp)
+            .shadow(8.dp, shape, ambientColor = Color.Black, spotColor = Color.Black)
             .background(colors.surface, shape)
             .border(1.dp, colors.accentBorder, shape)
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         when (state) {
-            is DirectPreviewState.Live -> DirectPreviewLive(state, onCancel, onInsertHere)
+            is DirectPreviewState.Live -> DirectPreviewLive(state, compact, onCancel, onInsertHere)
             is DirectPreviewState.Result -> DirectPreviewResult(state, onDismiss)
             DirectPreviewState.Hidden -> Unit
         }
     }
 }
 
+// Estado e botões ficam sempre; com pouco espaço (compact), os textos perdem linhas e rolam.
 @Composable
-private fun DirectPreviewLive(state: DirectPreviewState.Live, onCancel: () -> Unit, onInsertHere: () -> Unit) {
+private fun ColumnScope.DirectPreviewLive(
+    state: DirectPreviewState.Live,
+    compact: Boolean,
+    onCancel: () -> Unit,
+    onInsertHere: () -> Unit
+) {
     val colors = FlowVoiceTheme.colors
     val typography = FlowVoiceTheme.typography
     val recording = state.phase == DirectPhase.Recording && state.notice == null
@@ -373,42 +382,59 @@ private fun DirectPreviewLive(state: DirectPreviewState.Live, onCancel: () -> Un
             modifier = Modifier.weight(1f),
             color = if (state.notice != null) colors.accentText else colors.textSecondary,
             style = typography.monoRoute,
-            maxLines = 2
+            maxLines = if (compact) 1 else 2
         )
     }
-    state.notice?.let { notice ->
-        Text(
-            text = notice,
-            style = typography.bodySmall,
-            color = colors.accentText,
-            maxLines = 3,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }
-        )
-    }
-    state.warning?.takeIf { it != state.notice }?.let { warning ->
-        Text(
-            text = warning,
-            style = typography.bodySmall,
-            color = colors.accentText,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis
-        )
-    }
-    if (state.typedTail.isNotEmpty()) {
-        LabeledText(label = DirectPreviewModel.TYPED_LABEL, text = state.typedTail, color = colors.textPrimary, maxLines = 2)
-    }
-    if (state.transcribing) {
-        ProvisionalText(
-            finalized = "",
-            provisional = DirectPreviewModel.TRANSCRIBING,
-            style = typography.bodySmall,
-            provisionalColor = colors.textSecondary,
-            maxLines = 1
-        )
-    }
-    if (state.pending.isNotEmpty()) {
-        LabeledText(label = DirectPreviewModel.PENDING_LABEL, text = state.pending, color = colors.textSecondary, maxLines = 3)
+    Column(
+        modifier = Modifier
+            .weight(1f, fill = false)
+            .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        state.notice?.let { notice ->
+            Text(
+                text = notice,
+                style = typography.bodySmall,
+                color = colors.accentText,
+                maxLines = if (compact) 2 else 3,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }
+            )
+        }
+        state.warning?.takeIf { it != state.notice }?.let { warning ->
+            Text(
+                text = warning,
+                style = typography.bodySmall,
+                color = colors.accentText,
+                maxLines = if (compact) 1 else 2,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        if (state.typedTail.isNotEmpty()) {
+            LabeledText(
+                label = DirectPreviewModel.TYPED_LABEL,
+                text = state.typedTail,
+                color = colors.textPrimary,
+                maxLines = if (compact) 1 else 2
+            )
+        }
+        if (state.transcribing) {
+            ProvisionalText(
+                finalized = "",
+                provisional = DirectPreviewModel.TRANSCRIBING,
+                style = typography.bodySmall,
+                provisionalColor = colors.textSecondary,
+                maxLines = 1
+            )
+        }
+        if (state.pending.isNotEmpty()) {
+            LabeledText(
+                label = DirectPreviewModel.PENDING_LABEL,
+                text = state.pending,
+                color = colors.textSecondary,
+                maxLines = if (compact) 1 else 3
+            )
+        }
     }
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         PillButton(
@@ -708,7 +734,8 @@ private fun DirectPreviewCardPreview(@PreviewParameter(ThemePreviewParameter::cl
             ),
             onCancel = {},
             onInsertHere = {},
-            onDismiss = {}
+            onDismiss = {},
+            compact = true
         )
         DirectPreviewCard(
             state = DirectPreviewState.Result(success = true, message = "Digitado no campo · 11 palavras"),

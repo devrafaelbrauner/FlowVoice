@@ -20,26 +20,34 @@ import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
+import androidx.lifecycle.setViewTreeLifecycleOwner
+import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import dev.rafaelbrauner.flowvoice.MainActivity
 import dev.rafaelbrauner.flowvoice.shared.overlay.OverlayStartGuard
 import dev.rafaelbrauner.flowvoice.shared.pipeline.DictationPipeline
 import dev.rafaelbrauner.flowvoice.ui.overlay.BubbleHost
-import dev.rafaelbrauner.flowvoice.ui.overlay.BubbleLayout
 import dev.rafaelbrauner.flowvoice.ui.overlay.BubbleMove
 import dev.rafaelbrauner.flowvoice.ui.overlay.BubblePlacement
 import dev.rafaelbrauner.flowvoice.ui.overlay.BubblePoint
 import dev.rafaelbrauner.flowvoice.ui.overlay.BubblePosition
 import dev.rafaelbrauner.flowvoice.ui.overlay.DictationOverlay
+import dev.rafaelbrauner.flowvoice.ui.overlay.DirectPreviewState
 import dev.rafaelbrauner.flowvoice.ui.overlay.OverlayLifecycleOwner
 import dev.rafaelbrauner.flowvoice.ui.overlay.OverlayMode
 import dev.rafaelbrauner.flowvoice.ui.overlay.OverlaySessionPolicy
 import dev.rafaelbrauner.flowvoice.ui.overlay.OverlayStartRequests
+import dev.rafaelbrauner.flowvoice.ui.overlay.PreviewActions
+import dev.rafaelbrauner.flowvoice.ui.overlay.PreviewCardOverlay
+import dev.rafaelbrauner.flowvoice.ui.overlay.PreviewCardUi
+import dev.rafaelbrauner.flowvoice.ui.overlay.PreviewPlacement
+import dev.rafaelbrauner.flowvoice.ui.overlay.PreviewSpace
 import dev.rafaelbrauner.flowvoice.ui.overlay.SafeArea
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -47,6 +55,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 import java.util.Locale
@@ -57,6 +67,14 @@ class FlowVoiceOverlayService : Service(), KoinComponent, BubbleHost {
     private val positionStore by lazy { BubblePositionStore(this) }
     private var windowManager: WindowManager? = null
     private var overlayView: ComposeView? = null
+    private var cardView: ComposeView? = null
+    private var cardAttached = false
+    private var cardTracking: Job? = null
+    private val cardRefresh = Channel<Unit>(Channel.CONFLATED)
+    private val cardUi = MutableStateFlow(PreviewCardUi())
+    private var previewState: DirectPreviewState = DirectPreviewState.Hidden
+    private var previewActions: PreviewActions? = null
+    private var lastPlacementLog: String? = null
     private var lifecycleOwner: OverlayLifecycleOwner? = null
     private var mode = OverlayMode.Bubble
     private var barOffsetPx = -1
@@ -65,9 +83,6 @@ class FlowVoiceOverlayService : Service(), KoinComponent, BubbleHost {
     private var position = BubblePosition.Default
     private var dragStart: BubblePoint? = null
     private var dragPoint: BubblePoint? = null
-    private val layoutState = MutableStateFlow(BubbleLayout())
-
-    override val layout: StateFlow<BubbleLayout> = layoutState.asStateFlow()
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -93,6 +108,7 @@ class FlowVoiceOverlayService : Service(), KoinComponent, BubbleHost {
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
         if (mode != OverlayMode.Bar) placeBubble()
+        syncCard()
     }
 
     override fun onDestroy() {
@@ -100,7 +116,9 @@ class FlowVoiceOverlayService : Service(), KoinComponent, BubbleHost {
             pipeline.requestCancel()
         }
         keyboardTracking?.cancel()
+        hideCard()
         scope.cancel()
+        cardView?.disposeComposition()
         overlayView?.let { view ->
             view.disposeComposition()
             if (view.isAttachedToWindow) {
@@ -109,6 +127,7 @@ class FlowVoiceOverlayService : Service(), KoinComponent, BubbleHost {
         }
         lifecycleOwner?.destroy()
         overlayView = null
+        cardView = null
         lifecycleOwner = null
         windowManager = null
         runningState.value = false
@@ -121,9 +140,9 @@ class FlowVoiceOverlayService : Service(), KoinComponent, BubbleHost {
         val start = dragStart ?: BubblePlacement.pointOf(position, area, bubbleSize()).also { dragStart = it }
         val startedNow = dragPoint == null
         dragPoint = BubblePlacement.dragged(start, dx, dy, area, bubbleSize())
+        if (startedNow) hideCard()
         if (mode == OverlayMode.Bar) return
         updateLayout(bubbleParams(manager))
-        if (startedNow) publishLayout(manager)
     }
 
     override fun onDragEnd() {
@@ -135,13 +154,27 @@ class FlowVoiceOverlayService : Service(), KoinComponent, BubbleHost {
         position = BubblePlacement.snap(point, safeArea(manager), bubbleSize())
         savePosition("drag")
         placeBubble()
+        syncCard()
     }
 
     override fun onMove(move: BubbleMove) {
         position = BubblePlacement.moved(position, move)
         savePosition("action")
         placeBubble()
+        syncCard()
     }
+
+    override fun updatePreview(state: DirectPreviewState, actions: PreviewActions) {
+        if (state == previewState && actions === previewActions) return
+        val contentChanged = withoutClock(state) != withoutClock(previewState)
+        previewState = state
+        previewActions = actions
+        cardUi.value = cardUi.value.copy(state = state, actions = actions)
+        syncCard(reposition = contentChanged)
+    }
+
+    private fun withoutClock(state: DirectPreviewState): DirectPreviewState =
+        (state as? DirectPreviewState.Live)?.copy(clock = "", transcribing = false) ?: state
 
     private fun savePosition(source: String) {
         positionStore.write(position)
@@ -222,11 +255,17 @@ class FlowVoiceOverlayService : Service(), KoinComponent, BubbleHost {
             Toast.makeText(this, OVERLAY_UNAVAILABLE_MESSAGE, Toast.LENGTH_LONG).show()
             return false
         }
+        val card = ComposeView(this).apply {
+            setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
+            setViewTreeLifecycleOwner(owner)
+            setViewTreeSavedStateRegistryOwner(owner)
+            setContent { PreviewCardOverlay(cardUi) }
+        }
         windowManager = manager
         overlayView = view
+        cardView = card
         lifecycleOwner = owner
         mode = OverlayMode.Bubble
-        publishLayout(manager)
         runningState.value = true
         scope.launch {
             pipeline.status.drop(1).collect { status ->
@@ -245,8 +284,10 @@ class FlowVoiceOverlayService : Service(), KoinComponent, BubbleHost {
         if (next != OverlayMode.Bar) {
             barOffsetPx = -1
             placeBubble()
+            syncCard()
             return
         }
+        hideCard()
         placeBar()
         keyboardTracking = scope.launch {
             while (isActive) {
@@ -256,23 +297,138 @@ class FlowVoiceOverlayService : Service(), KoinComponent, BubbleHost {
         }
     }
 
-    // Bolha sozinha, ou bolha com a prévia da sessão direta (P139). No arraste, só a bolha.
     private fun placeBubble() {
         val manager = windowManager ?: return
-        val params = if (mode == OverlayMode.Preview && dragPoint == null) previewParams(manager) else bubbleParams(manager)
-        updateLayout(params)
-        publishLayout(manager)
+        updateLayout(bubbleParams(manager))
     }
 
-    private fun publishLayout(manager: WindowManager) {
-        val preview = BubblePlacement.previewWindow(
-            position,
-            safeArea(manager),
-            bubbleSize(),
-            previewMaxWidth(),
-            screenHeight(manager)
+    private fun cardWanted(): Boolean =
+        mode == OverlayMode.Preview && dragPoint == null && previewState != DirectPreviewState.Hidden
+
+    private fun syncCard(reposition: Boolean = true) {
+        if (!cardWanted()) {
+            hideCard()
+            return
+        }
+        if (cardTracking?.isActive != true) {
+            cardTracking = scope.launch { trackCard() }
+        } else if (reposition) {
+            cardRefresh.trySend(Unit)
+        }
+    }
+
+    // A posição do cursor só é lida com a prévia visível: ao abrir, quando o conteúdo muda (trecho digitado,
+    // pausa, resultado) e a cada segundo, o que também pega o teclado abrindo ou fechando. A leitura (IPC com o
+    // app em foco) roda fora da thread principal e traz só coordenadas.
+    private suspend fun trackCard() {
+        while (true) {
+            val geometry = withContext(Dispatchers.Default) { readCardGeometry() }
+            placeCard(geometry)
+            withTimeoutOrNull(CARD_REFRESH_MS) { cardRefresh.receive() }
+        }
+    }
+
+    private fun readCardGeometry(): CardGeometry {
+        val service = FlowVoiceAccessibilityService.service ?: return CardGeometry(null, null)
+        return CardGeometry(
+            focus = runCatching { service.focusGeometry() }.getOrNull(),
+            keyboardTop = runCatching { service.inputMethodTopOnScreen() }.getOrNull()
         )
-        layoutState.value = BubbleLayout(side = position.side, growsUp = preview.fromBottom, dragging = dragPoint != null)
+    }
+
+    private fun placeCard(geometry: CardGeometry) {
+        val manager = windowManager ?: return
+        val card = cardView ?: return
+        if (!cardWanted()) return
+        val area = safeArea(manager)
+        val size = bubbleSize()
+        val bubble = BubblePlacement.pointOf(position, area, size)
+        val screenHeight = screenHeight(manager)
+        val gap = dp(CARD_GAP_DP)
+        val keyboardTop = geometry.keyboardTop?.takeIf { it in (area.top + 1) until screenHeight }
+        val space = PreviewSpace(top = area.top, bottom = keyboardTop?.let { minOf(area.bottom, it - gap) } ?: area.bottom)
+        val placement = PreviewPlacement.vertical(
+            space = space,
+            bubbleTop = bubble.y,
+            bubbleSize = size,
+            bubbleInLowerHalf = position.fraction > 0.5f,
+            caret = geometry.focus?.caret,
+            field = geometry.focus?.field,
+            desiredHeight = dp(desiredCardHeightDp(previewState)),
+            minHeight = dp(CARD_MIN_HEIGHT_DP),
+            margin = dp(CARD_CARET_MARGIN_DP)
+        )
+        if (placement == null) {
+            logPlacement("overlay_preview_hidden reason=no_room caret=${geometry.focus?.caret} keyboardTop=$keyboardTop")
+            detachCard()
+            return
+        }
+        val span = PreviewPlacement.horizontal(
+            side = position.side,
+            bubbleX = bubble.x,
+            bubbleSize = size,
+            areaLeft = area.left,
+            areaRight = area.right,
+            gap = gap,
+            maxWidth = dp(PREVIEW_MAX_WIDTH_DP)
+        )
+        val params = screenParams(span.width).apply {
+            gravity = (if (placement.fromBottom) Gravity.BOTTOM else Gravity.TOP) or Gravity.START
+            x = span.x
+            y = if (placement.fromBottom) screenHeight - placement.edge else placement.edge
+        }
+        cardUi.value = cardUi.value.copy(maxHeightPx = placement.maxHeight, compact = placement.compact)
+        val opens = if (placement.fromBottom) "above" else "below"
+        logPlacement(
+            "overlay_preview_placed avoiding=${placement.avoiding.name.lowercase()} opens=$opens edge=${placement.edge} " +
+                "maxHeight=${placement.maxHeight} compact=${placement.compact} caret=${geometry.focus?.caret} keyboardTop=$keyboardTop"
+        )
+        try {
+            if (cardAttached) {
+                manager.updateViewLayout(card, params)
+            } else {
+                manager.addView(card, params)
+                cardAttached = true
+            }
+        } catch (error: RuntimeException) {
+            Log.w(TAG, "overlay_card_layout_failed ${error.javaClass.simpleName}")
+        }
+    }
+
+    // Coordenadas apenas; o log só sai quando a escolha muda, não a cada segundo.
+    private fun logPlacement(line: String) {
+        if (line == lastPlacementLog) return
+        lastPlacementLog = line
+        Log.i(TAG, line)
+    }
+
+    // Estimativa da altura do cartão para escolher o lado; a altura real nunca passa do maxHeight escolhido.
+    private fun desiredCardHeightDp(state: DirectPreviewState): Int = when (state) {
+        is DirectPreviewState.Live -> CARD_BASE_DP +
+            (if (state.typedTail.isNotEmpty()) CARD_TEXT_DP else 0) +
+            (if (state.notice != null) CARD_NOTICE_DP else 0) +
+            (if (state.warning != null) CARD_WARNING_DP else 0) +
+            (if (state.pending.isNotEmpty()) CARD_PENDING_DP else 0)
+        is DirectPreviewState.Result -> CARD_RESULT_DP
+        DirectPreviewState.Hidden -> 0
+    }
+
+    private fun hideCard() {
+        cardTracking?.cancel()
+        cardTracking = null
+        lastPlacementLog = null
+        detachCard()
+    }
+
+    private fun detachCard() {
+        val card = cardView ?: return
+        if (!cardAttached) return
+        cardAttached = false
+        try {
+            windowManager?.removeView(card)
+        } catch (error: RuntimeException) {
+            Log.w(TAG, "overlay_card_remove_failed ${error.javaClass.simpleName}")
+        }
     }
 
     private fun placeBar() {
@@ -299,21 +455,6 @@ class FlowVoiceOverlayService : Service(), KoinComponent, BubbleHost {
             gravity = Gravity.TOP or Gravity.START
             x = point.x
             y = point.y
-        }
-    }
-
-    private fun previewParams(manager: WindowManager): WindowManager.LayoutParams {
-        val window = BubblePlacement.previewWindow(
-            position,
-            safeArea(manager),
-            bubbleSize(),
-            previewMaxWidth(),
-            screenHeight(manager)
-        )
-        return screenParams(window.width).apply {
-            gravity = (if (window.fromBottom) Gravity.BOTTOM else Gravity.TOP) or Gravity.START
-            x = window.x
-            y = window.y
         }
     }
 
@@ -372,8 +513,6 @@ class FlowVoiceOverlayService : Service(), KoinComponent, BubbleHost {
 
     private fun bubbleSize(): Int = dp(BUBBLE_SIZE_DP)
 
-    private fun previewMaxWidth(): Int = dp(PREVIEW_MAX_WIDTH_DP) + bubbleSize()
-
     private fun barOffset(): Int {
         val manager = windowManager ?: return 0
         val screenHeight = screenHeight(manager)
@@ -400,13 +539,28 @@ class FlowVoiceOverlayService : Service(), KoinComponent, BubbleHost {
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 
+    private class CardGeometry(
+        val focus: FlowVoiceAccessibilityService.FocusGeometry?,
+        val keyboardTop: Int?
+    )
+
     companion object {
         private const val TAG = "FlowVoiceOverlay"
         private const val CHANNEL_ID = "flowvoice_overlay"
         private const val NOTIFICATION_ID = 1001
         private const val KEYBOARD_POLL_MS = 400L
+        private const val CARD_REFRESH_MS = 1_000L
         private const val BUBBLE_EDGE_MARGIN_DP = 12
         private const val PREVIEW_MAX_WIDTH_DP = 360
+        private const val CARD_GAP_DP = 8
+        private const val CARD_CARET_MARGIN_DP = 12
+        private const val CARD_MIN_HEIGHT_DP = 96
+        private const val CARD_BASE_DP = 104
+        private const val CARD_TEXT_DP = 44
+        private const val CARD_NOTICE_DP = 52
+        private const val CARD_WARNING_DP = 36
+        private const val CARD_PENDING_DP = 64
+        private const val CARD_RESULT_DP = 72
         private const val FALLBACK_STATUS_INSET_DP = 24
         private const val FALLBACK_NAVIGATION_INSET_DP = 48
         private const val OVERLAY_UNAVAILABLE_MESSAGE =

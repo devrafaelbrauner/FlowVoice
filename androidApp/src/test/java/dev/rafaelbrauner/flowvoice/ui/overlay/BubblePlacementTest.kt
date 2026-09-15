@@ -2,7 +2,6 @@ package dev.rafaelbrauner.flowvoice.ui.overlay
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class BubblePlacementTest {
@@ -76,32 +75,6 @@ class BubblePlacementTest {
         assertEquals(0.15f, BubblePlacement.moved(position, BubbleMove.Down).fraction, 0.0001f)
         assertEquals(BubblePosition(BubbleSide.Left, 0.05f), BubblePlacement.moved(position, BubbleMove.OtherSide))
         assertEquals(1f, BubblePlacement.moved(BubblePosition(BubbleSide.Left, 0.95f), BubbleMove.Down).fraction)
-    }
-
-    @Test
-    fun previewOnTheRightUpperHalfGrowsDownFromTheBubbleTowardsTheCenter() {
-        val position = BubblePosition(BubbleSide.Right, 0.3f)
-        val bubble = BubblePlacement.pointOf(position, portrait, size)
-
-        val window = BubblePlacement.previewWindow(position, portrait, size, maxWidthPx = 1_000, screenHeight = 3120)
-
-        assertFalse(window.fromBottom)
-        assertEquals(1_000, window.width)
-        assertEquals(1398 - 1_000, window.x)
-        assertEquals(bubble.y, window.y)
-    }
-
-    @Test
-    fun previewOnTheLeftLowerHalfGrowsUpSoTheBubbleDoesNotJump() {
-        val position = BubblePosition(BubbleSide.Left, 0.8f)
-        val bubble = BubblePlacement.pointOf(position, portrait, size)
-
-        val window = BubblePlacement.previewWindow(position, portrait, size, maxWidthPx = 5_000, screenHeight = 3120)
-
-        assertTrue(window.fromBottom)
-        assertEquals(1398 - 42, window.width)
-        assertEquals(42, window.x)
-        assertEquals(3120 - (bubble.y + size), window.y)
     }
 
     @Test
