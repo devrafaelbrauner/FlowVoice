@@ -6,6 +6,42 @@ estão em [`docs/tasks/`](docs/tasks/README.md).
 
 ## [Unreleased]
 
+## [0.4.6] - 2026-09-14
+
+Correções dos achados P130 a P135, do primeiro teste com fala no S26 (três
+ditados no Samsung Notes) e da revisão de código feita em paralelo.
+
+### Fixed
+
+- P130: o microfone do Início não voltava ao app em que você estava. Ele só
+  mandava o FlowVoice para trás, e no One UI o que aparece embaixo é o
+  launcher, mesmo quando se chega pelos recentes. Agora o serviço de
+  acessibilidade anota o app da janela ativa a cada troca de janela, ignorando
+  o próprio FlowVoice, o launcher e pacotes sem ícone. Ao começar a gravar, o
+  Início reabre esse app. Isso revê em parte a SEG-5: o serviço passa a
+  assinar `typeWindowStateChanged`, mas continua sem ler conteúdo de evento.
+- P131: o áudio era cortado exatamente a cada 4 s, podendo partir uma palavra
+  entre duas janelas transcritas separadamente ("Terceiro ditado" saiu
+  "Terceiro colocado"). O corte agora cai no trecho mais silencioso entre
+  3,4 s e 4,6 s. A primeira prévia ao vivo chega até 0,6 s mais tarde.
+- P132: a revisão por IA reescrevia o ditado (`Primeiro ditado: "Pelo
+  início."`). O texto agora vai entre `<ditado>` e `</ditado>`, com um prompt
+  que proíbe responder, trocar palavras e acrescentar citação. A revisão é
+  descartada (`proofreading_rejected`) quando acrescenta aspas ou muda o texto
+  além de uma correção ortográfica.
+- P133: depois do aviso "O microfone não respondeu a tempo.", a sessão pedida
+  podia continuar gravando se o microfone abrisse tarde. Agora ela é
+  cancelada, e o aviso diz que o ditado foi cancelado.
+- P134: a chave OpenRouter era lida do cofre a cada janela, e uma falha
+  passageira do Keystore encerrava o ditado como "chave ausente". Agora ela é
+  lida uma vez por sessão.
+- P135: o logcat não trazia status HTTP nem novas tentativas da transcrição, e
+  nenhum texto que permitisse separar erro de transcrição de erro de revisão.
+  Agora `transcription_error` traz `status`, cada nova tentativa gera
+  `transcription_retry` e `proofreading_applied` traz `inputChars`. Só em build
+  de depuração, `transcription_window_text` e `proofreading_text` registram o
+  texto; o release continua registrando apenas contagens.
+
 ## [0.4.5] - 2026-09-14
 
 Correções do pipeline de voz feitas sem o aparelho: achados P124 e P125 da
