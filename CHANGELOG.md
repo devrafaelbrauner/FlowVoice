@@ -6,6 +6,14 @@ estão em [`docs/tasks/`](docs/tasks/README.md).
 
 ## [Unreleased]
 
+## [0.4.8] - 2026-09-15
+
+### Changed
+
+- P137: a transcrição agora envia `temperature: 0`. Nem a OpenRouter nem a
+  OpenAI documentam o valor padrão, e 0 é o mais determinístico, então o
+  resultado deixa de depender do padrão de cada provedor.
+
 ## [0.4.7] - 2026-09-15
 
 ### Changed

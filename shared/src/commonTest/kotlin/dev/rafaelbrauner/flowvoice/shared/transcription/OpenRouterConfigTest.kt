@@ -11,6 +11,7 @@ class OpenRouterConfigTest {
         assertEquals("https://openrouter.ai", config.baseUrl)
         assertEquals("openai/gpt-transcribe", config.model)
         assertEquals("pt", config.language)
+        assertEquals(0.0, config.temperature)
         assertEquals("/api/v1/audio/transcriptions", config.transcriptionsPath)
         assertEquals(10_000L, config.connectTimeoutMs)
         assertEquals(30_000L, config.requestTimeoutMs)
@@ -21,6 +22,7 @@ class OpenRouterConfigTest {
     @Test
     fun rejectsInvalidTimeoutsAndBlankModel() {
         assertFailsWith<IllegalArgumentException> { OpenRouterConfig(model = " ") }
+        assertFailsWith<IllegalArgumentException> { OpenRouterConfig(temperature = 1.5) }
         assertFailsWith<IllegalArgumentException> { OpenRouterConfig(connectTimeoutMs = 0L) }
         assertFailsWith<IllegalArgumentException> { OpenRouterConfig(maxRetries = -1) }
         assertFailsWith<IllegalArgumentException> { OpenRouterConfig(maxRequestsPerSession = 0) }
