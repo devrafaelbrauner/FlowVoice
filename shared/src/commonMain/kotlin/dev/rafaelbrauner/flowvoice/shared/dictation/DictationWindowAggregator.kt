@@ -6,18 +6,25 @@ import kotlin.math.min
 class DictationWindowAggregator(
     val targetDurationMs: Long = DEFAULT_TARGET_DURATION_MS,
     val format: AudioFormat = AudioFormat.DEFAULT,
-    val pauseSearchMs: Long = 0L
+    val pauseSearchBeforeMs: Long = 0L,
+    val pauseSearchAfterMs: Long = 0L
 ) {
     init {
         require(targetDurationMs > 0) { "targetDurationMs must be positive" }
-        require(pauseSearchMs in 0 until targetDurationMs) { "pauseSearchMs must be in [0, targetDurationMs)" }
+        require(pauseSearchBeforeMs in 0 until targetDurationMs) { "pauseSearchBeforeMs must be in [0, targetDurationMs)" }
+        require(pauseSearchAfterMs >= 0) { "pauseSearchAfterMs must not be negative" }
     }
 
+    private val searchesPause = pauseSearchBeforeMs > 0 || pauseSearchAfterMs > 0
     private val chunks = mutableListOf<ByteArray>()
     private var bufferedBytes = 0
-    private var bufferedDurationMs = 0L
+    private var consumedBytes = 0L
     private var nextWindowIndex = 0
-    private var nextWindowStartMs = 0L
+
+    // A linha do tempo vem dos bytes, não da soma de durações arredondadas dos frames: frames sem
+    // milissegundos inteiros não fazem o corte nem o fim da sessão derivarem (P131).
+    private val bufferedDurationMs: Long
+        get() = format.durationMs(bufferedBytes)
 
     fun onFrame(frame: AudioFrame): List<DictationWindow> {
         require(frame.format == format) { "frame format must match aggregator format" }
@@ -25,92 +32,76 @@ class DictationWindowAggregator(
 
         chunks.add(frame.pcm)
         bufferedBytes += frame.pcm.size
-        bufferedDurationMs += frame.durationMs
 
-        if (pauseSearchMs == 0L) {
-            return if (bufferedDurationMs >= targetDurationMs) listOf(buildWindow()) else emptyList()
+        if (!searchesPause) {
+            if (bufferedDurationMs < targetDurationMs) return emptyList()
+            val pcm = bufferedPcm()
+            return listOf(emit(pcm, pcm.size))
         }
         val windows = mutableListOf<DictationWindow>()
-        while (bufferedDurationMs >= targetDurationMs + pauseSearchMs) {
-            windows += cutAtPause()
+        while (bufferedDurationMs >= targetDurationMs + pauseSearchAfterMs) {
+            val pcm = bufferedPcm()
+            windows += emit(pcm, pauseCut(pcm))
         }
         return windows
     }
 
     fun flush(): DictationWindow? {
         if (bufferedBytes == 0) return null
-        return buildWindow()
+        val pcm = bufferedPcm()
+        return emit(pcm, pcm.size)
     }
 
     fun clear() {
         chunks.clear()
         bufferedBytes = 0
-        bufferedDurationMs = 0
+        consumedBytes = 0L
         nextWindowIndex = 0
-        nextWindowStartMs = 0
     }
 
-    private fun buildWindow(): DictationWindow {
+    private fun emit(pcm: ByteArray, cut: Int): DictationWindow {
         val window = DictationWindow(
             index = nextWindowIndex,
-            pcm = bufferedPcm(),
+            pcm = if (cut == pcm.size) pcm else pcm.copyOfRange(0, cut),
             format = format,
-            startedAtMs = nextWindowStartMs,
-            finishedAtMs = nextWindowStartMs + bufferedDurationMs
+            startedAtMs = msAt(consumedBytes),
+            finishedAtMs = msAt(consumedBytes + cut)
         )
 
         nextWindowIndex++
-        nextWindowStartMs = window.finishedAtMs
+        consumedBytes += cut
         chunks.clear()
-        bufferedBytes = 0
-        bufferedDurationMs = 0
+        bufferedBytes = pcm.size - cut
+        if (bufferedBytes > 0) chunks.add(pcm.copyOfRange(cut, pcm.size))
 
         return window
     }
 
-    // Cortar exatamente no alvo parte palavras ao meio, e cada janela é transcrita sozinha (P131):
-    // o corte vai para o meio do trecho de 20 ms mais silencioso perto do alvo, e o resto do áudio
-    // abre a janela seguinte.
-    private fun cutAtPause(): DictationWindow {
-        val pcm = bufferedPcm()
-        val cut = quietestCut(pcm)
-        val durationMs = format.durationMs(cut)
-        val window = DictationWindow(
-            index = nextWindowIndex,
-            pcm = pcm.copyOfRange(0, cut),
-            format = format,
-            startedAtMs = nextWindowStartMs,
-            finishedAtMs = nextWindowStartMs + durationMs
-        )
-
-        nextWindowIndex++
-        nextWindowStartMs = window.finishedAtMs
-        chunks.clear()
-        val remainder = pcm.copyOfRange(cut, pcm.size)
-        if (remainder.isNotEmpty()) chunks.add(remainder)
-        bufferedBytes = remainder.size
-        bufferedDurationMs -= durationMs
-
-        return window
-    }
-
-    private fun quietestCut(pcm: ByteArray): Int {
+    // Cortar exatamente no alvo parte palavras ao meio, e cada janela é transcrita sozinha (P131).
+    // O corte vai para o meio do trecho de 120 ms com menor energia média entre alvo − antes e
+    // alvo + depois: uma oclusiva (p, t, k) dura 30–100 ms e não ganha de uma pausa entre palavras.
+    private fun pauseCut(pcm: ByteArray): Int {
         val atTarget = min(pcm.size, bytesFor(targetDurationMs))
         if (format.bytesPerSample != 2) return atTarget
         val blockBytes = bytesFor(PAUSE_BLOCK_MS)
-        val end = min(pcm.size, bytesFor(targetDurationMs + pauseSearchMs))
-        var offset = bytesFor(targetDurationMs - pauseSearchMs)
-        var best = -1
-        var bestEnergy = Long.MAX_VALUE
-        while (offset + blockBytes <= end) {
-            val energy = energy(pcm, offset, blockBytes)
-            if (energy < bestEnergy) {
-                bestEnergy = energy
-                best = offset
+        val start = bytesFor(targetDurationMs - pauseSearchBeforeMs)
+        val end = min(pcm.size, bytesFor(targetDurationMs + pauseSearchAfterMs))
+        val energies = (start until end step blockBytes)
+            .takeWhile { it + blockBytes <= end }
+            .map { energy(pcm, it, blockBytes) }
+        if (energies.isEmpty()) return atTarget
+        val run = min(PAUSE_RUN_BLOCKS, energies.size)
+        var runEnergy = energies.take(run).sum()
+        var bestEnergy = runEnergy
+        var bestBlock = 0
+        for (block in 1..energies.size - run) {
+            runEnergy += energies[block + run - 1] - energies[block - 1]
+            if (runEnergy < bestEnergy) {
+                bestEnergy = runEnergy
+                bestBlock = block
             }
-            offset += blockBytes
         }
-        return if (best < 0) atTarget else best + bytesFor(PAUSE_BLOCK_MS / 2)
+        return start + bestBlock * blockBytes + bytesFor(PAUSE_BLOCK_MS * run / 2)
     }
 
     private fun energy(pcm: ByteArray, offset: Int, length: Int): Long {
@@ -128,6 +119,8 @@ class DictationWindowAggregator(
     private fun bytesFor(durationMs: Long): Int =
         (durationMs * format.sampleRate / 1_000L).toInt() * format.bytesPerFrame
 
+    private fun msAt(bytes: Long): Long = bytes * 1_000L / (format.bytesPerFrame * format.sampleRate.toLong())
+
     private fun bufferedPcm(): ByteArray {
         val pcm = ByteArray(bufferedBytes)
         var offset = 0
@@ -140,7 +133,9 @@ class DictationWindowAggregator(
 
     companion object {
         const val DEFAULT_TARGET_DURATION_MS = 4_000L
-        const val SPEECH_PAUSE_SEARCH_MS = 600L
+        const val SPEECH_PAUSE_SEARCH_BEFORE_MS = 900L
+        const val SPEECH_PAUSE_SEARCH_AFTER_MS = 300L
         private const val PAUSE_BLOCK_MS = 20L
+        private const val PAUSE_RUN_BLOCKS = 6
     }
 }

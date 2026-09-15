@@ -141,21 +141,44 @@ class DictationWindowAggregatorTest {
     private fun voicedFrameOf(durationMs: Long): AudioFrame =
         AudioFrame(voicedPcm((durationMs * 32).toInt()), AudioFormat.DEFAULT)
 
-    @Test
-    fun pauseSearchCutsAtTheQuietestPointNearTheTargetSoAWordIsNotSplit() {
-        val aggregator = DictationWindowAggregator(targetDurationMs = 400L, pauseSearchMs = 200L)
+    private fun pauseAggregator() =
+        DictationWindowAggregator(targetDurationMs = 400L, pauseSearchBeforeMs = 200L, pauseSearchAfterMs = 100L)
 
-        val windows = listOf(voicedFrameOf(250L), frameOf(50L), voicedFrameOf(300L))
+    @Test
+    fun pauseSearchCutsInsideAPauseNearTheTargetSoAWordIsNotSplit() {
+        val aggregator = pauseAggregator()
+
+        val windows = listOf(voicedFrameOf(250L), frameOf(150L), voicedFrameOf(300L))
             .flatMap { aggregator.onFrame(it) }
 
         val window = windows.single()
-        assertTrue(window.finishedAtMs in 250L..300L, "corte em ${window.finishedAtMs} ms")
+        assertTrue(window.finishedAtMs in 250L..400L, "corte em ${window.finishedAtMs} ms")
+    }
+
+    @Test
+    fun briefStopConsonantClosureInsideAWordIsNotTakenForAPause() {
+        val aggregator = pauseAggregator()
+
+        val window = listOf(voicedFrameOf(230L), frameOf(40L), voicedFrameOf(110L), frameOf(150L), voicedFrameOf(100L))
+            .flatMap { aggregator.onFrame(it) }
+            .first()
+
+        assertTrue(window.finishedAtMs in 380L..500L, "corte em ${window.finishedAtMs} ms, dentro da oclusiva?")
+    }
+
+    @Test
+    fun windowIsEmittedAsSoonAsTargetPlusTheShortAfterRangeIsBuffered() {
+        val aggregator = pauseAggregator()
+
+        val emitted = List(5) { voicedFrameOf(100L) }.map { aggregator.onFrame(it).size }
+
+        assertEquals(listOf(0, 0, 0, 0, 1), emitted)
     }
 
     @Test
     fun pauseSearchKeepsEveryByteAndTheTimelineAcrossWindows() {
-        val aggregator = DictationWindowAggregator(targetDurationMs = 400L, pauseSearchMs = 200L)
-        val frames = listOf(voicedFrameOf(250L), frameOf(50L), voicedFrameOf(300L), voicedFrameOf(700L))
+        val aggregator = pauseAggregator()
+        val frames = listOf(voicedFrameOf(250L), frameOf(150L), voicedFrameOf(300L), voicedFrameOf(700L))
 
         val windows = frames.flatMap { aggregator.onFrame(it) } + listOfNotNull(aggregator.flush())
 
@@ -164,23 +187,34 @@ class DictationWindowAggregatorTest {
             windows.map { it.pcm }.reduce { acc, bytes -> acc + bytes }
         )
         windows.zipWithNext().forEach { (previous, next) -> assertEquals(previous.finishedAtMs, next.startedAtMs) }
-        assertEquals(1_300L, windows.last().finishedAtMs)
+        assertEquals(1_400L, windows.last().finishedAtMs)
+    }
+
+    @Test
+    fun framesWithoutWholeMillisecondsDoNotDriftTheTimeline() {
+        val aggregator = pauseAggregator()
+        val frames = List(30) { AudioFrame(voicedPcm(7_056), AudioFormat.DEFAULT) }
+
+        val windows = frames.flatMap { aggregator.onFrame(it) } + listOfNotNull(aggregator.flush())
+
+        windows.zipWithNext().forEach { (previous, next) -> assertEquals(previous.finishedAtMs, next.startedAtMs) }
+        assertEquals(AudioFormat.DEFAULT.durationMs(30 * 7_056), windows.last().finishedAtMs)
     }
 
     @Test
     fun continuousSpeechStillCutsInsideTheSearchRange() {
-        val aggregator = DictationWindowAggregator(targetDurationMs = 400L, pauseSearchMs = 200L)
+        val aggregator = pauseAggregator()
 
         val windows = List(20) { voicedFrameOf(100L) }.flatMap { aggregator.onFrame(it) }
 
         assertTrue(windows.size >= 3)
-        windows.forEach { assertTrue(it.durationMs in 200L..600L, "janela de ${it.durationMs} ms") }
+        windows.forEach { assertTrue(it.durationMs in 200L..500L, "janela de ${it.durationMs} ms") }
     }
 
     @Test
-    fun pauseSearchAsLongAsTheTargetIsRejected() {
+    fun pauseSearchBeforeAsLongAsTheTargetIsRejected() {
         assertFailsWith<IllegalArgumentException> {
-            DictationWindowAggregator(targetDurationMs = 400L, pauseSearchMs = 400L)
+            DictationWindowAggregator(targetDurationMs = 400L, pauseSearchBeforeMs = 400L, pauseSearchAfterMs = 100L)
         }
     }
 }

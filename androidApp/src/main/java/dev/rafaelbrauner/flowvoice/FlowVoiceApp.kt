@@ -71,7 +71,13 @@ private fun transcriptTextLog(context: Context): TranscriptionEventLog {
 private val dictationModule = module {
     single<TranscriptionEventLog> { TranscriptionEventLog(::logcat) }
     single<AudioCaptureEngine> { AndroidAudioCaptureEngine(androidContext()) }
-    factory { DictationSessionController(get(), windowPauseSearchMs = DictationWindowAggregator.SPEECH_PAUSE_SEARCH_MS) }
+    factory {
+        DictationSessionController(
+            get(),
+            windowPauseSearchBeforeMs = DictationWindowAggregator.SPEECH_PAUSE_SEARCH_BEFORE_MS,
+            windowPauseSearchAfterMs = DictationWindowAggregator.SPEECH_PAUSE_SEARCH_AFTER_MS
+        )
+    }
     single<SecretStore> { EncryptedSecretStore(androidContext()) }
     single<PersonalDictionary> { InMemoryPersonalDictionary(PrefsDictionaryPersist(androidContext())) }
     single<NoteStore> {
