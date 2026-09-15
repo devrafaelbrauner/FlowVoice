@@ -8,7 +8,8 @@ class RetryingTranscriptionClient(
     private val delegate: TranscriptionClient,
     private val config: OpenRouterConfig,
     private val sleeper: suspend (Long) -> Unit = { kotlinx.coroutines.delay(it) },
-    private val random: () -> Double = { Random.nextDouble() }
+    private val random: () -> Double = { Random.nextDouble() },
+    private val eventLog: TranscriptionEventLog = TranscriptionEventLog.NoOp
 ) : TranscriptionClient {
     override suspend fun transcribe(
         window: DictationWindow,
@@ -25,8 +26,18 @@ class RetryingTranscriptionClient(
                 if (!error.isRetryable || attempt >= config.maxRetries) {
                     throw error
                 }
-                sleeper(delayFor(error, attempt))
+                val delayMs = delayFor(error, attempt)
                 attempt++
+                eventLog.log(
+                    "transcription_retry",
+                    mapOf(
+                        "window" to window.index.toString(),
+                        "attempt" to attempt.toString(),
+                        "kind" to error.kind,
+                        "delayMs" to delayMs.toString()
+                    )
+                )
+                sleeper(delayMs)
             }
         }
     }

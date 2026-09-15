@@ -133,10 +133,39 @@ class RetryingTranscriptionClientTest {
         assertEquals(2, delays.size)
     }
 
+    @Test
+    fun logsEachRetryWithAttemptKindAndDelay() = runTest {
+        var calls = 0
+        val engine = MockEngine {
+            calls++
+            if (calls == 1) {
+                respond(content = ByteReadChannel(""), status = HttpStatusCode.InternalServerError)
+            } else {
+                respond(
+                    content = ByteReadChannel("""{"text":"ok"}"""),
+                    status = HttpStatusCode.OK,
+                    headers = jsonHeaders()
+                )
+            }
+        }
+        val delays = mutableListOf<Long>()
+        val log = RecordingLog()
+        val client = retryingClient(engine, delays, log = log)
+
+        client.transcribe(testWindow(index = 3), SECRET_KEY)
+
+        val retry = log.events.single { it.event == "transcription_retry" }
+        assertEquals("3", retry.metadata["window"])
+        assertEquals("1", retry.metadata["attempt"])
+        assertEquals("server", retry.metadata["kind"])
+        assertEquals(delays.single().toString(), retry.metadata["delayMs"])
+    }
+
     private fun retryingClient(
         engine: MockEngine,
         delays: MutableList<Long>,
-        config: OpenRouterConfig = OpenRouterConfig(maxRetries = 3)
+        config: OpenRouterConfig = OpenRouterConfig(maxRetries = 3),
+        log: TranscriptionEventLog = TranscriptionEventLog.NoOp
     ): TranscriptionClient {
         val http = HttpClient(engine) {
             install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
@@ -146,7 +175,8 @@ class RetryingTranscriptionClientTest {
             delegate = OpenRouterTranscriptionClient(http, config),
             config = config,
             sleeper = { delays += it },
-            random = { 0.0 }
+            random = { 0.0 },
+            eventLog = log
         )
     }
 

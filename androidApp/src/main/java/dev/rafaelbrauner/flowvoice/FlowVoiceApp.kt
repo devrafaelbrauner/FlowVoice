@@ -1,6 +1,7 @@
 package dev.rafaelbrauner.flowvoice
 
 import android.app.Application
+import android.content.pm.ApplicationInfo
 import android.util.Log
 import dev.rafaelbrauner.flowvoice.service.AccessibilityTextInserter
 import dev.rafaelbrauner.flowvoice.shared.dictation.AndroidAudioCaptureEngine
@@ -24,6 +25,7 @@ import dev.rafaelbrauner.flowvoice.shared.sync.RemoteSync
 import dev.rafaelbrauner.flowvoice.shared.sync.SyncEngine
 import dev.rafaelbrauner.flowvoice.shared.transcription.EncryptedSecretStore
 import dev.rafaelbrauner.flowvoice.shared.transcription.SecretStore
+import dev.rafaelbrauner.flowvoice.shared.transcription.TranscriptionEventLog
 import dev.rafaelbrauner.flowvoice.ui.screens.diagnostics.DiagnosticsLog
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -46,6 +48,11 @@ class FlowVoiceApp : Application() {
 private const val DICTATION_TAG = "FlowVoiceDictation"
 
 private val dictationModule = module {
+    single<TranscriptionEventLog> {
+        TranscriptionEventLog { event, metadata ->
+            Log.i(DICTATION_TAG, metadata.entries.joinToString(" ", prefix = "$event ") { "${it.key}=${it.value}" })
+        }
+    }
     single<AudioCaptureEngine> { AndroidAudioCaptureEngine(androidContext()) }
     factory { DictationSessionController(get()) }
     single<SecretStore> { EncryptedSecretStore(androidContext()) }
@@ -80,9 +87,9 @@ private val dictationModule = module {
             secrets = get(),
             inserter = AccessibilityTextInserter,
             scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
-            eventLog = { event, metadata ->
-                Log.i(DICTATION_TAG, metadata.entries.joinToString(" ", prefix = "$event ") { "${it.key}=${it.value}" })
-            }
+            eventLog = get(),
+            // Texto ditado só vai ao log em build de depuração (P135); release registra apenas contagens.
+            logTranscriptText = androidContext().applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
         )
     }
     single(createdAtStart = true) {

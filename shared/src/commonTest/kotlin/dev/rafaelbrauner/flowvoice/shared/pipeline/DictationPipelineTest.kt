@@ -16,6 +16,7 @@ import dev.rafaelbrauner.flowvoice.shared.prefs.InMemoryPreferencesStore
 import dev.rafaelbrauner.flowvoice.shared.proofreading.ProofreadingClient
 import dev.rafaelbrauner.flowvoice.shared.transcription.InMemorySecretStore
 import dev.rafaelbrauner.flowvoice.shared.transcription.OpenRouterConfig
+import dev.rafaelbrauner.flowvoice.shared.transcription.RecordingLog
 import dev.rafaelbrauner.flowvoice.shared.transcription.TranscriptionClient
 import dev.rafaelbrauner.flowvoice.shared.transcription.TranscriptionError
 import dev.rafaelbrauner.flowvoice.shared.transcription.TranscriptionErrorClassifier
@@ -148,6 +149,35 @@ class DictationPipelineTest {
         env.pipeline.reviewAndInsert()
 
         assertEquals(listOf("tomar Dipirona"), env.inserter.inserted)
+    }
+
+    @Test
+    fun proofreadingTextIsLoggedBeforeAndAfterOnlyWhenTextLoggingIsEnabled() = runTest {
+        val enabled = PipelineEnv(
+            scope = backgroundScope,
+            frames = listOf(frame(50L)),
+            texts = mapOf(0 to "primeiro ditado pelo início"),
+            preferences = AppPreferences(proofreadingEnabled = true),
+            logTranscriptText = true
+        )
+        val disabled = PipelineEnv(
+            scope = backgroundScope,
+            frames = listOf(frame(50L)),
+            texts = mapOf(0 to "primeiro ditado pelo início"),
+            preferences = AppPreferences(proofreadingEnabled = true)
+        )
+
+        enabled.pipeline.start()
+        enabled.pipeline.reviewAndInsert()
+        disabled.pipeline.start()
+        disabled.pipeline.reviewAndInsert()
+
+        val proofreading = enabled.log.events.single { it.event == "proofreading_text" }
+        assertEquals("primeiro ditado pelo início", proofreading.metadata["input"])
+        assertEquals("Primeiro ditado pelo início.", proofreading.metadata["output"])
+        assertTrue(disabled.log.events.none { event -> event.metadata.values.any { it.contains("ditado") } })
+        val applied = disabled.log.events.single { it.event == "proofreading_applied" }
+        assertEquals("27", applied.metadata["inputChars"])
     }
 
     @Test
@@ -1025,8 +1055,10 @@ private class PipelineEnv(
     inserterSucceeds: Boolean = true,
     textInserter: TextInserter? = null,
     config: OpenRouterConfig = OpenRouterConfig(),
-    timeSource: TimeSource = TimeSource.Monotonic
+    timeSource: TimeSource = TimeSource.Monotonic,
+    logTranscriptText: Boolean = false
 ) {
+    val log = RecordingLog()
     val engine = ScriptedAudioCaptureEngine(frames, startError)
     val dictionary = InMemoryPersonalDictionary()
     val inserter = RecordingInserter(inserterSucceeds)
@@ -1043,7 +1075,9 @@ private class PipelineEnv(
         secrets = secrets,
         inserter = textInserter ?: inserter,
         scope = scope,
-        timeSource = timeSource
+        eventLog = log,
+        timeSource = timeSource,
+        logTranscriptText = logTranscriptText
     )
 }
 

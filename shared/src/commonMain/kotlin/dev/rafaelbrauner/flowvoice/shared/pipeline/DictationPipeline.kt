@@ -43,7 +43,8 @@ class DictationPipeline(
     private val inserter: TextInserter,
     private val scope: CoroutineScope,
     private val eventLog: TranscriptionEventLog = TranscriptionEventLog.NoOp,
-    private val timeSource: TimeSource = TimeSource.Monotonic
+    private val timeSource: TimeSource = TimeSource.Monotonic,
+    private val logTranscriptText: Boolean = false
 ) {
     private val eventLines = MutableSharedFlow<String>(extraBufferCapacity = EVENT_BUFFER)
     private val transcription = IncrementalTranscriptionController(
@@ -51,7 +52,8 @@ class DictationPipeline(
         config = config,
         scope = scope,
         apiKeyProvider = { secrets.readOpenRouterKey() },
-        eventLog = { event, metadata -> log(event, metadata) }
+        eventLog = { event, metadata -> log(event, metadata) },
+        logText = logTranscriptText
     )
     private val statusState = MutableStateFlow<DictationPipelineStatus>(DictationPipelineStatus.Idle)
     private val windowsState = MutableStateFlow<List<DictationWindow>>(emptyList())
@@ -372,8 +374,10 @@ class DictationPipeline(
         val apiKey = secrets.readOpenRouterKey().orEmpty()
         if (apiKey.isBlank()) return revised
         return try {
-            dictionary.apply(proofreading.proofread(revised, apiKey, prefs.proofreadingModel)).also {
-                log("proofreading_applied", mapOf("chars" to it.length.toString()))
+            val proofread = proofreading.proofread(revised, apiKey, prefs.proofreadingModel)
+            if (logTranscriptText) log("proofreading_text", mapOf("input" to revised, "output" to proofread))
+            dictionary.apply(proofread).also {
+                log("proofreading_applied", mapOf("inputChars" to revised.length.toString(), "chars" to it.length.toString()))
             }
         } catch (error: CancellationException) {
             throw error

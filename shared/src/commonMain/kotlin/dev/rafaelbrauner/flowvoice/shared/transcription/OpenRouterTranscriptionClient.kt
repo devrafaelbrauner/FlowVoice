@@ -51,6 +51,7 @@ class OpenRouterTranscriptionClient(
                 format = "wav"
             )
         )
+        var httpStatus: Int? = null
         return try {
             val response = http.post("${config.baseUrl}${config.transcriptionsPath}") {
                 timeout {
@@ -66,6 +67,7 @@ class OpenRouterTranscriptionClient(
             val status = response.status.value
             val raw = response.bodyAsText()
             if (!response.status.isSuccess()) {
+                httpStatus = status
                 throw TranscriptionErrorClassifier.fromHttpStatus(
                     status,
                     response.headers[HttpHeaders.RetryAfter],
@@ -99,29 +101,26 @@ class OpenRouterTranscriptionClient(
         } catch (error: CancellationException) {
             throw error
         } catch (error: TranscriptionError) {
-            eventLog.log(
-                "transcription_error",
-                mapOf(
-                    "window" to window.index.toString(),
-                    "durationMs" to window.durationMs.toString(),
-                    "model" to usedModel,
-                    "kind" to error.kind
-                )
-            )
+            logError(window, usedModel, error, httpStatus)
             throw error
         } catch (error: Throwable) {
             val classified = TranscriptionErrorClassifier.fromThrowable(error)
-            eventLog.log(
-                "transcription_error",
-                mapOf(
-                    "window" to window.index.toString(),
-                    "durationMs" to window.durationMs.toString(),
-                    "model" to usedModel,
-                    "kind" to classified.kind
-                )
-            )
+            logError(window, usedModel, classified, httpStatus)
             throw classified
         }
+    }
+
+    private fun logError(window: DictationWindow, model: String, error: TranscriptionError, httpStatus: Int?) {
+        eventLog.log(
+            "transcription_error",
+            buildMap {
+                put("window", window.index.toString())
+                put("durationMs", window.durationMs.toString())
+                put("model", model)
+                put("kind", error.kind)
+                if (httpStatus != null) put("status", httpStatus.toString())
+            }
+        )
     }
 
     override fun cancel() {

@@ -86,6 +86,26 @@ class OpenRouterTranscriptionClientTest {
     }
 
     @Test
+    fun httpErrorLogCarriesTheStatusCode() = runTest {
+        val log = RecordingLog()
+        val engine = MockEngine {
+            respond(
+                content = ByteReadChannel("""{"error":{"code":402,"message":"insufficient credits"}}"""),
+                status = HttpStatusCode.PaymentRequired,
+                headers = jsonHeaders()
+            )
+        }
+        val client = OpenRouterTranscriptionClient(httpClient(engine), OpenRouterConfig(), log)
+
+        assertFailsWith<TranscriptionError> { client.transcribe(testWindow(), SECRET_KEY) }
+
+        val error = log.events.last()
+        assertEquals("transcription_error", error.event)
+        assertEquals("402", error.metadata["status"])
+        assertFalse(log.containsSecret())
+    }
+
+    @Test
     fun mapsUnauthorizedToInvalidKey() = runTest {
         val engine = MockEngine {
             respond(content = ByteReadChannel(""), status = HttpStatusCode.Unauthorized)

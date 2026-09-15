@@ -10,6 +10,7 @@ import dev.rafaelbrauner.flowvoice.shared.proofreading.ProofreadingClient
 import dev.rafaelbrauner.flowvoice.shared.transcription.OpenRouterTranscriptionClient
 import dev.rafaelbrauner.flowvoice.shared.transcription.RetryingTranscriptionClient
 import dev.rafaelbrauner.flowvoice.shared.transcription.TranscriptionClient
+import dev.rafaelbrauner.flowvoice.shared.transcription.TranscriptionEventLog
 import io.ktor.client.HttpClient
 import org.koin.dsl.module
 
@@ -19,9 +20,11 @@ val sharedModule = module {
     single { OpenRouterConfig() }
     single { OpenRouterKeyValidator(get(), get()) }
     single<TranscriptionClient> {
+        val eventLog = getOrNull<TranscriptionEventLog>() ?: TranscriptionEventLog.NoOp
         RetryingTranscriptionClient(
-            OpenRouterTranscriptionClient(get(), get()),
-            get()
+            delegate = OpenRouterTranscriptionClient(get(), get(), eventLog),
+            config = get(),
+            eventLog = eventLog
         )
     }
     single<ProofreadingClient> { OpenRouterProofreadingClient(get(), get()) }
