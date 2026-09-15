@@ -72,7 +72,9 @@ class AndroidAudioCaptureEngine(
             throw AudioCaptureException("unsupported audio capture format: $format")
         }
 
-        val readBuffer = ByteArray(minBufferSize.coerceAtLeast(MINIMUM_READ_BUFFER_BYTES) * 2)
+        // Frames de 100 ms (P140), com o buffer do AudioRecord maior que a leitura.
+        val readBuffer = ByteArray(CaptureFrames.readBytes(format))
+        val recordBufferBytes = CaptureFrames.recordBufferBytes(format, minBufferSize)
         @Suppress("DEPRECATION")
         val audioRecord = try {
             AudioRecord(
@@ -80,7 +82,7 @@ class AndroidAudioCaptureEngine(
                 format.sampleRate,
                 channelMask,
                 PlatformAudioFormat.ENCODING_PCM_16BIT,
-                readBuffer.size
+                recordBufferBytes
             )
         } catch (error: Throwable) {
             throw AudioCaptureException("failed to create AudioRecord", error)
@@ -102,7 +104,7 @@ class AndroidAudioCaptureEngine(
                     startSignal.complete(Unit)
                     Log.i(
                         TAG,
-                        "audio capture started: sampleRate=${format.sampleRate}, channels=${format.channels}, sampleBits=${format.sampleBits}, readBufferBytes=${readBuffer.size}"
+                        "audio capture started: sampleRate=${format.sampleRate}, channels=${format.channels}, sampleBits=${format.sampleBits}, readBufferBytes=${readBuffer.size}, recordBufferBytes=$recordBufferBytes"
                     )
                     while (captureActive.get() && !Thread.currentThread().isInterrupted) {
                         val bytesRead = audioRecord.read(readBuffer, 0, readBuffer.size)
@@ -200,7 +202,6 @@ class AndroidAudioCaptureEngine(
     private companion object {
         private const val TAG = "FlowVoiceDictation"
         private const val THREAD_NAME = "flowvoice-audio-capture"
-        private const val MINIMUM_READ_BUFFER_BYTES = 4_096
         private const val START_TIMEOUT_MS = 3_000L
         private const val STOP_JOIN_TIMEOUT_MS = 1_000L
     }
