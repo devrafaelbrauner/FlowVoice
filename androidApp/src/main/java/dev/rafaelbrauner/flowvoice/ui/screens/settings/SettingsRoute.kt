@@ -95,6 +95,7 @@ data class SettingsUiState(
     val overlayRunning: Boolean,
     val overlayMessage: String?,
     val proofreadingEnabled: Boolean,
+    val reviewBeforeInsert: Boolean,
     val accountEmail: String?,
     val googleWebClientId: String,
     val signingIn: Boolean,
@@ -108,6 +109,7 @@ data class SettingsActions(
     val onSaveKey: () -> Unit,
     val onOverlayToggle: () -> Unit,
     val onProofreadingChange: (Boolean) -> Unit,
+    val onReviewBeforeInsertChange: (Boolean) -> Unit,
     val onOpenDiagnostics: () -> Unit,
     val onClientIdChange: (String) -> Unit,
     val onSignIn: () -> Unit,
@@ -275,6 +277,7 @@ fun SettingsRoute(onOpenDiagnostics: () -> Unit, modifier: Modifier = Modifier) 
         overlayRunning = overlayRunning,
         overlayMessage = overlayMessage,
         proofreadingEnabled = preferences.proofreadingEnabled,
+        reviewBeforeInsert = preferences.reviewBeforeInsert,
         accountEmail = accountEmail,
         googleWebClientId = preferences.googleWebClientId,
         signingIn = signingIn,
@@ -292,6 +295,10 @@ fun SettingsRoute(onOpenDiagnostics: () -> Unit, modifier: Modifier = Modifier) 
         },
         onProofreadingChange = { enabled ->
             preferencesStore.write(preferences.copy(proofreadingEnabled = enabled))
+            preferences = preferencesStore.read()
+        },
+        onReviewBeforeInsertChange = { enabled ->
+            preferencesStore.write(preferences.copy(reviewBeforeInsert = enabled))
             preferences = preferencesStore.read()
         },
         onOpenDiagnostics = onOpenDiagnostics,
@@ -368,8 +375,23 @@ internal fun SettingsContent(
                 }
                 FvDivider()
                 SettingsRow(
+                    label = "Revisar antes de inserir",
+                    hint = if (state.reviewBeforeInsert) {
+                        "Mostra o texto e espera o toque em Inserir"
+                    } else {
+                        "Desligado: a bolha digita cada trecho direto no campo"
+                    }
+                ) {
+                    FvToggle(
+                        checked = state.reviewBeforeInsert,
+                        onCheckedChange = actions.onReviewBeforeInsertChange,
+                        label = "Revisar antes de inserir"
+                    )
+                }
+                FvDivider()
+                SettingsRow(
                     label = "Revisão por IA",
-                    hint = "Pontuação e ortografia antes de inserir"
+                    hint = "Pontuação e ortografia; só ao revisar antes de inserir e nas notas"
                 ) {
                     FvToggle(
                         checked = state.proofreadingEnabled,
@@ -609,13 +631,14 @@ private fun SettingsContentPreview(@PreviewParameter(ThemePreviewParameter::clas
                 overlayRunning = false,
                 overlayMessage = null,
                 proofreadingEnabled = true,
+                reviewBeforeInsert = false,
                 accountEmail = "rafael@gmail.com",
                 googleWebClientId = "",
                 signingIn = false,
                 syncing = false,
                 accountMessage = null
             ),
-            actions = SettingsActions({}, {}, {}, {}, {}, {}, {}, {}, {}, {})
+            actions = SettingsActions({}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {})
         )
     }
 }
