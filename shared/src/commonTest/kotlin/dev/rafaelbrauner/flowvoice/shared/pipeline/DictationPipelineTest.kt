@@ -31,6 +31,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -153,32 +154,31 @@ class DictationPipelineTest {
     }
 
     @Test
-    fun proofreadingTextIsLoggedBeforeAndAfterOnlyWhenTextLoggingIsEnabled() = runTest {
-        val enabled = PipelineEnv(
-            scope = backgroundScope,
-            frames = listOf(frame(50L)),
-            texts = mapOf(0 to "primeiro ditado pelo início"),
-            preferences = AppPreferences(proofreadingEnabled = true),
-            logTranscriptText = true
-        )
-        val disabled = PipelineEnv(
+    fun dictatedTextGoesOnlyToTheTextLogNeverToTheEventLogOrTheDiagnosticsLines() = runTest {
+        val env = PipelineEnv(
             scope = backgroundScope,
             frames = listOf(frame(50L)),
             texts = mapOf(0 to "primeiro ditado pelo início"),
             preferences = AppPreferences(proofreadingEnabled = true)
         )
+        val lines = mutableListOf<String>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { env.pipeline.events.collect { lines += it } }
 
-        enabled.pipeline.start()
-        enabled.pipeline.reviewAndInsert()
-        disabled.pipeline.start()
-        disabled.pipeline.reviewAndInsert()
+        env.pipeline.start()
+        env.pipeline.reviewAndInsert()
 
-        val proofreading = enabled.log.events.single { it.event == "proofreading_text" }
-        assertEquals("primeiro ditado pelo início", proofreading.metadata["input"])
-        assertEquals("Primeiro ditado pelo início.", proofreading.metadata["output"])
-        assertTrue(disabled.log.events.none { event -> event.metadata.values.any { it.contains("ditado") } })
-        val applied = disabled.log.events.single { it.event == "proofreading_applied" }
-        assertEquals("27", applied.metadata["inputChars"])
+        assertEquals(
+            "primeiro ditado pelo início",
+            env.textLog.events.single { it.event == "proofreading_input" }.metadata["text"]
+        )
+        assertEquals(
+            "Primeiro ditado pelo início.",
+            env.textLog.events.single { it.event == "proofreading_output" }.metadata["text"]
+        )
+        assertTrue(env.log.events.none { event -> event.metadata.values.any { it.contains("ditado") } })
+        assertTrue(lines.isNotEmpty())
+        assertTrue(lines.none { it.contains("ditado") }, lines.toString())
+        assertEquals("27", env.log.events.single { it.event == "proofreading_applied" }.metadata["inputChars"])
     }
 
     @Test
@@ -1095,11 +1095,11 @@ private class PipelineEnv(
     textInserter: TextInserter? = null,
     config: OpenRouterConfig = OpenRouterConfig(),
     timeSource: TimeSource = TimeSource.Monotonic,
-    logTranscriptText: Boolean = false,
     secretStore: SecretStore? = null,
     proofreadingOutput: ((String) -> String)? = null
 ) {
     val log = RecordingLog()
+    val textLog = RecordingLog()
     val engine = ScriptedAudioCaptureEngine(frames, startError)
     val dictionary = InMemoryPersonalDictionary()
     val inserter = RecordingInserter(inserterSucceeds)
@@ -1118,7 +1118,7 @@ private class PipelineEnv(
         scope = scope,
         eventLog = log,
         timeSource = timeSource,
-        logTranscriptText = logTranscriptText
+        transcriptTextLog = textLog
     )
 }
 

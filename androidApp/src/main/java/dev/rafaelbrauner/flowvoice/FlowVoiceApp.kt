@@ -1,8 +1,11 @@
 package dev.rafaelbrauner.flowvoice
 
 import android.app.Application
+import android.content.Context
 import android.content.pm.ApplicationInfo
 import android.util.Log
+import dev.rafaelbrauner.flowvoice.logging.LogChunks
+import dev.rafaelbrauner.flowvoice.logging.TranscriptTextLogging
 import dev.rafaelbrauner.flowvoice.service.AccessibilityTextInserter
 import dev.rafaelbrauner.flowvoice.shared.dictation.AndroidAudioCaptureEngine
 import dev.rafaelbrauner.flowvoice.shared.dictation.AudioCaptureEngine
@@ -34,6 +37,7 @@ import kotlinx.coroutines.SupervisorJob
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.context.GlobalContext
 import org.koin.dsl.module
+import java.io.File
 
 class FlowVoiceApp : Application() {
 
@@ -47,13 +51,25 @@ class FlowVoiceApp : Application() {
 }
 
 private const val DICTATION_TAG = "FlowVoiceDictation"
+// Com acentos (2 bytes em UTF-8) cada parte fica abaixo do limite de ~4 KB por linha do logcat.
+private const val LOG_CHUNK_CHARS = 1_800
+
+private fun logcat(event: String, metadata: Map<String, String>) {
+    val line = metadata.entries.joinToString(" ", prefix = "$event ") { "${it.key}=${it.value}" }
+    LogChunks.split(line, LOG_CHUNK_CHARS).forEach { Log.i(DICTATION_TAG, it) }
+}
+
+private fun transcriptTextLog(context: Context): TranscriptionEventLog {
+    val debuggable = context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
+    val marker = File(context.filesDir, TranscriptTextLogging.MARKER_FILE)
+    return TranscriptionEventLog { event, metadata ->
+        val modifiedAt = marker.lastModified().takeIf { it > 0L }
+        if (TranscriptTextLogging.isEnabled(debuggable, modifiedAt, System.currentTimeMillis())) logcat(event, metadata)
+    }
+}
 
 private val dictationModule = module {
-    single<TranscriptionEventLog> {
-        TranscriptionEventLog { event, metadata ->
-            Log.i(DICTATION_TAG, metadata.entries.joinToString(" ", prefix = "$event ") { "${it.key}=${it.value}" })
-        }
-    }
+    single<TranscriptionEventLog> { TranscriptionEventLog(::logcat) }
     single<AudioCaptureEngine> { AndroidAudioCaptureEngine(androidContext()) }
     factory { DictationSessionController(get(), windowPauseSearchMs = DictationWindowAggregator.SPEECH_PAUSE_SEARCH_MS) }
     single<SecretStore> { EncryptedSecretStore(androidContext()) }
@@ -89,8 +105,7 @@ private val dictationModule = module {
             inserter = AccessibilityTextInserter,
             scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
             eventLog = get(),
-            // Texto ditado só vai ao log em build de depuração (P135); release registra apenas contagens.
-            logTranscriptText = androidContext().applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
+            transcriptTextLog = transcriptTextLog(androidContext())
         )
     }
     single(createdAtStart = true) {

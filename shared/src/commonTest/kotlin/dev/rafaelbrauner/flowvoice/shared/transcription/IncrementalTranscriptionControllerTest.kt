@@ -215,34 +215,25 @@ class IncrementalTranscriptionControllerTest {
     }
 
     @Test
-    fun windowTextIsLoggedOnlyWhenTextLoggingIsEnabled() = runTest {
-        val results = mapOf(0 to TranscriptionResult("terceiro colocado", "fake"))
-        val enabledLog = RecordingLog()
-        val enabled = IncrementalTranscriptionController(
-            client = FakeTranscriptionClient(results = results),
+    fun windowTextGoesOnlyToTheTextLogNeverToTheEventLog() = runTest {
+        val eventLog = RecordingLog()
+        val textLog = RecordingLog()
+        val controller = IncrementalTranscriptionController(
+            client = FakeTranscriptionClient(results = mapOf(0 to TranscriptionResult("terceiro colocado", "fake"))),
             config = OpenRouterConfig(),
             scope = this,
             apiKeyProvider = { "sk-or-v1-testkey123456" },
-            eventLog = enabledLog,
-            logText = true
-        )
-        val disabledLog = RecordingLog()
-        val disabled = IncrementalTranscriptionController(
-            client = FakeTranscriptionClient(results = results),
-            config = OpenRouterConfig(),
-            scope = this,
-            apiKeyProvider = { "sk-or-v1-testkey123456" },
-            eventLog = disabledLog
+            eventLog = eventLog,
+            textLog = textLog
         )
 
-        enabled.submit(testWindow(0))
-        disabled.submit(testWindow(0))
+        controller.submit(testWindow(0))
         advanceUntilIdle()
 
-        val text = enabledLog.events.single { it.event == "transcription_window_text" }
+        val text = textLog.events.single { it.event == "transcription_window_text" }
         assertEquals("0", text.metadata["window"])
         assertEquals("terceiro colocado", text.metadata["text"])
-        assertTrue(disabledLog.events.none { event -> event.metadata.values.any { it.contains("colocado") } })
+        assertTrue(eventLog.events.none { event -> event.metadata.values.any { it.contains("colocado") } })
     }
 
     @Test

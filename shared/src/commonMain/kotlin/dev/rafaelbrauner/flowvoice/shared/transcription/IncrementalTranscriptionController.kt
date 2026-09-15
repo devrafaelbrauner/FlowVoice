@@ -18,7 +18,7 @@ class IncrementalTranscriptionController(
     private val scope: CoroutineScope,
     private val apiKeyProvider: () -> String?,
     private val eventLog: TranscriptionEventLog = TranscriptionEventLog.NoOp,
-    private val logText: Boolean = false
+    private val textLog: TranscriptionEventLog = TranscriptionEventLog.NoOp
 ) {
     private val segmentsMutex = Mutex()
     private val processMutex = Mutex()
@@ -127,12 +127,7 @@ class IncrementalTranscriptionController(
                     text = result.text
                 )
             )
-            if (logText) {
-                eventLog.log(
-                    "transcription_window_text",
-                    mapOf("window" to window.index.toString(), "text" to result.text)
-                )
-            }
+            textLog.log("transcription_window_text", mapOf("window" to window.index.toString(), "text" to result.text))
             rebuildProvisionalText()
         } catch (error: CancellationException) {
             throw error

@@ -45,7 +45,8 @@ class DictationPipeline(
     private val scope: CoroutineScope,
     private val eventLog: TranscriptionEventLog = TranscriptionEventLog.NoOp,
     private val timeSource: TimeSource = TimeSource.Monotonic,
-    private val logTranscriptText: Boolean = false
+    // Texto ditado vai só para este log, nunca para eventLog nem para as linhas do Diagnóstico (P135).
+    private val transcriptTextLog: TranscriptionEventLog = TranscriptionEventLog.NoOp
 ) {
     private val eventLines = MutableSharedFlow<String>(extraBufferCapacity = EVENT_BUFFER)
     private val transcription = IncrementalTranscriptionController(
@@ -54,7 +55,7 @@ class DictationPipeline(
         scope = scope,
         apiKeyProvider = { secrets.readOpenRouterKey() },
         eventLog = { event, metadata -> log(event, metadata) },
-        logText = logTranscriptText
+        textLog = transcriptTextLog
     )
     private val statusState = MutableStateFlow<DictationPipelineStatus>(DictationPipelineStatus.Idle)
     private val windowsState = MutableStateFlow<List<DictationWindow>>(emptyList())
@@ -377,7 +378,8 @@ class DictationPipeline(
         val apiKey = sessionApiKey ?: return revised
         return try {
             val proofread = proofreading.proofread(revised, apiKey, prefs.proofreadingModel)
-            if (logTranscriptText) log("proofreading_text", mapOf("input" to revised, "output" to proofread))
+            transcriptTextLog.log("proofreading_input", mapOf("text" to revised))
+            transcriptTextLog.log("proofreading_output", mapOf("text" to proofread))
             if (!ProofreadingGuard.accepts(revised, proofread)) {
                 log(
                     "proofreading_rejected",
