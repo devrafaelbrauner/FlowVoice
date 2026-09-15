@@ -8,8 +8,9 @@ estão em [`docs/tasks/`](docs/tasks/README.md).
 
 ## [0.5.0] - 2026-09-15
 
-Bolha arrastável e inserção direta com prévia (P138 e P139). Desenho e decisões
-em [`docs/tasks/P138-P139.md`](docs/tasks/P138-P139.md).
+Bolha arrastável e inserção direta com prévia (P138 e P139) e janela de áudio
+cortada na pausa da fala (P140). Desenho e decisões da bolha em
+[`docs/tasks/P138-P139.md`](docs/tasks/P138-P139.md).
 
 ### Added
 
@@ -45,6 +46,21 @@ em [`docs/tasks/P138-P139.md`](docs/tasks/P138-P139.md).
   continua ao revisar antes de inserir e nas notas.
 - P139: o microfone do Início também digita direto, só no app que ele reabre
   (P130).
+- P140: a janela de áudio é **cortada na pausa natural da fala**, e não mais a
+  cada ~4 s. Ela sai com 300 ms de pausa depois de ao menos 1,2 s de áudio e
+  400 ms de fala, cortada no meio da pausa. Falando sem pausa, continua o teto de
+  ~4 s. O limiar de pausa acompanha o ruído de fundo da sessão, e silêncio ou
+  ruído sem fala só saem no teto, sem pedidos a mais. Com as janelas fixas, no S26
+  (`gpt-transcribe`, ditado de 23 s), os pedidos saíam a cada 3,4–4,3 s, a
+  OpenRouter respondia em 1,1–1,7 s e o primeiro texto entrou 6,1 s depois do
+  início. A meta é o texto ~1,5–2 s depois de cada frase, ainda não medida.
+- P140: a captura lê frames de 100 ms (eram 256 ms no S26), o que dá resolução
+  ao corte na pausa.
+- P140: o teto de pedidos por sessão passou de 30 para 90 (~3 min de fala com as
+  janelas menores). Uma captura muda ainda para, em ~6 min. O custo máximo por
+  sessão com o `gpt-transcribe` é de ~US$ 0,03.
+- P140: `dictation_window` no log traz `cut` (`pause`, `leading`, `ceiling`,
+  `flush`) e `noiseFloor`.
 
 ### Security
 
@@ -69,6 +85,12 @@ em [`docs/tasks/P138-P139.md`](docs/tasks/P138-P139.md).
   que se quer tocar e receber o toque. Focar o campo antes de ditar evita isso.
 - Um app que reinicie o input a cada `commitText` pausaria a digitação a cada
   trecho (`dictation_direct_paused route=trava:campo`). Não foi medido.
+- P140: os limiares do corte na pausa foram escolhidos sem fala real (pausa até
+  2× o piso de ruído, mínimo 100; fala acima de 3×, mínimo 250) e não foram
+  medidos no S26. Uma hesitação de 300 ms no meio da frase parte a janela, e o
+  modelo pode fechar o trecho com ponto e abrir o seguinte com maiúscula. A
+  transcrição continua uma de cada vez: uma janela que sai com a anterior ainda na
+  OpenRouter espera por ela.
 
 ## [0.4.8] - 2026-09-15
 

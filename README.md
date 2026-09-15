@@ -77,8 +77,9 @@ adb install -r androidApp/build/outputs/apk/debug/androidApp-debug.apk
 ## Ditando
 
 - **Pela bolha flutuante:** toque na bolha no app em que está digitando. Cada trecho
-  (~4 s de fala) é **digitado no campo** assim que é transcrito, em ordem e com
-  espaço entre os trechos. Toque na bolha de novo para encerrar: o último trecho
+  vai até uma pausa natural da fala (300 ms de pausa depois de ao menos ~1 s de
+  áudio) ou, falando sem pausa, até ~4 s. Ele é **digitado no campo** assim que é
+  transcrito, em ordem e com espaço entre os trechos. Toque na bolha de novo para encerrar: o último trecho
   entra em seguida. Nesse modo não há revisão por IA.
 - **Prévia:** um cartão junto à bolha mostra o cronômetro e o estado. Ele abre acima
   ou abaixo da linha do cursor, **nunca sobre ela** nem sobre o teclado; se o cursor
