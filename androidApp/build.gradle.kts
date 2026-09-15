@@ -12,8 +12,8 @@ android {
         applicationId = "dev.rafaelbrauner.flowvoice"
         minSdk = 24
         targetSdk = 35
-        versionCode = 10
-        versionName = "0.4.5"
+        versionCode = 11
+        versionName = "0.4.6"
     }
 
     buildTypes {
