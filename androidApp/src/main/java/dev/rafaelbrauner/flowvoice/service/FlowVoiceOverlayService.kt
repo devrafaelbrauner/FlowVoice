@@ -117,7 +117,6 @@ class FlowVoiceOverlayService : Service(), KoinComponent, BubbleHost {
         keyboardTracking?.cancel()
         hideCard()
         scope.cancel()
-        cardView?.disposeComposition()
         overlayView?.let { view ->
             view.disposeComposition()
             if (view.isAttachedToWindow) {
@@ -254,15 +253,8 @@ class FlowVoiceOverlayService : Service(), KoinComponent, BubbleHost {
             Toast.makeText(this, OVERLAY_UNAVAILABLE_MESSAGE, Toast.LENGTH_LONG).show()
             return false
         }
-        val card = ComposeView(this).apply {
-            setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
-            setViewTreeLifecycleOwner(owner)
-            setViewTreeSavedStateRegistryOwner(owner)
-            setContent { PreviewCardOverlay(cardUi) }
-        }
         windowManager = manager
         overlayView = view
-        cardView = card
         lifecycleOwner = owner
         mode = OverlayMode.Bubble
         runningState.value = true
@@ -339,8 +331,8 @@ class FlowVoiceOverlayService : Service(), KoinComponent, BubbleHost {
 
     private fun placeCard(geometry: CardGeometry) {
         val manager = windowManager ?: return
-        val card = cardView ?: return
         if (!cardWanted()) return
+        val card = cardView ?: createCardView()?.also { cardView = it } ?: return
         val area = safeArea(manager)
         val size = bubbleSize()
         val bubble = BubblePlacement.pointOf(position, area, size)
@@ -421,15 +413,30 @@ class FlowVoiceOverlayService : Service(), KoinComponent, BubbleHost {
         detachCard()
     }
 
+    // Um ComposeView novo a cada abertura: recolocado na janela depois de removido, o mesmo view ficava com o
+    // último quadro composto (cartão vazio, sem conteúdo) no S26.
+    private fun createCardView(): ComposeView? {
+        val owner = lifecycleOwner ?: return null
+        return ComposeView(this).apply {
+            setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
+            setViewTreeLifecycleOwner(owner)
+            setViewTreeSavedStateRegistryOwner(owner)
+            setContent { PreviewCardOverlay(cardUi) }
+        }
+    }
+
     private fun detachCard() {
         val card = cardView ?: return
-        if (!cardAttached) return
-        cardAttached = false
-        try {
-            windowManager?.removeView(card)
-        } catch (error: RuntimeException) {
-            Log.w(TAG, "overlay_card_remove_failed ${error.javaClass.simpleName}")
+        cardView = null
+        if (cardAttached) {
+            cardAttached = false
+            try {
+                windowManager?.removeView(card)
+            } catch (error: RuntimeException) {
+                Log.w(TAG, "overlay_card_remove_failed ${error.javaClass.simpleName}")
+            }
         }
+        card.disposeComposition()
     }
 
     private fun placeBar() {
