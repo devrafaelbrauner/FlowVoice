@@ -27,6 +27,7 @@ class IncrementalTranscriptionController(
     private val jobs = mutableListOf<Job>()
     private var cancelled = false
     private var requestCount = 0
+    private var sessionApiKey: String? = null
     private val budgetState = MutableStateFlow(false)
     private val fatalState = MutableStateFlow<TranscriptionError?>(null)
 
@@ -60,11 +61,14 @@ class IncrementalTranscriptionController(
         client.cancel()
     }
 
-    fun reset() {
+    // A chave vale para a sessão inteira: uma falha passageira do cofre no meio do ditado não pode
+    // virar "chave ausente" e encerrar a sessão (P134).
+    fun reset(apiKey: String? = null) {
         jobs.toList().forEach { it.cancel() }
         jobs.clear()
         cancelled = false
         requestCount = 0
+        sessionApiKey = apiKey?.takeIf { it.isNotBlank() }
         budgetState.value = false
         fatalState.value = null
         provisional.value = ""
@@ -109,8 +113,8 @@ class IncrementalTranscriptionController(
             fail(window, fatal)
             return
         }
-        val apiKey = apiKeyProvider().orEmpty()
-        if (apiKey.isBlank()) {
+        val apiKey = sessionApiKey ?: apiKeyProvider()?.takeIf { it.isNotBlank() }?.also { sessionApiKey = it }
+        if (apiKey == null) {
             failFatally(window, TranscriptionError.InvalidKey())
             return
         }

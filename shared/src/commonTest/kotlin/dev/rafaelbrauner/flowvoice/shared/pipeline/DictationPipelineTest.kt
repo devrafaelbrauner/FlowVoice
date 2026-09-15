@@ -17,6 +17,7 @@ import dev.rafaelbrauner.flowvoice.shared.proofreading.ProofreadingClient
 import dev.rafaelbrauner.flowvoice.shared.transcription.InMemorySecretStore
 import dev.rafaelbrauner.flowvoice.shared.transcription.OpenRouterConfig
 import dev.rafaelbrauner.flowvoice.shared.transcription.RecordingLog
+import dev.rafaelbrauner.flowvoice.shared.transcription.SecretStore
 import dev.rafaelbrauner.flowvoice.shared.transcription.TranscriptionClient
 import dev.rafaelbrauner.flowvoice.shared.transcription.TranscriptionError
 import dev.rafaelbrauner.flowvoice.shared.transcription.TranscriptionErrorClassifier
@@ -178,6 +179,26 @@ class DictationPipelineTest {
         assertTrue(disabled.log.events.none { event -> event.metadata.values.any { it.contains("ditado") } })
         val applied = disabled.log.events.single { it.event == "proofreading_applied" }
         assertEquals("27", applied.metadata["inputChars"])
+    }
+
+    @Test
+    fun keyReadAtStartServesTheWholeSessionSoAVaultHiccupDoesNotStopIt() = runTest {
+        val vault = OnceReadableSecretStore("sk-or-v1-testkey123456")
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = listOf(frame(100L), frame(100L), frame(50L)),
+            texts = mapOf(0 to "o médico", 1 to "pediu o exame", 2 to "de sangue"),
+            preferences = AppPreferences(proofreadingEnabled = true),
+            secretStore = vault
+        )
+
+        env.pipeline.start()
+        runCurrent()
+        val completed = assertIs<DictationPipelineStatus.Completed>(env.pipeline.reviewAndInsert())
+
+        assertEquals("O médico pediu o exame de sangue.", completed.text)
+        assertNull(completed.warning)
+        assertEquals(1, vault.reads)
     }
 
     @Test
@@ -1056,7 +1077,8 @@ private class PipelineEnv(
     textInserter: TextInserter? = null,
     config: OpenRouterConfig = OpenRouterConfig(),
     timeSource: TimeSource = TimeSource.Monotonic,
-    logTranscriptText: Boolean = false
+    logTranscriptText: Boolean = false,
+    secretStore: SecretStore? = null
 ) {
     val log = RecordingLog()
     val engine = ScriptedAudioCaptureEngine(frames, startError)
@@ -1064,7 +1086,7 @@ private class PipelineEnv(
     val inserter = RecordingInserter(inserterSucceeds)
     val proofreader = FakeProofreader(proofreadingFails)
     val client = ScriptedTranscriptionClient(texts, transcriptionDelayMs, failures)
-    val secrets = InMemorySecretStore().apply { apiKey?.let { writeOpenRouterKey(it) } }
+    val secrets = secretStore ?: InMemorySecretStore().apply { apiKey?.let { writeOpenRouterKey(it) } }
     val pipeline = DictationPipeline(
         controller = DictationSessionController(captureEngine ?: engine, windowTargetDurationMs = 100L),
         client = client,
@@ -1153,6 +1175,18 @@ private class RecordingInserter(private val succeeds: Boolean = true) : TextInse
             TextInsertionResult(success = false, route = "teste", message = "campo indisponível")
         }
     }
+}
+
+// Cofre que entrega a chave só na primeira leitura, como um Keystore com falha passageira (P134).
+private class OnceReadableSecretStore(private val key: String) : SecretStore {
+    var reads = 0
+        private set
+
+    override fun readOpenRouterKey(): String? = key.takeIf { reads++ == 0 }
+
+    override fun writeOpenRouterKey(value: String) = Unit
+
+    override fun clearOpenRouterKey() = Unit
 }
 
 private class FakeProofreader(private val fails: Boolean) : ProofreadingClient {

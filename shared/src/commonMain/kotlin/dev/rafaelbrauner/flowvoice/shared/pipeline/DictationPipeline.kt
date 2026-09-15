@@ -61,6 +61,7 @@ class DictationPipeline(
     private val targetState = MutableStateFlow(DictationTarget.ActiveField)
     private var sessionToken = 0
     private var refusalMark: TimeMark? = null
+    private var sessionApiKey: String? = null
     private var sessionId = 0
     private val pipelineSessionState = MutableStateFlow(
         DictationPipelineSession(sessionId, DictationTarget.ActiveField, DictationPipelineStatus.Idle)
@@ -147,10 +148,11 @@ class DictationPipeline(
         sessionId++
         targetState.value = target
         publish(DictationPipelineStatus.Starting)
-        transcription.reset()
+        sessionApiKey = secrets.readOpenRouterKey()?.takeIf { it.isNotBlank() }
+        transcription.reset(sessionApiKey)
         windowsState.value = emptyList()
         submittedWindows.value = 0
-        if (secrets.readOpenRouterKey().isNullOrBlank()) {
+        if (sessionApiKey == null) {
             publish(DictationPipelineStatus.Failed(INVALID_KEY_MESSAGE))
             log("dictation_failed", mapOf("stage" to "key"))
             return
@@ -371,8 +373,7 @@ class DictationPipeline(
         val revised = dictionary.apply(assembled.finalized)
         val prefs = preferences.read()
         if (!prefs.proofreadingEnabled || revised.isBlank() || transcription.fatalError.value != null) return revised
-        val apiKey = secrets.readOpenRouterKey().orEmpty()
-        if (apiKey.isBlank()) return revised
+        val apiKey = sessionApiKey ?: return revised
         return try {
             val proofread = proofreading.proofread(revised, apiKey, prefs.proofreadingModel)
             if (logTranscriptText) log("proofreading_text", mapOf("input" to revised, "output" to proofread))
