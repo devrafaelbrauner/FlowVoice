@@ -11,6 +11,7 @@ import dev.rafaelbrauner.flowvoice.shared.dictation.AndroidAudioCaptureEngine
 import dev.rafaelbrauner.flowvoice.shared.dictation.AudioCaptureEngine
 import dev.rafaelbrauner.flowvoice.shared.dictation.DictationSessionController
 import dev.rafaelbrauner.flowvoice.shared.dictation.DictationWindowAggregator
+import dev.rafaelbrauner.flowvoice.shared.dictation.SpeechEndpointing
 import dev.rafaelbrauner.flowvoice.shared.di.sharedModule
 import dev.rafaelbrauner.flowvoice.shared.dictionary.InMemoryPersonalDictionary
 import dev.rafaelbrauner.flowvoice.shared.dictionary.PersonalDictionary
@@ -75,7 +76,8 @@ private val dictationModule = module {
         DictationSessionController(
             get(),
             windowPauseSearchBeforeMs = DictationWindowAggregator.SPEECH_PAUSE_SEARCH_BEFORE_MS,
-            windowPauseSearchAfterMs = DictationWindowAggregator.SPEECH_PAUSE_SEARCH_AFTER_MS
+            windowPauseSearchAfterMs = DictationWindowAggregator.SPEECH_PAUSE_SEARCH_AFTER_MS,
+            windowEndpointing = SpeechEndpointing()
         )
     }
     single<SecretStore> { EncryptedSecretStore(androidContext()) }

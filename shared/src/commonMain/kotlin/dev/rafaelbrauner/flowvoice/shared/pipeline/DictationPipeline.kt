@@ -99,11 +99,13 @@ class DictationPipeline(
                 submittedWindows.value += 1
                 log(
                     "dictation_window",
-                    mapOf(
-                        "window" to (window.index + 1).toString(),
-                        "durationMs" to window.durationMs.toString(),
-                        "model" to config.model
-                    )
+                    buildMap {
+                        put("window", (window.index + 1).toString())
+                        put("durationMs", window.durationMs.toString())
+                        put("model", config.model)
+                        put("cut", window.cut.name.lowercase())
+                        window.noiseFloor?.let { put("noiseFloor", it.toString()) }
+                    }
                 )
             }
         }
