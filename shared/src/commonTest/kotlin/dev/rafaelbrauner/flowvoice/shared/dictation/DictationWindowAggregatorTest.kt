@@ -1,5 +1,6 @@
 package dev.rafaelbrauner.flowvoice.shared.dictation
 
+import dev.rafaelbrauner.flowvoice.shared.transcription.voicedPcm
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
@@ -135,5 +136,51 @@ class DictationWindowAggregatorTest {
         val aggregator = DictationWindowAggregator(targetDurationMs = 100L)
 
         assertNull(aggregator.flush())
+    }
+
+    private fun voicedFrameOf(durationMs: Long): AudioFrame =
+        AudioFrame(voicedPcm((durationMs * 32).toInt()), AudioFormat.DEFAULT)
+
+    @Test
+    fun pauseSearchCutsAtTheQuietestPointNearTheTargetSoAWordIsNotSplit() {
+        val aggregator = DictationWindowAggregator(targetDurationMs = 400L, pauseSearchMs = 200L)
+
+        val windows = listOf(voicedFrameOf(250L), frameOf(50L), voicedFrameOf(300L))
+            .flatMap { aggregator.onFrame(it) }
+
+        val window = windows.single()
+        assertTrue(window.finishedAtMs in 250L..300L, "corte em ${window.finishedAtMs} ms")
+    }
+
+    @Test
+    fun pauseSearchKeepsEveryByteAndTheTimelineAcrossWindows() {
+        val aggregator = DictationWindowAggregator(targetDurationMs = 400L, pauseSearchMs = 200L)
+        val frames = listOf(voicedFrameOf(250L), frameOf(50L), voicedFrameOf(300L), voicedFrameOf(700L))
+
+        val windows = frames.flatMap { aggregator.onFrame(it) } + listOfNotNull(aggregator.flush())
+
+        assertContentEquals(
+            frames.map { it.pcm }.reduce { acc, bytes -> acc + bytes },
+            windows.map { it.pcm }.reduce { acc, bytes -> acc + bytes }
+        )
+        windows.zipWithNext().forEach { (previous, next) -> assertEquals(previous.finishedAtMs, next.startedAtMs) }
+        assertEquals(1_300L, windows.last().finishedAtMs)
+    }
+
+    @Test
+    fun continuousSpeechStillCutsInsideTheSearchRange() {
+        val aggregator = DictationWindowAggregator(targetDurationMs = 400L, pauseSearchMs = 200L)
+
+        val windows = List(20) { voicedFrameOf(100L) }.flatMap { aggregator.onFrame(it) }
+
+        assertTrue(windows.size >= 3)
+        windows.forEach { assertTrue(it.durationMs in 200L..600L, "janela de ${it.durationMs} ms") }
+    }
+
+    @Test
+    fun pauseSearchAsLongAsTheTargetIsRejected() {
+        assertFailsWith<IllegalArgumentException> {
+            DictationWindowAggregator(targetDurationMs = 400L, pauseSearchMs = 400L)
+        }
     }
 }

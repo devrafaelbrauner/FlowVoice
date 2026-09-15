@@ -7,6 +7,7 @@ import dev.rafaelbrauner.flowvoice.service.AccessibilityTextInserter
 import dev.rafaelbrauner.flowvoice.shared.dictation.AndroidAudioCaptureEngine
 import dev.rafaelbrauner.flowvoice.shared.dictation.AudioCaptureEngine
 import dev.rafaelbrauner.flowvoice.shared.dictation.DictationSessionController
+import dev.rafaelbrauner.flowvoice.shared.dictation.DictationWindowAggregator
 import dev.rafaelbrauner.flowvoice.shared.di.sharedModule
 import dev.rafaelbrauner.flowvoice.shared.dictionary.InMemoryPersonalDictionary
 import dev.rafaelbrauner.flowvoice.shared.dictionary.PersonalDictionary
@@ -54,7 +55,7 @@ private val dictationModule = module {
         }
     }
     single<AudioCaptureEngine> { AndroidAudioCaptureEngine(androidContext()) }
-    factory { DictationSessionController(get()) }
+    factory { DictationSessionController(get(), windowPauseSearchMs = DictationWindowAggregator.SPEECH_PAUSE_SEARCH_MS) }
     single<SecretStore> { EncryptedSecretStore(androidContext()) }
     single<PersonalDictionary> { InMemoryPersonalDictionary(PrefsDictionaryPersist(androidContext())) }
     single<NoteStore> {
