@@ -18,9 +18,17 @@ class BubblePositionStore(context: Context) {
         }
     }
 
+    // "Bolha ligada" sobrevive à morte do processo, que uma reinstalação ou atualização provoca (P141).
+    fun readEnabled(): Boolean = prefs.getBoolean(KEY_ENABLED, false)
+
+    fun writeEnabled(enabled: Boolean) {
+        prefs.edit { putBoolean(KEY_ENABLED, enabled) }
+    }
+
     private companion object {
         const val PREFS = "flowvoice_overlay"
         const val KEY_SIDE = "bubble_side"
         const val KEY_FRACTION = "bubble_fraction"
+        const val KEY_ENABLED = "bubble_enabled"
     }
 }

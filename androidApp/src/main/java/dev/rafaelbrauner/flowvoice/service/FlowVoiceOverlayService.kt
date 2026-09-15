@@ -87,6 +87,7 @@ class FlowVoiceOverlayService : Service(), KoinComponent, BubbleHost {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
+            positionStore.writeEnabled(false)
             stopSelf()
             return START_NOT_STICKY
         }
@@ -98,6 +99,8 @@ class FlowVoiceOverlayService : Service(), KoinComponent, BubbleHost {
             stopOverlay()
             return START_NOT_STICKY
         }
+        // Guardado para o app religar a bolha depois de uma reinstalação ou atualização (P141).
+        positionStore.writeEnabled(true)
         if (intent?.action == OverlayStartRequests.ACTION_START_DICTATION) {
             OverlayStartRequests.request()
         }
