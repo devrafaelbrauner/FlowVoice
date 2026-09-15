@@ -6,6 +6,19 @@ estão em [`docs/tasks/`](docs/tasks/README.md).
 
 ## [Unreleased]
 
+## [0.4.7] - 2026-09-15
+
+### Changed
+
+- P136: o modelo de transcrição padrão passou de `openai/gpt-4o-mini-transcribe`
+  para `openai/gpt-transcribe`. No teste com fala no S26, o modelo antigo trocou
+  "ditado" em 2 de 3 frases curtas ("Primeiro digitando", "Terceirizado"). O
+  erro estava na transcrição de uma janela só, não no corte nem na revisão. No
+  Benchmark F05 de 2026-09-15 (17 palavras), `gpt-transcribe` teve WER 0 e o
+  antigo errou uma palavra; na rodada de 2026-09-13, os dois tiveram WER 0. O
+  custo é ~3× maior (cerca de US$ 0,0011 por 15 s de áudio). A evidência ainda é
+  de dois clipes curtos (ver `docs/PLAN.md`).
+
 ## [0.4.6] - 2026-09-14
 
 Correções dos achados P130 a P135, do primeiro teste com fala no S26 (três
