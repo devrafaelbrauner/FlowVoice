@@ -55,7 +55,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
@@ -318,22 +317,24 @@ class FlowVoiceOverlayService : Service(), KoinComponent, BubbleHost {
     }
 
     // A posição do cursor só é lida com a prévia visível: ao abrir, quando o conteúdo muda (trecho digitado,
-    // pausa, resultado) e a cada segundo, o que também pega o teclado abrindo ou fechando. A leitura (IPC com o
-    // app em foco) roda fora da thread principal e traz só coordenadas.
+    // pausa, resultado) e a cada segundo, o que também pega o teclado abrindo ou fechando. A leitura traz só
+    // coordenadas e roda na thread principal: fora dela, no S26, o nó com foco não vinha (caret e campo nulos).
     private suspend fun trackCard() {
         while (true) {
-            val geometry = withContext(Dispatchers.Default) { readCardGeometry() }
-            placeCard(geometry)
+            placeCard(readCardGeometry())
             withTimeoutOrNull(CARD_REFRESH_MS) { cardRefresh.receive() }
         }
     }
 
     private fun readCardGeometry(): CardGeometry {
         val service = FlowVoiceAccessibilityService.service ?: return CardGeometry(null, null)
-        return CardGeometry(
-            focus = runCatching { service.focusGeometry() }.getOrNull(),
-            keyboardTop = runCatching { service.inputMethodTopOnScreen() }.getOrNull()
-        )
+        val focus = try {
+            service.focusGeometry()
+        } catch (error: RuntimeException) {
+            Log.w(TAG, "overlay_focus_geometry_failed ${error.javaClass.simpleName}")
+            null
+        }
+        return CardGeometry(focus = focus, keyboardTop = runCatching { service.inputMethodTopOnScreen() }.getOrNull())
     }
 
     private fun placeCard(geometry: CardGeometry) {
