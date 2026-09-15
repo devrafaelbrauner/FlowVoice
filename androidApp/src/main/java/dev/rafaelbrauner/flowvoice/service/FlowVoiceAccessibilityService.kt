@@ -3,6 +3,7 @@ package dev.rafaelbrauner.flowvoice.service
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Rect
 import android.os.Build
 import android.os.Bundle
@@ -39,8 +40,31 @@ class FlowVoiceAccessibilityService : AccessibilityService() {
             base
         }
         serviceInfo = current.apply { this.flags = flags }
+        homePackages = resolveHomePackages()
         Log.i(TAG, "Serviço de acessibilidade conectado (flags=0x${flags.toString(16)})")
     }
+
+    private val previousApps by lazy { PreviousAppTracker(packageName) }
+    private var homePackages: Set<String> = emptySet()
+
+    fun previousAppLaunchIntent(): Intent? =
+        previousApps.target?.let { packageManager.getLaunchIntentForPackage(it) }
+            ?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
+
+    fun noteExternalLaunch() = previousApps.noteExternalLaunch()
+
+    private fun isActiveAppWindow(windowId: Int): Boolean {
+        freshAccessibilityData()
+        val active = runCatching { windows }.getOrNull()?.firstOrNull { it.isActive } ?: return false
+        return active.id == windowId && active.type == AccessibilityWindowInfo.TYPE_APPLICATION
+    }
+
+    private fun resolveHomePackages(): Set<String> = runCatching {
+        packageManager.queryIntentActivities(
+            Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME),
+            PackageManager.MATCH_DEFAULT_ONLY
+        ).mapNotNull { it.activityInfo?.packageName }.toSet()
+    }.getOrDefault(emptySet())
 
     // Sem tipos de evento assinados (SEG-5) o cache de janelas e nós nunca é invalidado;
     // limpar antes de cada leitura garante posição do teclado e texto do campo atuais.
@@ -60,7 +84,17 @@ class FlowVoiceAccessibilityService : AccessibilityService() {
         return bounds.top.takeIf { bounds.height() > 0 }
     }
 
-    override fun onAccessibilityEvent(event: AccessibilityEvent?) = Unit
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        if (event?.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
+        val windowId = event.windowId
+        previousApps.onWindowStateChanged(
+            packageName = event.packageName?.toString(),
+            homePackages = homePackages,
+            isActiveAppWindow = { isActiveAppWindow(windowId) },
+            isLaunchable = { packageManager.getLaunchIntentForPackage(it) != null }
+        )
+    }
+
     override fun onInterrupt() = Unit
 
     override fun onUnbind(intent: Intent?): Boolean {

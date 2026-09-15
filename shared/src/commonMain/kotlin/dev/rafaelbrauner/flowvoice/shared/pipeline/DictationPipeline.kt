@@ -10,6 +10,7 @@ import dev.rafaelbrauner.flowvoice.shared.prefs.PreferencesStore
 import dev.rafaelbrauner.flowvoice.shared.preview.LivePreview
 import dev.rafaelbrauner.flowvoice.shared.preview.LivePreviewAssembler
 import dev.rafaelbrauner.flowvoice.shared.proofreading.ProofreadingClient
+import dev.rafaelbrauner.flowvoice.shared.proofreading.ProofreadingGuard
 import dev.rafaelbrauner.flowvoice.shared.transcription.IncrementalTranscriptionController
 import dev.rafaelbrauner.flowvoice.shared.transcription.OpenRouterConfig
 import dev.rafaelbrauner.flowvoice.shared.transcription.SecretStore
@@ -28,6 +29,9 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.time.Duration.Companion.seconds
+import kotlin.time.TimeMark
 import kotlin.time.TimeSource
 
 class DictationPipeline(
@@ -41,7 +45,9 @@ class DictationPipeline(
     private val inserter: TextInserter,
     private val scope: CoroutineScope,
     private val eventLog: TranscriptionEventLog = TranscriptionEventLog.NoOp,
-    private val timeSource: TimeSource = TimeSource.Monotonic
+    private val timeSource: TimeSource = TimeSource.Monotonic,
+    // Texto ditado vai só para este log, nunca para eventLog nem para as linhas do Diagnóstico (P135).
+    private val transcriptTextLog: TranscriptionEventLog = TranscriptionEventLog.NoOp
 ) {
     private val eventLines = MutableSharedFlow<String>(extraBufferCapacity = EVENT_BUFFER)
     private val transcription = IncrementalTranscriptionController(
@@ -49,16 +55,25 @@ class DictationPipeline(
         config = config,
         scope = scope,
         apiKeyProvider = { secrets.readOpenRouterKey() },
-        eventLog = { event, metadata -> log(event, metadata) }
+        eventLog = { event, metadata -> log(event, metadata) },
+        textLog = transcriptTextLog
     )
     private val statusState = MutableStateFlow<DictationPipelineStatus>(DictationPipelineStatus.Idle)
     private val windowsState = MutableStateFlow<List<DictationWindow>>(emptyList())
     private val submittedWindows = MutableStateFlow(0)
     private val targetState = MutableStateFlow(DictationTarget.ActiveField)
     private var sessionToken = 0
+    private var refusalMark: TimeMark? = null
+    private var sessionApiKey: String? = null
+    private var abandonedStartGuard: Job? = null
+    private var sessionId = 0
+    private val pipelineSessionState = MutableStateFlow(
+        DictationPipelineSession(sessionId, DictationTarget.ActiveField, DictationPipelineStatus.Idle)
+    )
 
     val status: StateFlow<DictationPipelineStatus> = statusState.asStateFlow()
     val target: StateFlow<DictationTarget> = targetState.asStateFlow()
+    val session: StateFlow<DictationPipelineSession> = pipelineSessionState.asStateFlow()
     val sessionState: StateFlow<DictationSessionState> = controller.state
     val segments: StateFlow<List<TranscriptionSegment>> = transcription.segments
     val sessionWindows: StateFlow<List<DictationWindow>> = windowsState.asStateFlow()
@@ -95,7 +110,7 @@ class DictationPipeline(
                 val capturing = active == DictationPipelineStatus.Starting ||
                     active == DictationPipelineStatus.Recording
                 if (state is DictationSessionState.Error && capturing) {
-                    statusState.value = DictationPipelineStatus.Failed(state.message)
+                    publish(DictationPipelineStatus.Failed(state.message))
                     log("dictation_failed", mapOf("stage" to "capture"))
                 }
             }
@@ -107,7 +122,7 @@ class DictationPipeline(
         }
         scope.launch(start = CoroutineStart.UNDISPATCHED) {
             transcription.fatalError.collect { error ->
-                if (error != null) failOnInvalidKey()
+                if (error != null) stopOnInvalidKey()
             }
         }
     }
@@ -134,13 +149,15 @@ class DictationPipeline(
     suspend fun start(target: DictationTarget = DictationTarget.ActiveField) {
         if (statusState.value.isBusy) return
         val token = ++sessionToken
+        sessionId++
         targetState.value = target
-        statusState.value = DictationPipelineStatus.Starting
-        transcription.reset()
+        publish(DictationPipelineStatus.Starting)
+        sessionApiKey = secrets.readOpenRouterKey()?.takeIf { it.isNotBlank() }
+        transcription.reset(sessionApiKey)
         windowsState.value = emptyList()
         submittedWindows.value = 0
-        if (secrets.readOpenRouterKey().isNullOrBlank()) {
-            statusState.value = DictationPipelineStatus.Failed(INVALID_KEY_MESSAGE)
+        if (sessionApiKey == null) {
+            publish(DictationPipelineStatus.Failed(INVALID_KEY_MESSAGE))
             log("dictation_failed", mapOf("stage" to "key"))
             return
         }
@@ -152,10 +169,10 @@ class DictationPipeline(
                 return
             }
             if (statusState.value == DictationPipelineStatus.Starting) {
-                statusState.value = DictationPipelineStatus.Recording
+                publish(DictationPipelineStatus.Recording)
                 log("dictation_started", emptyMap())
                 when {
-                    transcription.fatalError.value != null -> failOnInvalidKey()
+                    transcription.fatalError.value != null -> stopOnInvalidKey()
                     transcription.budgetExhausted.value -> stopAtRequestBudget()
                 }
             }
@@ -163,24 +180,19 @@ class DictationPipeline(
             throw error
         } catch (error: Exception) {
             if (token == sessionToken) {
-                statusState.value = DictationPipelineStatus.Failed(error.message ?: "erro desconhecido")
+                publish(DictationPipelineStatus.Failed(error.message ?: "erro desconhecido"))
                 log("dictation_failed", mapOf("stage" to "start"))
             }
         }
     }
 
-    private fun failOnInvalidKey() {
-        if (statusState.value != DictationPipelineStatus.Recording) return
-        sessionToken++
-        transcription.cancel()
-        statusState.value = DictationPipelineStatus.Failed(INVALID_KEY_MESSAGE)
-        log("dictation_failed", mapOf("stage" to "key"))
-        scope.launch { controller.cancel() }
-    }
+    private fun stopOnInvalidKey() = stopEarly("dictation_key_stop")
 
-    private fun stopAtRequestBudget() {
+    private fun stopAtRequestBudget() = stopEarly("dictation_budget_stop")
+
+    private fun stopEarly(event: String) {
         if (statusState.value != DictationPipelineStatus.Recording) return
-        log("dictation_budget_stop", mapOf("target" to targetState.value.name))
+        log(event, mapOf("target" to targetState.value.name))
         when (targetState.value) {
             DictationTarget.Note -> requestFinalize()
             DictationTarget.ActiveField -> scope.launch { finalizeForReview(captureTarget = false) }
@@ -188,9 +200,10 @@ class DictationPipeline(
     }
 
     suspend fun finalize(): DictationPipelineStatus {
+        if (targetState.value == DictationTarget.ActiveField) return finalizeForReview()
         if (statusState.value != DictationPipelineStatus.Recording) return statusState.value
         val token = sessionToken
-        statusState.value = DictationPipelineStatus.Transcribing
+        publish(DictationPipelineStatus.Transcribing)
         val outcome = try {
             val final = transcribeFinalText()
             if (token != sessionToken) {
@@ -213,7 +226,7 @@ class DictationPipeline(
             DictationPipelineStatus.Failed(error.message ?: "erro desconhecido")
         }
         if (token == sessionToken) {
-            statusState.value = outcome
+            publish(outcome)
         }
         return outcome
     }
@@ -226,7 +239,7 @@ class DictationPipeline(
         val token = sessionToken
         val mark = timeSource.markNow()
         if (captureTarget) inserter.captureTargetIfUnknown()
-        statusState.value = DictationPipelineStatus.Transcribing
+        publish(DictationPipelineStatus.Transcribing)
         val outcome = try {
             val final = transcribeFinalText()
             if (token != sessionToken) {
@@ -253,28 +266,33 @@ class DictationPipeline(
             DictationPipelineStatus.Failed(error.message ?: "erro desconhecido")
         }
         if (token == sessionToken) {
-            statusState.value = outcome
+            publish(outcome)
         }
         return outcome
     }
 
     fun insertReady(): DictationPipelineStatus {
         val ready = statusState.value as? DictationPipelineStatus.Ready ?: return statusState.value
+        if (ready.refusal != null && refusalMark?.let { it.elapsedNow() < RETRY_GUARD } == true) {
+            log("dictation_insert_retry_ignored", emptyMap())
+            return ready
+        }
         if (ready.text.isNotBlank() && targetState.value == DictationTarget.ActiveField) {
             if (ready.refusal == null) inserter.captureTargetIfUnknown() else inserter.captureTarget()
             val insertion = inserter.insert(ready.text)
             if (!insertion.success) {
+                refusalMark = timeSource.markNow()
                 log("dictation_insert_refused", mapOf("chars" to ready.text.length.toString()))
                 val retry = ready.copy(refusal = insertion.message)
-                statusState.value = retry
+                publish(retry)
                 return retry
             }
             val outcome = completed(ready.text, insertion, ready.warning, ready.latencyMs, failedWindows = null)
-            statusState.value = outcome
+            publish(outcome)
             return outcome
         }
         val outcome = insert(ready.text, ready.warning, ready.latencyMs)
-        statusState.value = outcome
+        publish(outcome)
         return outcome
     }
 
@@ -285,7 +303,7 @@ class DictationPipeline(
         try {
             controller.cancel()
         } finally {
-            statusState.value = DictationPipelineStatus.Cancelled
+            publish(DictationPipelineStatus.Cancelled)
             log("dictation_cancelled", emptyMap())
         }
     }
@@ -299,6 +317,22 @@ class DictationPipeline(
     fun requestInsertReady(): Job = scope.launch { insertReady() }
 
     fun requestCancel(): Job = scope.launch { cancel() }
+
+    // Depois do aviso de timeout do microfone do Início, a sessão pedida por aquele toque não pode
+    // seguir gravando: se abrir em até graceMs, é cancelada. Roda no escopo do pipeline, que não
+    // morre com a tela (rotação, Voltar), e um novo pedido de início descarta a guarda (P133).
+    fun abandonStart(previousSessionId: Int, graceMs: Long) {
+        abandonedStartGuard?.cancel()
+        abandonedStartGuard = scope.launch {
+            val late = withTimeoutOrNull(graceMs) { session.first { it.id > previousSessionId } } ?: return@launch
+            if (late.id == previousSessionId + 1 && late.status.isBusy) cancel()
+        }
+    }
+
+    fun clearAbandonedStart() {
+        abandonedStartGuard?.cancel()
+        abandonedStartGuard = null
+    }
 
     private suspend fun transcribeFinalText(): FinalText {
         controller.finalize()
@@ -325,10 +359,10 @@ class DictationPipeline(
         latencyMs: Long?,
         failedWindows: Int? = null
     ): DictationPipelineStatus {
-        val insertion = when {
-            text.isBlank() -> TextInsertionResult(success = false, route = "pipeline", message = "sem texto para inserir")
-            targetState.value == DictationTarget.Note -> NOTE_DELIVERY
-            else -> inserter.insert(text)
+        val insertion = if (text.isBlank()) {
+            TextInsertionResult(success = false, route = "pipeline", message = "sem texto para inserir")
+        } else {
+            NOTE_DELIVERY
         }
         return completed(text, insertion, warning, latencyMs, failedWindows)
     }
@@ -358,12 +392,22 @@ class DictationPipeline(
         )
         val revised = dictionary.apply(assembled.finalized)
         val prefs = preferences.read()
-        if (!prefs.proofreadingEnabled || revised.isBlank()) return revised
-        val apiKey = secrets.readOpenRouterKey().orEmpty()
-        if (apiKey.isBlank()) return revised
+        if (!prefs.proofreadingEnabled || revised.isBlank() || transcription.fatalError.value != null) return revised
+        val apiKey = sessionApiKey ?: return revised
         return try {
-            dictionary.apply(proofreading.proofread(revised, apiKey, prefs.proofreadingModel)).also {
-                log("proofreading_applied", mapOf("chars" to it.length.toString()))
+            val proofread = proofreading.proofread(revised, apiKey, prefs.proofreadingModel)
+            transcriptTextLog.log("proofreading_input", mapOf("text" to revised))
+            transcriptTextLog.log("proofreading_output", mapOf("text" to proofread))
+            if (!ProofreadingGuard.accepts(revised, proofread)) {
+                log(
+                    "proofreading_rejected",
+                    mapOf("inputChars" to revised.length.toString(), "outputChars" to proofread.length.toString())
+                )
+                revised
+            } else {
+                dictionary.apply(proofread).also {
+                    log("proofreading_applied", mapOf("inputChars" to revised.length.toString(), "chars" to it.length.toString()))
+                }
             }
         } catch (error: CancellationException) {
             throw error
@@ -371,6 +415,11 @@ class DictationPipeline(
             log("proofreading_unavailable", emptyMap())
             revised
         }
+    }
+
+    private fun publish(status: DictationPipelineStatus) {
+        statusState.value = status
+        pipelineSessionState.value = DictationPipelineSession(sessionId, targetState.value, status)
     }
 
     private fun log(event: String, metadata: Map<String, String>) {
@@ -393,6 +442,7 @@ class DictationPipeline(
     private companion object {
         const val EVENT_BUFFER = 64
         const val INVALID_KEY_MESSAGE = "chave OpenRouter ausente ou inválida"
+        val RETRY_GUARD = 1.seconds
         val NOTE_DELIVERY = TextInsertionResult(success = false, route = "nota", message = "texto entregue à nota")
     }
 }

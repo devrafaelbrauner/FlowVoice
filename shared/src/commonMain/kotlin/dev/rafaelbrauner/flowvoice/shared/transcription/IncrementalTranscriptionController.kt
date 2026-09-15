@@ -1,6 +1,7 @@
 package dev.rafaelbrauner.flowvoice.shared.transcription
 
 import dev.rafaelbrauner.flowvoice.shared.dictation.DictationWindow
+import dev.rafaelbrauner.flowvoice.shared.dictation.SilentWindow
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -16,7 +17,8 @@ class IncrementalTranscriptionController(
     private val config: OpenRouterConfig,
     private val scope: CoroutineScope,
     private val apiKeyProvider: () -> String?,
-    private val eventLog: TranscriptionEventLog = TranscriptionEventLog.NoOp
+    private val eventLog: TranscriptionEventLog = TranscriptionEventLog.NoOp,
+    private val textLog: TranscriptionEventLog = TranscriptionEventLog.NoOp
 ) {
     private val segmentsMutex = Mutex()
     private val processMutex = Mutex()
@@ -25,6 +27,7 @@ class IncrementalTranscriptionController(
     private val jobs = mutableListOf<Job>()
     private var cancelled = false
     private var requestCount = 0
+    private var sessionApiKey: String? = null
     private val budgetState = MutableStateFlow(false)
     private val fatalState = MutableStateFlow<TranscriptionError?>(null)
 
@@ -58,11 +61,14 @@ class IncrementalTranscriptionController(
         client.cancel()
     }
 
-    fun reset() {
+    // A chave vale para a sessão inteira: uma falha passageira do cofre no meio do ditado não pode
+    // virar "chave ausente" e encerrar a sessão (P134).
+    fun reset(apiKey: String? = null) {
         jobs.toList().forEach { it.cancel() }
         jobs.clear()
         cancelled = false
         requestCount = 0
+        sessionApiKey = apiKey?.takeIf { it.isNotBlank() }
         budgetState.value = false
         fatalState.value = null
         provisional.value = ""
@@ -93,6 +99,10 @@ class IncrementalTranscriptionController(
 
     private suspend fun process(window: DictationWindow) {
         if (cancelled) return
+        if (SilentWindow.detect(window)) {
+            skipSilent(window)
+            return
+        }
         upsert(
             TranscriptionSegment(
                 windowIndex = window.index,
@@ -103,8 +113,8 @@ class IncrementalTranscriptionController(
             fail(window, fatal)
             return
         }
-        val apiKey = apiKeyProvider().orEmpty()
-        if (apiKey.isBlank()) {
+        val apiKey = sessionApiKey ?: apiKeyProvider()?.takeIf { it.isNotBlank() }?.also { sessionApiKey = it }
+        if (apiKey == null) {
             failFatally(window, TranscriptionError.InvalidKey())
             return
         }
@@ -117,6 +127,7 @@ class IncrementalTranscriptionController(
                     text = result.text
                 )
             )
+            textLog.log("transcription_window_text", mapOf("window" to window.index.toString(), "text" to result.text))
             rebuildProvisionalText()
         } catch (error: CancellationException) {
             throw error
@@ -127,6 +138,19 @@ class IncrementalTranscriptionController(
         } catch (error: Throwable) {
             fail(window, TranscriptionErrorClassifier.fromThrowable(error))
         }
+    }
+
+    // A janela silenciosa já ocupou uma vaga do teto na submissão: sem isso, uma captura muda
+    // nunca atingiria o teto e o microfone ficaria aberto (P107).
+    private suspend fun skipSilent(window: DictationWindow) {
+        upsert(TranscriptionSegment(windowIndex = window.index, status = TranscriptionSegment.Status.Ok))
+        eventLog.log(
+            "transcription_silent_window",
+            mapOf(
+                "window" to window.index.toString(),
+                "durationMs" to window.durationMs.toString()
+            )
+        )
     }
 
     private suspend fun failFatally(window: DictationWindow, error: TranscriptionError) {

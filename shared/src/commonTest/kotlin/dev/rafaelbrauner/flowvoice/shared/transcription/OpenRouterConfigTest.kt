@@ -6,10 +6,10 @@ import kotlin.test.assertFailsWith
 
 class OpenRouterConfigTest {
     @Test
-    fun usesProvisionalWhisperModelAndOpenRouterBase() {
+    fun usesTheBenchmarkDefaultModelAndOpenRouterBase() {
         val config = OpenRouterConfig()
         assertEquals("https://openrouter.ai", config.baseUrl)
-        assertEquals("openai/gpt-4o-mini-transcribe", config.model)
+        assertEquals("openai/gpt-transcribe", config.model)
         assertEquals("pt", config.language)
         assertEquals("/api/v1/audio/transcriptions", config.transcriptionsPath)
         assertEquals(10_000L, config.connectTimeoutMs)

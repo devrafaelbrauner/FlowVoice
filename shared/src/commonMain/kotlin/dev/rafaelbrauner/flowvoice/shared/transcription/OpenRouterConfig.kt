@@ -31,7 +31,8 @@ data class OpenRouterConfig(
 
     companion object {
         const val DEFAULT_BASE_URL = "https://openrouter.ai"
-        const val DEFAULT_MODEL = "openai/gpt-4o-mini-transcribe"
+        // Benchmark F05 no S26 (P136, docs/PLAN.md): WER 0 nas rodadas de 13/set e 15/set.
+        const val DEFAULT_MODEL = "openai/gpt-transcribe"
         const val DEFAULT_LANGUAGE = "pt"
         const val DEFAULT_CONNECT_TIMEOUT_MS = 10_000L
         const val DEFAULT_REQUEST_TIMEOUT_MS = 30_000L

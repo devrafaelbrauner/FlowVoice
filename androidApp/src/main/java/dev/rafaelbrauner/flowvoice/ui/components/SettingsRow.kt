@@ -115,7 +115,7 @@ fun SettingsCard(
 private fun SettingsRowPreview(@PreviewParameter(ThemePreviewParameter::class) dark: Boolean) {
     FvPreviewSurface(dark) {
         SettingsCard {
-            SettingsRow("Modelo de transcrição", hint = "Padrão escolhido no benchmark F05", value = "gpt-4o-mini-transcribe", onClick = {})
+            SettingsRow("Modelo de transcrição", hint = "Padrão escolhido no benchmark F05", value = "gpt-transcribe", onClick = {})
             FvDivider()
             SettingsRow("Revisão por IA", hint = "Pontuação e ortografia antes de inserir") {
                 FvToggle(checked = true, onCheckedChange = {})

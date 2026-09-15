@@ -53,6 +53,14 @@ class InsertionGuardTest {
         assertNull(InsertionGuard.refusal("com.whatsapp", null, OWN))
     }
 
+    @Test
+    fun destinationChangeRefusalSaysTheNextTapInsertsInTheCurrentApp() {
+        val message = InsertionGuard.refusal("com.whatsapp", "com.android.chrome", OWN).orEmpty()
+
+        assertTrue(message.contains("toque em Inserir de novo"), message)
+        assertTrue(message.contains("app atual"), message)
+    }
+
     private companion object {
         const val TEXT = 0x1
         const val NUMBER = 0x2

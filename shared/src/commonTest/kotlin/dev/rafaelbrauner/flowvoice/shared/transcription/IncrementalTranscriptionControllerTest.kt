@@ -136,8 +136,52 @@ class IncrementalTranscriptionControllerTest {
         advanceUntilIdle()
         watcher.join()
 
-        assertTrue(submittedWhenExhausted in 1..3, "janelas capturadas ao esgotar: $submittedWhenExhausted")
+        assertEquals(3, submittedWhenExhausted, "janelas capturadas ao esgotar")
         assertEquals(listOf(0, 1), client.started)
+    }
+
+    @Test
+    fun digitallySilentWindowIsNotSentAndLeavesNoText() = runTest {
+        val client = FakeTranscriptionClient(
+            results = mapOf(
+                0 to TranscriptionResult("o médico", "fake"),
+                1 to TranscriptionResult("texto inventado", "fake"),
+                2 to TranscriptionResult("pediu o exame", "fake")
+            )
+        )
+        val controller = IncrementalTranscriptionController(
+            client = client,
+            config = OpenRouterConfig(),
+            scope = this,
+            apiKeyProvider = { "sk-or-v1-testkey123456" }
+        )
+
+        controller.submit(testWindow(0))
+        controller.submit(testWindow(1, silent = true))
+        controller.submit(testWindow(2))
+        advanceUntilIdle()
+
+        assertEquals(listOf(0, 2), client.started)
+        assertEquals("o médico pediu o exame", controller.provisionalText.value)
+        assertEquals(TranscriptionSegment(1, TranscriptionSegment.Status.Ok), controller.segments.value[1])
+    }
+
+    @Test
+    fun silentWindowsStillCountTowardTheSessionBudgetSoAMutedCaptureEnds() = runTest {
+        val client = FakeTranscriptionClient()
+        val controller = IncrementalTranscriptionController(
+            client = client,
+            config = OpenRouterConfig(maxRequestsPerSession = 2),
+            scope = this,
+            apiKeyProvider = { "sk-or-v1-testkey123456" }
+        )
+
+        repeat(3) { controller.submit(testWindow(it, silent = true)) }
+        advanceUntilIdle()
+
+        assertEquals(emptyList(), client.started)
+        assertTrue(controller.budgetExhausted.value)
+        assertEquals("budget", controller.segments.value[2].errorKind)
     }
 
     @Test
@@ -170,12 +214,62 @@ class IncrementalTranscriptionControllerTest {
         assertNull(rejected.fatalError.value)
     }
 
+    @Test
+    fun windowTextGoesOnlyToTheTextLogNeverToTheEventLog() = runTest {
+        val eventLog = RecordingLog()
+        val textLog = RecordingLog()
+        val controller = IncrementalTranscriptionController(
+            client = FakeTranscriptionClient(results = mapOf(0 to TranscriptionResult("terceiro colocado", "fake"))),
+            config = OpenRouterConfig(),
+            scope = this,
+            apiKeyProvider = { "sk-or-v1-testkey123456" },
+            eventLog = eventLog,
+            textLog = textLog
+        )
+
+        controller.submit(testWindow(0))
+        advanceUntilIdle()
+
+        val text = textLog.events.single { it.event == "transcription_window_text" }
+        assertEquals("0", text.metadata["window"])
+        assertEquals("terceiro colocado", text.metadata["text"])
+        assertTrue(eventLog.events.none { event -> event.metadata.values.any { it.contains("colocado") } })
+    }
+
+    @Test
+    fun apiKeyIsReadOncePerSessionSoAVaultHiccupMidSessionDoesNotEndIt() = runTest {
+        val client = FakeTranscriptionClient()
+        var reads = 0
+        val vault = listOf("sk-or-v1-first", null, null)
+        val controller = IncrementalTranscriptionController(
+            client = client,
+            config = OpenRouterConfig(),
+            scope = this,
+            apiKeyProvider = { vault.getOrElse(reads++) { "sk-or-v1-second" } }
+        )
+
+        repeat(3) { controller.submit(testWindow(it)) }
+        advanceUntilIdle()
+
+        assertNull(controller.fatalError.value)
+        assertEquals(listOf(0, 1, 2), client.started)
+        assertEquals(List(3) { "sk-or-v1-first" }, client.keys)
+        assertEquals(1, reads)
+
+        controller.reset()
+        controller.submit(testWindow(0))
+        advanceUntilIdle()
+
+        assertEquals(2, reads)
+    }
+
     private class FakeTranscriptionClient(
         private val results: Map<Int, TranscriptionResult> = emptyMap(),
         private val failures: Map<Int, TranscriptionError> = emptyMap(),
         private val delayMs: Long = 0L
     ) : TranscriptionClient {
         val started = mutableListOf<Int>()
+        val keys = mutableListOf<String>()
         var cancelCount = 0
             private set
 
@@ -185,6 +279,7 @@ class IncrementalTranscriptionControllerTest {
             model: String?
         ): TranscriptionResult {
             started += window.index
+            keys += apiKey
             if (delayMs > 0L) delay(delayMs)
             failures[window.index]?.let { throw it }
             return results[window.index] ?: TranscriptionResult("w${window.index}", "fake")

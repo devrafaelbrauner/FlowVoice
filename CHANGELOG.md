@@ -6,6 +6,119 @@ estão em [`docs/tasks/`](docs/tasks/README.md).
 
 ## [Unreleased]
 
+## [0.4.7] - 2026-09-15
+
+### Changed
+
+- P136: o modelo de transcrição padrão passou de `openai/gpt-4o-mini-transcribe`
+  para `openai/gpt-transcribe`. No teste com fala no S26, o modelo antigo trocou
+  "ditado" em 2 de 3 frases curtas ("Primeiro digitando", "Terceirizado"). O
+  erro estava na transcrição de uma janela só, não no corte nem na revisão. No
+  Benchmark F05 de 2026-09-15 (17 palavras), `gpt-transcribe` teve WER 0 e o
+  antigo errou uma palavra; na rodada de 2026-09-13, os dois tiveram WER 0. O
+  custo é ~3× maior (cerca de US$ 0,0011 por 15 s de áudio). A evidência ainda é
+  de dois clipes curtos (ver `docs/PLAN.md`).
+
+## [0.4.6] - 2026-09-14
+
+Correções dos achados P130 a P135, do primeiro teste com fala no S26 (três
+ditados no Samsung Notes) e da revisão de código feita em paralelo.
+
+### Fixed
+
+- P130: o microfone do Início não voltava ao app em que você estava. Ele só
+  mandava o FlowVoice para trás, e no One UI o que aparece embaixo é o
+  launcher, mesmo quando se chega pelos recentes. Agora, a cada troca de
+  janela, o serviço de acessibilidade anota o app cuja janela de aplicação
+  está ativa, conferindo a lista de janelas do sistema, sem consultar o app em
+  primeiro plano. Não contam bolhas de outros apps, teclado, cortina, o próprio
+  FlowVoice, o launcher, pacotes sem ícone nem apps que o FlowVoice abriu
+  (Ajustes, compartilhamento) até você passar pelo launcher. Ao começar a
+  gravar, o Início reabre esse app. Isso revê em parte a SEG-5: o serviço passa
+  a assinar `typeWindowStateChanged` e lê só o pacote e a janela do evento.
+- P131: o áudio era cortado exatamente a cada 4 s, podendo partir uma palavra
+  entre duas janelas transcritas separadamente ("Terceiro ditado" saiu
+  "Terceiro colocado"). O corte agora cai no trecho de 120 ms com menor
+  energia média entre 3,1 s e 4,3 s, de modo que a pausa curta de uma
+  consoante no meio da palavra não conta como pausa. A janela sai até 0,3 s
+  depois do alvo, e início e fim de cada janela vêm dos bytes, sem deriva.
+- P132: a revisão por IA reescrevia o ditado (`Primeiro ditado: "Pelo
+  início."`). O texto agora vai entre `<ditado>` e `</ditado>`, com um prompt
+  que proíbe responder, trocar palavras e acrescentar citação. A revisão é
+  descartada (`proofreading_rejected`), e o texto transcrito é mantido, quando
+  muda a quantidade de palavras, um número ou uma palavra curta, troca uma
+  palavra longa por outra com mais de 2 letras de diferença, ou acrescenta
+  aspas, dois-pontos, quebra de linha ou a marca `<ditado>`.
+- P133: depois do aviso "O microfone não respondeu a tempo.", a sessão pedida
+  podia continuar gravando se o microfone abrisse tarde. Agora o próprio
+  pipeline a cancela, mesmo que a tela gire ou você saia do Início. Um novo
+  toque no microfone não é cancelado pela espera anterior, e o aviso diz que o
+  ditado foi cancelado.
+- P134: a chave OpenRouter era lida do cofre a cada janela, e uma falha
+  passageira do Keystore encerrava o ditado como "chave ausente". Agora ela é
+  lida uma vez por sessão.
+- P135: o logcat não trazia status HTTP nem novas tentativas da transcrição, e
+  nenhum texto que permitisse separar erro de transcrição de erro de revisão.
+  Agora `transcription_error` traz `status`, cada nova tentativa gera
+  `transcription_retry` e `proofreading_applied` traz `inputChars`. O texto
+  ditado (`transcription_window_text`, `proofreading_input` e
+  `proofreading_output`) só vai ao logcat em build de depuração **e** com o
+  marcador criado por
+  `adb shell run-as dev.rafaelbrauner.flowvoice touch files/transcript-text-logging`
+  há menos de 1 h. Nunca aparece na tela de Diagnóstico, e linhas longas saem
+  em partes numeradas.
+
+## [0.4.5] - 2026-09-14
+
+Correções do pipeline de voz feitas sem o aparelho: achados P124 e P125 da
+revisão do pipeline, e parte da P121 e da P122.
+
+### Fixed
+
+- P124: janelas de silêncio digital (PCM zerado) eram enviadas à OpenRouter,
+  custando uma requisição cada e podendo voltar como texto inventado. É o que
+  o sistema entrega quando silencia a captura, por exemplo num ditado de nota
+  com o app em segundo plano (P121). Essas janelas agora viram trecho vazio,
+  sem requisição, e continuam contando no teto da sessão, para que uma captura
+  muda ainda termine. Só silêncio digital é filtrado; fala baixa e ruído de
+  sala continuam sendo enviados.
+- P125: HTTP 408 da OpenRouter ("request timed out") virava "resposta
+  inválida", sem nova tentativa; agora é tratado como timeout e repetido.
+
+Testes novos cobrem a parada por chave recusada ou por teto enquanto a captura
+ainda está iniciando, o coordenador de nota com status igual ao anterior e o
+teto contado na submissão com valor exato (P122). Coberto por testes unitários;
+nada disto foi medido no aparelho, inclusive se a captura em segundo plano
+chega zerada no S26 (ver P94).
+
+## [0.4.4] - 2026-09-14
+
+Correções dos achados P110 a P113 do `/verificar` da 0.4.3.
+
+### Fixed
+
+- P110: depois de uma segunda tentativa de ditar numa nota sem chave, a nota
+  ficava armada e o texto da sessão seguinte, ditado em outro app, também ia
+  para ela; o Início mostrava "O microfone não respondeu a tempo." e a barra
+  ficava sem liberação. Cada sessão do pipeline passa a ter identidade
+  (`session`), e Notas, Início e barra acompanham a sessão em vez de comparar
+  status. Parar numa sessão de campo ativo leva à revisão e não insere sem
+  toque em Inserir.
+- P111: chave rejeitada no meio da gravação descartava todo o texto já
+  transcrito. Agora a captura para e o texto é entregue com aviso: na barra,
+  para revisar; na nota, anexado. A revisão por IA não é chamada com a chave
+  recusada.
+- P112: HTTP 403 (guardrail, moderação ou permissão, segundo a documentação da
+  OpenRouter) era tratado como chave inválida e encerrava a sessão; agora só o
+  trecho falha, com o motivo "recusado pela OpenRouter".
+- P113: depois de uma recusa porque o foco mudou de app, o próximo toque em
+  Inserir escreve no app atual, mas o aviso dizia só "texto mantido na barra", e
+  num toque duplo o segundo toque inseria sem o usuário ver a recusa. O aviso
+  agora diz "toque em Inserir de novo para inserir no app atual", e um toque até
+  1 s depois da recusa é ignorado.
+
+Coberto por testes unitários; ainda não validado no aparelho (ver P94).
+
 ## [0.4.3] - 2026-09-14
 
 Correções dos achados do `/verificar` da 0.4.2 e do `/debugar` de P95 e P106.

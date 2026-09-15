@@ -3,7 +3,9 @@ package dev.rafaelbrauner.flowvoice.ui.screens.notes
 import dev.rafaelbrauner.flowvoice.shared.insertion.TextInsertionResult
 import dev.rafaelbrauner.flowvoice.shared.notes.InMemoryNoteStore
 import dev.rafaelbrauner.flowvoice.shared.notes.NoteDictationCoordinator
+import dev.rafaelbrauner.flowvoice.shared.pipeline.DictationPipelineSession
 import dev.rafaelbrauner.flowvoice.shared.pipeline.DictationPipelineStatus
+import dev.rafaelbrauner.flowvoice.shared.pipeline.DictationTarget
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -15,6 +17,9 @@ class NotesScreenStateTest {
     private var clock = 1_000L
     private var ids = 0
     private val store = InMemoryNoteStore(clock = { clock++ }, ids = { "n${ids++}" })
+
+    private fun session(id: Int, status: DictationPipelineStatus) =
+        DictationPipelineSession(id, DictationTarget.Note, status)
 
     private fun completed(text: String, warning: String? = null) = DictationPipelineStatus.Completed(
         text = text,
@@ -110,11 +115,11 @@ class NotesScreenStateTest {
         val state = NotesScreenState(store)
         val note = state.createNote()
 
-        state.beginDictation(note.id, DictationPipelineStatus.Idle)
-        state.onPipelineStatus(DictationPipelineStatus.Starting)
-        state.onPipelineStatus(DictationPipelineStatus.Recording)
-        state.onPipelineStatus(DictationPipelineStatus.Transcribing)
-        state.onPipelineStatus(completed("Bom dia, Marina.\nsegunda linha"))
+        state.beginDictation(note.id, session(0, DictationPipelineStatus.Idle))
+        state.onPipelineSession(session(1, DictationPipelineStatus.Starting))
+        state.onPipelineSession(session(1, DictationPipelineStatus.Recording))
+        state.onPipelineSession(session(1, DictationPipelineStatus.Transcribing))
+        state.onPipelineSession(session(1, completed("Bom dia, Marina.\nsegunda linha")))
 
         val saved = store.get(note.id)!!
         assertEquals("Bom dia, Marina.\nsegunda linha", saved.body)
@@ -127,16 +132,16 @@ class NotesScreenStateTest {
     fun staleCompletedStatusFromEarlierSessionIsIgnored() {
         val note = store.create("corpo")
         val state = NotesScreenState(store, note.id)
-        val stale = completed("texto antigo")
+        val stale = session(1, completed("texto antigo"))
 
         state.beginDictation(note.id, stale)
-        state.onPipelineStatus(stale)
+        state.onPipelineSession(stale)
 
         assertEquals("corpo", store.get(note.id)?.body)
         assertEquals(note.id, state.dictationNoteId)
 
-        state.onPipelineStatus(DictationPipelineStatus.Recording)
-        state.onPipelineStatus(completed("novo"))
+        state.onPipelineSession(session(2, DictationPipelineStatus.Recording))
+        state.onPipelineSession(session(2, completed("novo")))
         assertEquals("corpo novo", store.get(note.id)?.body)
     }
 
@@ -145,14 +150,14 @@ class NotesScreenStateTest {
         val note = store.create("corpo")
         val state = NotesScreenState(store, note.id)
 
-        state.beginDictation(note.id, DictationPipelineStatus.Idle)
-        state.onPipelineStatus(DictationPipelineStatus.Transcribing)
-        state.onPipelineStatus(completed("parcial", warning = "Trecho 2 de 3 falhou (timeout): texto incompleto"))
+        state.beginDictation(note.id, session(0, DictationPipelineStatus.Idle))
+        state.onPipelineSession(session(1, DictationPipelineStatus.Transcribing))
+        state.onPipelineSession(session(1, completed("parcial", warning = "Trecho 2 de 3 falhou (timeout): texto incompleto")))
         assertIs<NotesMessage.Warning>(state.message)
         assertEquals("corpo parcial", store.get(note.id)?.body)
 
-        state.beginDictation(note.id, completed("parcial"))
-        state.onPipelineStatus(DictationPipelineStatus.Failed("Nenhum trecho transcrito (chave OpenRouter ausente ou inválida)"))
+        state.beginDictation(note.id, session(1, completed("parcial")))
+        state.onPipelineSession(session(2, DictationPipelineStatus.Failed("Nenhum trecho transcrito (chave OpenRouter ausente ou inválida)")))
         val error = assertIs<NotesMessage.Error>(state.message)
         assertTrue(error.text.contains("chave OpenRouter"))
         assertNull(state.dictationNoteId)
@@ -163,8 +168,8 @@ class NotesScreenStateTest {
         val note = store.create("corpo")
         val state = NotesScreenState(store, note.id)
 
-        state.beginDictation(note.id, DictationPipelineStatus.Idle)
-        state.onPipelineStatus(DictationPipelineStatus.Failed("microfone indisponível"))
+        state.beginDictation(note.id, session(0, DictationPipelineStatus.Idle))
+        state.onPipelineSession(session(1, DictationPipelineStatus.Failed("microfone indisponível")))
 
         assertIs<NotesMessage.Error>(state.message)
         assertNull(state.dictationNoteId)
@@ -175,9 +180,9 @@ class NotesScreenStateTest {
         val note = store.create("corpo")
         val state = NotesScreenState(store, note.id)
 
-        state.beginDictation(note.id, DictationPipelineStatus.Idle)
-        state.onPipelineStatus(DictationPipelineStatus.Recording)
-        state.onPipelineStatus(DictationPipelineStatus.Cancelled)
+        state.beginDictation(note.id, session(0, DictationPipelineStatus.Idle))
+        state.onPipelineSession(session(1, DictationPipelineStatus.Recording))
+        state.onPipelineSession(session(1, DictationPipelineStatus.Cancelled))
 
         assertEquals("corpo", store.get(note.id)?.body)
         assertNull(state.dictationNoteId)
@@ -188,7 +193,7 @@ class NotesScreenStateTest {
         val note = store.create("corpo")
         val state = NotesScreenState(store, note.id)
 
-        state.onPipelineStatus(completed("de outro lugar"))
+        state.onPipelineSession(session(1, completed("de outro lugar")))
 
         assertEquals("corpo", store.get(note.id)?.body)
     }
@@ -197,13 +202,13 @@ class NotesScreenStateTest {
     fun recreatedScreenStateStillSeesTheActiveDictation() {
         val coordinator = NoteDictationCoordinator(store)
         val note = store.create("corpo")
-        NotesScreenState(store, note.id, coordinator).beginDictation(note.id, DictationPipelineStatus.Idle)
+        NotesScreenState(store, note.id, coordinator).beginDictation(note.id, session(0, DictationPipelineStatus.Idle))
 
         val recreated = NotesScreenState(store, note.id, coordinator)
         assertEquals(note.id, recreated.dictationNoteId)
 
-        recreated.onPipelineStatus(DictationPipelineStatus.Recording)
-        recreated.onPipelineStatus(completed("novo"))
+        recreated.onPipelineSession(session(1, DictationPipelineStatus.Recording))
+        recreated.onPipelineSession(session(1, completed("novo")))
         assertEquals("corpo novo", store.get(note.id)?.body)
         assertNull(recreated.dictationNoteId)
     }
@@ -224,7 +229,7 @@ class NotesScreenStateTest {
         val coordinator = NoteDictationCoordinator(store)
         val dictating = store.create("ditando")
         val requested = store.create("pedida pela rota")
-        coordinator.begin(dictating.id, DictationPipelineStatus.Idle)
+        coordinator.begin(dictating.id, session(0, DictationPipelineStatus.Idle))
 
         val recreated = NotesScreenState(store, requested.id, coordinator)
         assertEquals(dictating.id, recreated.selectedId)

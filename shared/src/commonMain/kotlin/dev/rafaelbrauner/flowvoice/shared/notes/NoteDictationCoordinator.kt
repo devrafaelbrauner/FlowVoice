@@ -1,6 +1,8 @@
 package dev.rafaelbrauner.flowvoice.shared.notes
 
+import dev.rafaelbrauner.flowvoice.shared.pipeline.DictationPipelineSession
 import dev.rafaelbrauner.flowvoice.shared.pipeline.DictationPipelineStatus
+import dev.rafaelbrauner.flowvoice.shared.pipeline.DictationTarget
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
@@ -19,32 +21,31 @@ data class NoteDictationState(
 
 class NoteDictationCoordinator(private val notes: NoteStore) {
     private val stateFlow = MutableStateFlow(NoteDictationState())
-    private var baseline: DictationPipelineStatus? = null
-    private var started = false
+    private var baselineSession = 0
 
     val state: StateFlow<NoteDictationState> = stateFlow.asStateFlow()
 
     val activeNoteId: String?
         get() = stateFlow.value.noteId
 
-    fun attach(status: Flow<DictationPipelineStatus>, scope: CoroutineScope): Job =
+    fun attach(sessions: Flow<DictationPipelineSession>, scope: CoroutineScope): Job =
         scope.launch(start = CoroutineStart.UNDISPATCHED) {
-            status.collect { onStatus(it) }
+            sessions.collect { onSession(it) }
         }
 
-    fun begin(noteId: String, currentStatus: DictationPipelineStatus) {
-        baseline = currentStatus
-        started = false
+    fun begin(noteId: String, currentSession: DictationPipelineSession) {
+        baselineSession = currentSession.id
         stateFlow.value = NoteDictationState(noteId = noteId)
     }
 
-    fun onStatus(status: DictationPipelineStatus) {
+    fun onSession(session: DictationPipelineSession) {
         val target = activeNoteId ?: return
-        if (!started) {
-            if (status == baseline && !status.isBusy) return
-            started = true
+        if (session.id <= baselineSession) return
+        if (session.target != DictationTarget.Note) {
+            finish(null)
+            return
         }
-        when (status) {
+        when (val status = session.status) {
             is DictationPipelineStatus.Completed -> {
                 append(target, status.text)
                 finish(status.warning?.let { NoteDictationMessage(it, isError = false) })
@@ -73,8 +74,6 @@ class NoteDictationCoordinator(private val notes: NoteStore) {
     }
 
     private fun finish(message: NoteDictationMessage?) {
-        baseline = null
-        started = false
         stateFlow.value = NoteDictationState(noteId = null, message = message)
     }
 

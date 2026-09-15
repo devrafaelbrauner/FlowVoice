@@ -40,6 +40,7 @@ internal class TranscriptionFailureSummary private constructor(
             kind == "network" -> "sem rede"
             kind == "rate_limit" -> "limite de requisições"
             kind == "invalid_key" -> "chave OpenRouter ausente ou inválida"
+            kind == "forbidden" -> "recusado pela OpenRouter"
             kind == "budget" -> "teto de requisições da sessão"
             kind?.startsWith("server") == true -> "erro do servidor"
             else -> "resposta inválida"

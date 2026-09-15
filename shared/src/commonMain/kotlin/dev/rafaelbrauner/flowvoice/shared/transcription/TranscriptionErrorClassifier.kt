@@ -10,7 +10,9 @@ object TranscriptionErrorClassifier {
         bodyMessage: String? = null
     ): TranscriptionError =
         when (status) {
-            401, 403 -> TranscriptionError.InvalidKey()
+            401 -> TranscriptionError.InvalidKey()
+            403 -> TranscriptionError.Forbidden()
+            408 -> TranscriptionError.Timeout()
             429 -> TranscriptionError.RateLimit(parseRetryAfter(retryAfterHeader))
             in 500..599 -> TranscriptionError.Server(status)
             else -> TranscriptionError.InvalidResponse(

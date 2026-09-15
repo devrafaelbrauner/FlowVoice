@@ -78,11 +78,13 @@ import dev.rafaelbrauner.flowvoice.ui.theme.FlowVoiceSpacing
 import dev.rafaelbrauner.flowvoice.ui.theme.FlowVoiceTheme
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
 private const val RECENT_NOTES = 2
 private const val START_TIMEOUT_MS = 4_000L
+private const val LATE_START_GRACE_MS = 10_000L
 private const val NO_DATA = "—"
 
 @Immutable
@@ -181,17 +183,18 @@ private class DictationStarter(
     private val openNote: (String) -> Unit
 ) {
     fun start() {
-        val previous = pipeline.status.value
-        val dictatingNote = noteToResumeOnMic(previous.isBusy, notes.activeNoteId)
+        val previous = pipeline.session.value
+        val dictatingNote = noteToResumeOnMic(previous.status.isBusy, notes.activeNoteId)
         if (dictatingNote != null) {
             context.toast("Há um ditado de nota em andamento: pare-o na nota.")
             openNote(dictatingNote)
             return
         }
-        if (previous.isBusy) {
+        if (previous.status.isBusy) {
             context.toast("Já há um ditado em andamento.")
             return
         }
+        pipeline.clearAbandonedStart()
         ContextCompat.startForegroundService(
             context,
             Intent(context, FlowVoiceOverlayService::class.java)
@@ -199,18 +202,27 @@ private class DictationStarter(
         )
         scope.launch {
             val status = withTimeoutOrNull(START_TIMEOUT_MS) {
-                pipeline.status.first {
-                    it !== previous &&
-                        (it == DictationPipelineStatus.Recording || it is DictationPipelineStatus.Failed)
-                }
+                pipeline.session.mapNotNull { startOutcome(previous, it) }.first()
             }
             when (status) {
-                DictationPipelineStatus.Recording -> context.findActivity()?.moveTaskToBack(true)
+                DictationPipelineStatus.Recording -> returnToPreviousApp()
                 is DictationPipelineStatus.Failed -> context.toast("Não foi possível iniciar o ditado: ${status.message}")
-                null -> context.toast("O microfone não respondeu a tempo.")
+                null -> {
+                    pipeline.abandonStart(previous.id, LATE_START_GRACE_MS)
+                    context.toast("O microfone não respondeu a tempo; ditado cancelado.")
+                }
                 else -> Unit
             }
         }
+    }
+
+    // moveTaskToBack sozinho mostra a tarefa de baixo, que no One UI é o launcher mesmo vindo
+    // pelos recentes (P130); reabrir o app anotado pelo serviço retoma a tarefa dele.
+    private fun returnToPreviousApp() {
+        val previousApp = FlowVoiceAccessibilityService.service?.previousAppLaunchIntent()
+        // startActivity direto: startActivitySafely marcaria o app de origem como aberto pelo FlowVoice.
+        val reopened = previousApp != null && runCatching { context.startActivity(previousApp) }.isSuccess
+        if (!reopened) context.findActivity()?.moveTaskToBack(true)
     }
 }
 

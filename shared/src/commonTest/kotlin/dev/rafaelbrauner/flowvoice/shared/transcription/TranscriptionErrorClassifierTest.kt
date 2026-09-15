@@ -11,14 +11,27 @@ import kotlin.test.assertFailsWith
 
 class TranscriptionErrorClassifierTest {
     @Test
-    fun classifiesUnauthorizedAndForbiddenAsInvalidKeyWithoutRetry() {
+    fun classifiesUnauthorizedAsInvalidKeyWithoutRetry() {
         val unauthorized = TranscriptionErrorClassifier.fromHttpStatus(401)
-        val forbidden = TranscriptionErrorClassifier.fromHttpStatus(403)
         assertIs<TranscriptionError.InvalidKey>(unauthorized)
-        assertIs<TranscriptionError.InvalidKey>(forbidden)
         assertFalse(unauthorized.isRetryable)
-        assertFalse(forbidden.isRetryable)
         assertEquals("invalid_key", unauthorized.kind)
+    }
+
+    @Test
+    fun classifiesForbiddenAsRefusedRequestNotInvalidKeyWithoutRetry() {
+        val forbidden = TranscriptionErrorClassifier.fromHttpStatus(403)
+        assertFalse(forbidden is TranscriptionError.InvalidKey)
+        assertFalse(forbidden.isRetryable)
+        assertEquals("forbidden", forbidden.kind)
+    }
+
+    @Test
+    fun classifiesRequestTimeoutAsRetryableTimeout() {
+        val error = TranscriptionErrorClassifier.fromHttpStatus(408, bodyMessage = "Your request timed out")
+        assertIs<TranscriptionError.Timeout>(error)
+        assertTrue(error.isRetryable)
+        assertEquals("timeout", error.kind)
     }
 
     @Test

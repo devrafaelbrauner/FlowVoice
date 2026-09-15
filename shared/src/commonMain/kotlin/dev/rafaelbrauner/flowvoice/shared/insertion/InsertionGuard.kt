@@ -2,7 +2,7 @@ package dev.rafaelbrauner.flowvoice.shared.insertion
 
 object InsertionGuard {
     const val PASSWORD_MESSAGE = "campo de senha: nada inserido"
-    const val DESTINATION_CHANGED_MESSAGE = "o foco mudou de app; texto mantido na barra"
+    const val DESTINATION_CHANGED_MESSAGE = "o foco mudou de app; toque em Inserir de novo para inserir no app atual"
     const val OWN_APP_FOCUSED_MESSAGE = "o FlowVoice está em primeiro plano; abra o app de destino e toque em Inserir"
 
     private const val TYPE_MASK_CLASS = 0x0000000f

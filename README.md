@@ -74,12 +74,17 @@ adb install -r androidApp/build/outputs/apk/debug/androidApp-debug.apk
 
 ## Ditando
 
-- **Pelo Início:** toque no microfone. O FlowVoice volta para o app em que você
-  estava e abre a barra de ditado acima do teclado.
+- **Pelo Início:** toque no microfone. O FlowVoice reabre o último app em que você
+  estava (o serviço de acessibilidade anota o app da janela ativa; o launcher e o
+  próprio FlowVoice não contam) e abre a barra de ditado acima do teclado. Sem app
+  anotado, volta para a tela anterior.
 - **Pela bolha flutuante:** toque na bolha no app em que está digitando.
 - Na barra: o texto aparece ao vivo (o trecho ainda não revisado fica pontilhado).
   "Inserir" encerra a gravação, mostra o texto final e, com outro toque, escreve no
   campo focado. "Cancelar" descarta.
+- Se o app em foco mudou antes do toque em "Inserir", nada é escrito: o texto
+  fica na barra, e o aviso diz que um novo toque escreve no app atual. Um toque
+  até 1 s depois da recusa (toque duplo) é ignorado.
 - **Nas Notas:** "Nova nota" ou o microfone do detalhe ditam direto no corpo da nota.
 
 ## Licença

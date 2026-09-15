@@ -1,8 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Sem accessibilityEventTypes: o serviço não consome eventos. commitText depende de
-     flagInputMethodEditor, o fallback de canRetrieveWindowContent e a barra acima do teclado de
-     flagRetrieveInteractiveWindows; o sistema mantém o cache de nós sem assinatura de eventos. -->
+<!-- Só typeWindowStateChanged: a cada troca de janela o serviço anota o pacote da janela ativa,
+     destino do retorno do microfone do Início (P130); nenhum conteúdo dos eventos é lido.
+     commitText depende de flagInputMethodEditor, o fallback de canRetrieveWindowContent e a barra
+     acima do teclado de flagRetrieveInteractiveWindows. -->
 <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:accessibilityEventTypes="typeWindowStateChanged"
     android:accessibilityFeedbackType="feedbackGeneric"
     android:accessibilityFlags="flagDefault|flagInputMethodEditor|flagRetrieveInteractiveWindows"
     android:canRetrieveWindowContent="true"

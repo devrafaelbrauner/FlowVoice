@@ -2,6 +2,7 @@ package dev.rafaelbrauner.flowvoice.shared.di
 
 import dev.rafaelbrauner.flowvoice.shared.dictation.AudioCaptureEngine
 import dev.rafaelbrauner.flowvoice.shared.dictation.DictationSessionController
+import dev.rafaelbrauner.flowvoice.shared.dictation.DictationWindowAggregator
 import dev.rafaelbrauner.flowvoice.shared.dictation.JavaSoundAudioCaptureEngine
 import dev.rafaelbrauner.flowvoice.shared.insertion.TextInserter
 import dev.rafaelbrauner.flowvoice.shared.insertion.UnsupportedTextInserter
@@ -39,7 +40,13 @@ object DesktopBindings {
 
 fun desktopModule(os: DesktopOs = DesktopOs.current()): Module = module {
     single<AudioCaptureEngine> { JavaSoundAudioCaptureEngine() }
-    factory { DictationSessionController(get()) }
+    factory {
+        DictationSessionController(
+            get(),
+            windowPauseSearchBeforeMs = DictationWindowAggregator.SPEECH_PAUSE_SEARCH_BEFORE_MS,
+            windowPauseSearchAfterMs = DictationWindowAggregator.SPEECH_PAUSE_SEARCH_AFTER_MS
+        )
+    }
     single<SecretStore> { DesktopBindings.secretStore(os) }
     single<TextInserter> { DesktopBindings.textInserter(os) }
 }

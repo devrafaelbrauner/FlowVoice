@@ -121,12 +121,34 @@ App de ditado **voz → texto** em nuvem (**OpenRouter**), com:
 
 ## Modelos de transcrição (shortlist de benchmark — F05)
 
-**Escolha (Galaxy S26 Ultra `RXGL10CHB5E`, 2026-09-13):**
+**Escolha atual (Galaxy S26 Ultra `RXGL10CHB5E`, 2026-09-15, achado P136):**
 
-- **Padrão:** `openai/gpt-4o-mini-transcribe` — WER 0, latência 1321 ms, custo ~US$ 0,00019.
-- **Fallback:** `deepgram/nova-3` — segundo mais rápido (1545 ms); WER 0,18.
-- Clipe: 3 janelas, frase *O médico pediu o exame de sangue para amanhã de manhã.*
-- Teto: US$ 1,00; gasto real US$ 0,003; 8/8 modelos ok.
+- **Padrão:** `openai/gpt-transcribe` — WER 0 nas duas rodadas (28 palavras no total).
+  Em comparação, `gpt-4o-mini-transcribe` errou 1 palavra na rodada de 15/set e, ditando pela
+  bolha, trocou "ditado" em 2 de 3 frases curtas ("Primeiro digitando", "Terceirizado").
+  Custo ~US$ 0,0011 por clipe de ~15 s (~3× o mini); latência de 1420 ms em 15/set e 2151 ms em 13/set.
+- **Fallback:** `deepgram/nova-3` — WER 0,06 e 1511 ms em 15/set; WER 0,18 em 13/set.
+- Evidência ainda fraca: dois clipes curtos, e o benchmark transcreve o clipe inteiro, não as
+  janelas de ~4 s do ditado. Repetir com mais frases reais.
+
+**Rodada de 2026-09-15** (clipe de 4 janelas, *Terceiro ditado pela bolha. Paciente refere dor no
+joelho direito, sem febre e sem alergia a dipirona.*, 17 palavras; teto US$ 1,00; gasto
+US$ 0,0047; 8/8 ok):
+
+| # | Modelo | WER | Latência | Custo USD |
+| --- | --- | --- | --- | --- |
+| 1 | `openai/gpt-transcribe` | 0,00 | 1420 ms | 0,001125 |
+| 2 | `deepgram/nova-3` | 0,06 | 1511 ms | 0,001064 |
+| 3 | `openai/gpt-4o-mini-transcribe` | 0,06 | 2346 ms | 0,000345 |
+| 4 | `microsoft/mai-transcribe-2` | 0,12 | 1010 ms | 0,000417 |
+| 5 | `openai/gpt-4o-transcribe` | 0,12 | 1434 ms | 0,000660 |
+| 6 | `mistralai/voxtral-mini-transcribe` | 0,12 | 1831 ms | 0,000700 |
+| 7 | `openai/whisper-large-v3-turbo` | 0,12 | 4036 ms | 0,000049 |
+| 8 | `nvidia/parakeet-tdt-0.6b-v3` | 0,18 | 1524 ms | 0,000371 |
+
+**Rodada de 2026-09-13** (escolha anterior: padrão `openai/gpt-4o-mini-transcribe`, WER 0, 1321 ms,
+~US$ 0,00019; fallback `deepgram/nova-3`). Clipe de 3 janelas, frase *O médico pediu o exame de
+sangue para amanhã de manhã.*; teto US$ 1,00; gasto real US$ 0,003; 8/8 modelos ok.
 
 **Rodada 1 (ranking WER → latência → custo):**
 
@@ -183,4 +205,4 @@ App de ditado **voz → texto** em nuvem (**OpenRouter**), com:
 - Novos **apps-alvo adicionais**, se houver, para regressão extra do F02 no
   Galaxy S26 Ultra.
 - Dados de aparelho: Galaxy S26 Ultra `SM_S948B` / `RXGL10CHB5E`; teto F05 US$ 1,00 (gasto US$ 0,003).
-- Modelo padrão: `openai/gpt-4o-mini-transcribe`; fallback `deepgram/nova-3`.
+- Modelo padrão: `openai/gpt-transcribe` (desde 2026-09-15, P136); fallback `deepgram/nova-3`.

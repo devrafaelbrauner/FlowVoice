@@ -94,8 +94,8 @@ fun NotesRoute(initialNoteId: String?, modifier: Modifier = Modifier) {
     LaunchedEffect(dictationState, status) { state.refresh() }
 
     val startDictation: (String) -> Unit = { noteId ->
-        val current = pipeline.status.value
-        if (current.isBusy) {
+        val current = pipeline.session.value
+        if (current.status.isBusy) {
             state.showError("Já há um ditado em andamento.")
         } else {
             state.beginDictation(noteId, current)

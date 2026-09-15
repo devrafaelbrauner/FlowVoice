@@ -38,6 +38,7 @@ import androidx.compose.ui.tooling.preview.PreviewParameter
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.rafaelbrauner.flowvoice.shared.pipeline.DictationPipeline
+import dev.rafaelbrauner.flowvoice.shared.pipeline.DictationPipelineSession
 import dev.rafaelbrauner.flowvoice.shared.pipeline.DictationPipelineStatus
 import dev.rafaelbrauner.flowvoice.shared.pipeline.DictationTarget
 import dev.rafaelbrauner.flowvoice.ui.components.FvPreviewSurface
@@ -60,19 +61,20 @@ fun DictationOverlay(
     onModeChange: (OverlayMode) -> Unit,
     onSessionOwned: () -> Unit
 ) {
-    val status by pipeline.status.collectAsState()
+    val session by pipeline.session.collectAsState()
+    val status = session.status
     val target by pipeline.target.collectAsState()
     val segments by pipeline.segments.collectAsState()
     var ownership by remember { mutableStateOf(OverlayOwnership.released()) }
     val owned = ownership.owned
-    var dismissed by remember { mutableStateOf<DictationPipelineStatus?>(null) }
+    var dismissed by remember { mutableStateOf<DictationPipelineSession?>(null) }
     var elapsedMs by remember { mutableLongStateOf(0L) }
     val latestModeChange by rememberUpdatedState(onModeChange)
     val latestSessionOwned by rememberUpdatedState(onSessionOwned)
     val startRequest by OverlayStartRequests.count.collectAsState()
 
     val beginSession = {
-        ownership = OverlayOwnership.begin(pipeline.status.value)
+        ownership = OverlayOwnership.begin(pipeline.session.value)
         dismissed = null
         elapsedMs = 0L
         latestSessionOwned()
@@ -85,10 +87,10 @@ fun DictationOverlay(
         }
     }
 
-    LaunchedEffect(status) {
-        val current = pipeline.status.value
-        ownership = OverlayOwnership.onStatus(ownership, current)
-        when (current) {
+    LaunchedEffect(session) {
+        val current = pipeline.session.value
+        ownership = OverlayOwnership.onSession(ownership, current)
+        when (current.status) {
             DictationPipelineStatus.Starting,
             DictationPipelineStatus.Recording -> while (true) {
                 elapsedMs = pipeline.capturedDurationMs
@@ -113,7 +115,7 @@ fun DictationOverlay(
         elapsedMs = elapsedMs,
         proofreadingEnabled = proofreading,
         owned = owned,
-        dismissed = status == dismissed
+        dismissed = session == dismissed
     )
     val mode = if (state is DictationBarState.Hidden) OverlayMode.Bubble else OverlayMode.Bar
     LaunchedEffect(mode) { latestModeChange(mode) }
@@ -148,7 +150,7 @@ fun DictationOverlay(
             is DictationBarState.Result -> DictationResult(
                 state = state,
                 onDismiss = {
-                    dismissed = status
+                    dismissed = session
                     ownership = OverlayOwnership.released()
                 }
             )

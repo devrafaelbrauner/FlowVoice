@@ -37,7 +37,7 @@ class OpenRouterTranscriptionClientTest {
         val request = engine.requestHistory.single()
 
         assertEquals("olá mundo", result.text)
-        assertEquals("openai/gpt-4o-mini-transcribe", result.model)
+        assertEquals(OpenRouterConfig.DEFAULT_MODEL, result.model)
         assertEquals(HttpMethod.Post, request.method)
         assertEquals("/api/v1/audio/transcriptions", request.url.encodedPath)
         assertEquals("Bearer $SECRET_KEY", request.headers[HttpHeaders.Authorization])
@@ -86,6 +86,26 @@ class OpenRouterTranscriptionClientTest {
     }
 
     @Test
+    fun httpErrorLogCarriesTheStatusCode() = runTest {
+        val log = RecordingLog()
+        val engine = MockEngine {
+            respond(
+                content = ByteReadChannel("""{"error":{"code":402,"message":"insufficient credits"}}"""),
+                status = HttpStatusCode.PaymentRequired,
+                headers = jsonHeaders()
+            )
+        }
+        val client = OpenRouterTranscriptionClient(httpClient(engine), OpenRouterConfig(), log)
+
+        assertFailsWith<TranscriptionError> { client.transcribe(testWindow(), SECRET_KEY) }
+
+        val error = log.events.last()
+        assertEquals("transcription_error", error.event)
+        assertEquals("402", error.metadata["status"])
+        assertFalse(log.containsSecret())
+    }
+
+    @Test
     fun mapsUnauthorizedToInvalidKey() = runTest {
         val engine = MockEngine {
             respond(content = ByteReadChannel(""), status = HttpStatusCode.Unauthorized)
@@ -94,6 +114,23 @@ class OpenRouterTranscriptionClientTest {
         assertIs<TranscriptionError.InvalidKey>(
             assertFailsWith<TranscriptionError.InvalidKey> { client.transcribe(testWindow(), SECRET_KEY) }
         )
+    }
+
+    @Test
+    fun mapsForbiddenToARefusedRequestNotAnInvalidKey() = runTest {
+        val engine = MockEngine {
+            respond(
+                content = ByteReadChannel("""{"error":{"code":403,"message":"Blocked by guardrail"}}"""),
+                status = HttpStatusCode.Forbidden,
+                headers = jsonHeaders()
+            )
+        }
+        val client = OpenRouterTranscriptionClient(httpClient(engine), OpenRouterConfig())
+
+        val error = assertFailsWith<TranscriptionError> { client.transcribe(testWindow(), SECRET_KEY) }
+
+        assertFalse(error is TranscriptionError.InvalidKey)
+        assertEquals("forbidden", error.kind)
     }
 
     private fun httpClient(engine: MockEngine): HttpClient = HttpClient(engine) {

@@ -16,10 +16,17 @@ class DictationSessionController(
     windowTargetDurationMs: Long = DictationWindowAggregator.DEFAULT_TARGET_DURATION_MS,
     private val autoFinalizeOnSilence: Boolean = false,
     private val silenceThreshold: Float = DEFAULT_SILENCE_THRESHOLD,
-    private val silenceTimeoutMs: Long = DEFAULT_SILENCE_TIMEOUT_MS
+    private val silenceTimeoutMs: Long = DEFAULT_SILENCE_TIMEOUT_MS,
+    windowPauseSearchBeforeMs: Long = 0L,
+    windowPauseSearchAfterMs: Long = 0L
 ) {
     private val session = DictationSession()
-    private val windowAggregator = DictationWindowAggregator(windowTargetDurationMs, engine.format)
+    private val windowAggregator = DictationWindowAggregator(
+        windowTargetDurationMs,
+        engine.format,
+        windowPauseSearchBeforeMs,
+        windowPauseSearchAfterMs
+    )
     private val sessionMutex = Mutex()
     private val observedState = MutableStateFlow(session.state)
     private val windowEvents = MutableSharedFlow<DictationWindow>(extraBufferCapacity = Channel.UNLIMITED)
