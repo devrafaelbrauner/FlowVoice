@@ -1,5 +1,6 @@
 package dev.rafaelbrauner.flowvoice.ui.overlay
 
+import android.view.MotionEvent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -8,6 +9,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -25,13 +27,24 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInteropFilter
+import androidx.compose.ui.platform.LocalViewConfiguration
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.tooling.preview.PreviewParameter
@@ -41,6 +54,7 @@ import dev.rafaelbrauner.flowvoice.shared.pipeline.DictationPipeline
 import dev.rafaelbrauner.flowvoice.shared.pipeline.DictationPipelineSession
 import dev.rafaelbrauner.flowvoice.shared.pipeline.DictationPipelineStatus
 import dev.rafaelbrauner.flowvoice.shared.pipeline.DictationTarget
+import dev.rafaelbrauner.flowvoice.shared.transcription.TranscriptionSegment
 import dev.rafaelbrauner.flowvoice.ui.components.FvPreviewSurface
 import dev.rafaelbrauner.flowvoice.ui.components.MicButton
 import dev.rafaelbrauner.flowvoice.ui.components.MonoLabel
@@ -54,10 +68,17 @@ import kotlinx.coroutines.delay
 
 private const val CLOCK_REFRESH_MS = 200L
 private const val RESULT_VISIBLE_MS = 4_000L
+private const val BUBBLE_LABEL_IDLE = "Ditar"
+private const val BUBBLE_LABEL_STOP = "Encerrar ditado"
+private const val BUBBLE_LABEL_BUSY = "Ditado em andamento"
+private const val MOVE_UP = "Mover para cima"
+private const val MOVE_DOWN = "Mover para baixo"
+private const val MOVE_OTHER_SIDE = "Mover para o outro lado"
 
 @Composable
 fun DictationOverlay(
     pipeline: DictationPipeline,
+    host: BubbleHost,
     onModeChange: (OverlayMode) -> Unit,
     onSessionOwned: () -> Unit
 ) {
@@ -65,6 +86,8 @@ fun DictationOverlay(
     val status = session.status
     val target by pipeline.target.collectAsState()
     val segments by pipeline.segments.collectAsState()
+    val direct by pipeline.directInsertion.collectAsState()
+    val bubbleLayout by host.layout.collectAsState()
     var ownership by remember { mutableStateOf(OverlayOwnership.released()) }
     val owned = ownership.owned
     var dismissed by remember { mutableStateOf<DictationPipelineSession?>(null) }
@@ -106,62 +129,187 @@ fun DictationOverlay(
         }
     }
 
+    // O pipeline marca a sessão direta antes de publicar o status: lido direto, sem esperar o próximo
+    // quadro, a barra de revisão não pisca no começo da sessão direta.
+    val directNow = remember(session, direct) { pipeline.directInsertion.value }
+    val isDirect = directNow.active && directNow.sessionId == session.id
     val live = remember(segments) { pipeline.liveText() }
     val proofreading = remember(status) { pipeline.proofreadingEnabled }
-    val state = DictationBarModel.from(
-        status = status,
-        target = target,
-        live = live,
-        elapsedMs = elapsedMs,
-        proofreadingEnabled = proofreading,
-        owned = owned,
-        dismissed = session == dismissed
-    )
-    val mode = if (state is DictationBarState.Hidden) OverlayMode.Bubble else OverlayMode.Bar
+    val barState = if (isDirect) {
+        DictationBarState.Hidden
+    } else {
+        DictationBarModel.from(
+            status = status,
+            target = target,
+            live = live,
+            elapsedMs = elapsedMs,
+            proofreadingEnabled = proofreading,
+            owned = owned,
+            dismissed = session == dismissed
+        )
+    }
+    val previewState = if (isDirect) {
+        DirectPreviewModel.from(
+            status = status,
+            progress = directNow,
+            transcribing = segments.any { it.status == TranscriptionSegment.Status.Transcribing },
+            elapsedMs = elapsedMs,
+            owned = owned,
+            dismissed = session == dismissed
+        )
+    } else {
+        DirectPreviewState.Hidden
+    }
+    val mode = when {
+        previewState != DirectPreviewState.Hidden -> OverlayMode.Preview
+        barState != DictationBarState.Hidden -> OverlayMode.Bar
+        else -> OverlayMode.Bubble
+    }
     LaunchedEffect(mode) { latestModeChange(mode) }
 
+    val onBubbleTap: () -> Unit = {
+        val current = pipeline.session.value
+        val currentDirect = pipeline.directInsertion.value.let { it.active && it.sessionId == current.id }
+        when {
+            currentDirect && ownership.owned && current.status == DictationPipelineStatus.Recording ->
+                pipeline.requestFinalize()
+            currentDirect && ownership.owned && current.status.isBusy -> Unit
+            current.status.isBusy -> {
+                dismissed = null
+                ownership = OverlayOwnership.adopt(current.status)
+                latestSessionOwned()
+            }
+            else -> beginSession()
+        }
+    }
+    val bubbleLabel = when {
+        isDirect && owned && status == DictationPipelineStatus.Recording -> BUBBLE_LABEL_STOP
+        status.isBusy -> BUBBLE_LABEL_BUSY
+        else -> BUBBLE_LABEL_IDLE
+    }
+    val touchSlop = LocalViewConfiguration.current.touchSlop
+
     FlowVoiceTheme {
-        when (state) {
-            DictationBarState.Hidden -> DictationBubble(
-                busy = status.isBusy,
-                onTap = {
-                    val current = pipeline.status.value
-                    if (current.isBusy) {
-                        dismissed = null
-                        ownership = OverlayOwnership.adopt(current)
-                        latestSessionOwned()
-                    } else {
-                        beginSession()
+        if (mode == OverlayMode.Bar) {
+            when (val state = barState) {
+                is DictationBarState.Live -> DictationBar(
+                    state = state,
+                    onCancel = { pipeline.requestCancel() },
+                    onInsert = {
+                        when (pipeline.status.value) {
+                            DictationPipelineStatus.Recording -> pipeline.requestFinalizeForReview()
+                            is DictationPipelineStatus.Ready -> pipeline.requestInsertReady()
+                            else -> Unit
+                        }
+                    },
+                    onStop = { pipeline.requestFinalize() }
+                )
+                is DictationBarState.Result -> DictationResult(
+                    state = state,
+                    onDismiss = {
+                        dismissed = session
+                        ownership = OverlayOwnership.released()
                     }
+                )
+                DictationBarState.Hidden -> Unit
+            }
+        } else {
+            // A bolha fica sempre no mesmo lugar da composição: mostrar ou esconder a prévia não recria o
+            // gesto, e um arraste que começa com a prévia aberta continua até soltar.
+            val showCard = mode == OverlayMode.Preview && !bubbleLayout.dragging
+            val cardOnLeft = showCard && bubbleLayout.side == BubbleSide.Right
+            val cardOnRight = showCard && bubbleLayout.side == BubbleSide.Left
+            Row(
+                modifier = if (showCard) Modifier.fillMaxWidth() else Modifier,
+                verticalAlignment = if (bubbleLayout.growsUp) Alignment.Bottom else Alignment.Top
+            ) {
+                if (cardOnLeft) {
+                    DirectPreviewCard(
+                        state = previewState,
+                        onCancel = { pipeline.requestCancel() },
+                        onInsertHere = { pipeline.requestInsertPending() },
+                        onDismiss = {
+                            dismissed = session
+                            ownership = OverlayOwnership.released()
+                        },
+                        modifier = Modifier.weight(1f)
+                    )
                 }
-            )
-            is DictationBarState.Live -> DictationBar(
-                state = state,
-                onCancel = { pipeline.requestCancel() },
-                onInsert = {
-                    when (pipeline.status.value) {
-                        DictationPipelineStatus.Recording -> pipeline.requestFinalizeForReview()
-                        is DictationPipelineStatus.Ready -> pipeline.requestInsertReady()
-                        else -> Unit
-                    }
-                },
-                onStop = { pipeline.requestFinalize() }
-            )
-            is DictationBarState.Result -> DictationResult(
-                state = state,
-                onDismiss = {
-                    dismissed = session
-                    ownership = OverlayOwnership.released()
+                DictationBubble(
+                    label = bubbleLabel,
+                    pulsing = status.isBusy,
+                    touchSlopPx = touchSlop,
+                    onTap = onBubbleTap,
+                    onDrag = host::onDrag,
+                    onDragEnd = host::onDragEnd,
+                    onMove = host::onMove
+                )
+                if (cardOnRight) {
+                    DirectPreviewCard(
+                        state = previewState,
+                        onCancel = { pipeline.requestCancel() },
+                        onInsertHere = { pipeline.requestInsertPending() },
+                        onDismiss = {
+                            dismissed = session
+                            ownership = OverlayOwnership.released()
+                        },
+                        modifier = Modifier.weight(1f)
+                    )
                 }
-            )
+            }
         }
     }
 }
 
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
-fun DictationBubble(busy: Boolean, onTap: () -> Unit, modifier: Modifier = Modifier) {
+fun DictationBubble(
+    label: String,
+    pulsing: Boolean,
+    touchSlopPx: Float,
+    onTap: () -> Unit,
+    onDrag: (Float, Float) -> Unit,
+    onDragEnd: () -> Unit,
+    onMove: (BubbleMove) -> Unit,
+    modifier: Modifier = Modifier
+) {
     val colors = FlowVoiceTheme.colors
-    Box(modifier = modifier.padding(10.dp)) {
+    val gesture = remember(touchSlopPx) { BubbleGesture(touchSlopPx) }
+    val latestTap by rememberUpdatedState(onTap)
+    val latestDrag by rememberUpdatedState(onDrag)
+    val latestDragEnd by rememberUpdatedState(onDragEnd)
+    val latestMove by rememberUpdatedState(onMove)
+    Box(
+        modifier = modifier
+            .semantics {
+                role = Role.Button
+                contentDescription = label
+                onClick(label = label) {
+                    latestTap()
+                    true
+                }
+                customActions = listOf(
+                    CustomAccessibilityAction(MOVE_UP) { latestMove(BubbleMove.Up); true },
+                    CustomAccessibilityAction(MOVE_DOWN) { latestMove(BubbleMove.Down); true },
+                    CustomAccessibilityAction(MOVE_OTHER_SIDE) { latestMove(BubbleMove.OtherSide); true }
+                )
+            }
+            // Coordenadas brutas: a janela anda junto com o dedo (P138).
+            .pointerInteropFilter { event ->
+                when (event.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> gesture.down(event.rawX, event.rawY)
+                    MotionEvent.ACTION_MOVE -> gesture.move(event.rawX, event.rawY)?.let { latestDrag(it.dx, it.dy) }
+                    MotionEvent.ACTION_UP -> when (gesture.up()) {
+                        BubbleGesture.End.Tap -> latestTap()
+                        BubbleGesture.End.DragEnd -> latestDragEnd()
+                        BubbleGesture.End.None -> Unit
+                    }
+                    MotionEvent.ACTION_CANCEL -> if (gesture.cancel() == BubbleGesture.End.DragEnd) latestDragEnd()
+                }
+                true
+            }
+            .padding(10.dp)
+    ) {
         Box(
             modifier = Modifier
                 .shadow(12.dp, CircleShape, ambientColor = Color.Black, spotColor = Color.Black)
@@ -171,12 +319,178 @@ fun DictationBubble(busy: Boolean, onTap: () -> Unit, modifier: Modifier = Modif
             contentAlignment = Alignment.Center
         ) {
             MicButton(
-                onClick = onTap,
+                onClick = null,
                 size = 40.dp,
                 iconSize = 20.dp,
-                pulsing = busy,
-                contentDescription = if (busy) "Ditado em andamento" else "Ditar"
+                pulsing = pulsing,
+                contentDescription = null
             )
+        }
+    }
+}
+
+@Composable
+fun DirectPreviewCard(
+    state: DirectPreviewState,
+    onCancel: () -> Unit,
+    onInsertHere: () -> Unit,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val colors = FlowVoiceTheme.colors
+    val shape = RoundedCornerShape(16.dp)
+    Column(
+        modifier = modifier
+            .padding(horizontal = 4.dp, vertical = 10.dp)
+            .shadow(10.dp, shape, ambientColor = Color.Black, spotColor = Color.Black)
+            .background(colors.surface, shape)
+            .border(1.dp, colors.accentBorder, shape)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        when (state) {
+            is DirectPreviewState.Live -> DirectPreviewLive(state, onCancel, onInsertHere)
+            is DirectPreviewState.Result -> DirectPreviewResult(state, onDismiss)
+            DirectPreviewState.Hidden -> Unit
+        }
+    }
+}
+
+@Composable
+private fun DirectPreviewLive(state: DirectPreviewState.Live, onCancel: () -> Unit, onInsertHere: () -> Unit) {
+    val colors = FlowVoiceTheme.colors
+    val typography = FlowVoiceTheme.typography
+    val recording = state.phase == DirectPhase.Recording && state.notice == null
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Box(
+            modifier = Modifier
+                .size(8.dp)
+                .background(if (recording) colors.accent else colors.textSecondary, CircleShape)
+        )
+        Text(text = state.clock, style = typography.monoValue, color = colors.textSecondary, maxLines = 1)
+        MonoLabel(
+            text = state.status,
+            modifier = Modifier.weight(1f),
+            color = if (state.notice != null) colors.accentText else colors.textSecondary,
+            style = typography.monoRoute,
+            maxLines = 2
+        )
+    }
+    state.notice?.let { notice ->
+        Text(
+            text = notice,
+            style = typography.bodySmall,
+            color = colors.accentText,
+            maxLines = 3,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }
+        )
+    }
+    state.warning?.takeIf { it != state.notice }?.let { warning ->
+        Text(
+            text = warning,
+            style = typography.bodySmall,
+            color = colors.accentText,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+    if (state.typedTail.isNotEmpty()) {
+        LabeledText(label = DirectPreviewModel.TYPED_LABEL, text = state.typedTail, color = colors.textPrimary, maxLines = 2)
+    }
+    if (state.transcribing) {
+        ProvisionalText(
+            finalized = "",
+            provisional = DirectPreviewModel.TRANSCRIBING,
+            style = typography.bodySmall,
+            provisionalColor = colors.textSecondary,
+            maxLines = 1
+        )
+    }
+    if (state.pending.isNotEmpty()) {
+        LabeledText(label = DirectPreviewModel.PENDING_LABEL, text = state.pending, color = colors.textSecondary, maxLines = 3)
+    }
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        PillButton(
+            text = state.cancelLabel,
+            onClick = onCancel,
+            variant = PillButtonVariant.Outline,
+            height = 40.dp,
+            horizontalPadding = 14.dp
+        )
+        Spacer(Modifier.weight(1f))
+        if (state.canInsertHere) {
+            PillButton(
+                text = DirectPreviewModel.INSERT_HERE,
+                onClick = onInsertHere,
+                variant = PillButtonVariant.Primary,
+                height = 40.dp
+            )
+        }
+    }
+}
+
+@Composable
+private fun LabeledText(label: String, text: String, color: Color, maxLines: Int) {
+    val colors = FlowVoiceTheme.colors
+    val typography = FlowVoiceTheme.typography
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top) {
+        MonoLabel(
+            text = label,
+            modifier = Modifier.padding(top = 4.dp),
+            color = colors.textSecondary,
+            style = typography.monoLabelSmall
+        )
+        Text(
+            text = text,
+            style = typography.body.copy(fontSize = 14.sp, lineHeight = 19.6.sp),
+            color = color,
+            maxLines = maxLines,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f)
+        )
+    }
+}
+
+@Composable
+private fun DirectPreviewResult(state: DirectPreviewState.Result, onDismiss: () -> Unit) {
+    val colors = FlowVoiceTheme.colors
+    val typography = FlowVoiceTheme.typography
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                role = Role.Button,
+                onClick = onDismiss
+            )
+            .heightIn(min = 44.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(8.dp)
+                .background(if (state.success) colors.accent else colors.destructive, RoundedCornerShape(2.dp))
+        )
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                text = state.message,
+                style = typography.buttonSecondary,
+                color = colors.textPrimary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            state.detail?.let { detail ->
+                Text(
+                    text = detail,
+                    style = typography.bodySmall,
+                    color = colors.textSecondary,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
         }
     }
 }
@@ -342,23 +656,65 @@ private fun DictationBarPreview(@PreviewParameter(ThemePreviewParameter::class) 
             onInsert = {},
             onStop = {}
         )
-        DictationBar(
-            state = DictationBarState.Live(
-                phase = BarPhase.Ready,
-                finalized = "Bom dia, Marina. Consegui fechar o orçamento do projeto ontem à noite.",
-                provisional = "",
-                clock = "0:09",
-                route = DictationBarModel.ROUTE_READY,
-                canInsert = true
-            ),
-            onCancel = {},
-            onInsert = {},
-            onStop = {}
-        )
         DictationResult(
             state = DictationBarState.Result(success = true, message = "Inserido no campo ativo · 1,1 s"),
             onDismiss = {}
         )
-        DictationBubble(busy = false, onTap = {})
+        DictationBubble(
+            label = BUBBLE_LABEL_IDLE,
+            pulsing = false,
+            touchSlopPx = 8f,
+            onTap = {},
+            onDrag = { _, _ -> },
+            onDragEnd = {},
+            onMove = {}
+        )
+    }
+}
+
+@Preview
+@Composable
+private fun DirectPreviewCardPreview(@PreviewParameter(ThemePreviewParameter::class) dark: Boolean) {
+    FvPreviewSurface(dark) {
+        DirectPreviewCard(
+            state = DirectPreviewState.Live(
+                phase = DirectPhase.Recording,
+                clock = "0:12",
+                status = DirectPreviewModel.STATUS_LISTENING,
+                typedTail = "Bom dia, Marina. Consegui fechar o orçamento",
+                pending = "",
+                transcribing = true,
+                notice = null,
+                warning = null,
+                canInsertHere = false,
+                cancelLabel = DirectPreviewModel.CANCEL
+            ),
+            onCancel = {},
+            onInsertHere = {},
+            onDismiss = {}
+        )
+        DirectPreviewCard(
+            state = DirectPreviewState.Live(
+                phase = DirectPhase.Recording,
+                clock = "0:18",
+                status = DirectPreviewModel.STATUS_PAUSED,
+                typedTail = "Bom dia, Marina. Consegui fechar o orçamento",
+                pending = "do projeto ontem à noite",
+                transcribing = false,
+                notice = "o foco mudou de app; toque em Inserir aqui para escrever no app atual",
+                warning = null,
+                canInsertHere = true,
+                cancelLabel = DirectPreviewModel.CANCEL
+            ),
+            onCancel = {},
+            onInsertHere = {},
+            onDismiss = {}
+        )
+        DirectPreviewCard(
+            state = DirectPreviewState.Result(success = true, message = "Digitado no campo · 11 palavras"),
+            onCancel = {},
+            onInsertHere = {},
+            onDismiss = {}
+        )
     }
 }
