@@ -2,6 +2,7 @@ package dev.rafaelbrauner.flowvoice.service
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
+import android.accessibilityservice.InputMethod
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Rect
@@ -11,6 +12,8 @@ import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
+import android.view.inputmethod.EditorInfo
+import androidx.annotation.RequiresApi
 import dev.rafaelbrauner.flowvoice.shared.insertion.CursorInsertion
 import dev.rafaelbrauner.flowvoice.shared.insertion.FocusedFieldDiagnostic
 import dev.rafaelbrauner.flowvoice.shared.insertion.FocusedPackage
@@ -46,6 +49,32 @@ class FlowVoiceAccessibilityService : AccessibilityService() {
 
     private val previousApps by lazy { PreviousAppTracker(packageName) }
     private var homePackages: Set<String> = emptySet()
+
+    // Muda a cada input novo ou encerrado, nunca num restartInput do mesmo campo: a inserção sem toque
+    // (P139) só continua no input em que a anterior entrou, então outra conversa ou outro campo pausa.
+    @Volatile
+    private var inputGeneration = 0
+
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
+    override fun onCreateInputMethod(): InputMethod = object : InputMethod(this) {
+        override fun onStartInput(attribute: EditorInfo, restarting: Boolean) {
+            super.onStartInput(attribute, restarting)
+            if (!restarting) noteInputChanged()
+        }
+
+        override fun onFinishInput() {
+            super.onFinishInput()
+            noteInputChanged()
+        }
+    }
+
+    private fun noteInputChanged() {
+        inputGeneration++
+        Log.i(TAG, "input_generation $inputGeneration")
+    }
+
+    fun currentInputGeneration(): Int? =
+        inputGeneration.takeIf { Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU }
 
     fun previousAppLaunchIntent(): Intent? =
         previousApps.target?.let { packageManager.getLaunchIntentForPackage(it) }
