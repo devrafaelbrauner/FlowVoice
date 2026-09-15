@@ -245,6 +245,8 @@ class FlowVoiceAccessibilityService : AccessibilityService() {
         }
 
         try {
+            // Com palavra em composição no teclado, commitText a substitui e o texto sai truncado (P142).
+            // A AccessibilityInputConnection não expõe finishComposingText, então não há como encerrá-la aqui.
             connection.commitText(text, 1, null)
         } catch (error: Throwable) {
             Log.e(TAG, "commitText falhou", error)

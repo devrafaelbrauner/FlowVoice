@@ -41,6 +41,10 @@ cortada na pausa da fala (P140). Desenho e decisões da bolha em
 - P138: a bolha é **totalmente redonda**. A sombra e o anel pulsante passavam da
   folga da janela retangular e eram cortados nas bordas dela, o que formava um halo
   quadrado. Agora são recortados em círculo, com sombra menor.
+- P141: a bolha **volta sozinha depois de atualizar o app**. Reinstalar mata o
+  processo e leva a bolha junto, e antes era preciso religá-la em Ajustes. O estado
+  "ligada" agora fica guardado no aparelho, fora da sincronização, e o app religa a
+  bolha ao voltar ao primeiro plano, se as permissões continuarem valendo.
 
 ### Changed
 
