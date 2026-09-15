@@ -26,6 +26,10 @@ class FlowVoiceAdbReceiver : BroadcastReceiver() {
             }
 
         val action = intent.getStringExtra("fv_poc_action") ?: "diagnose"
+        if (action == "geometry") {
+            Log.i(TAG, "[POC_ADB] action=geometry ${service.describeFocusGeometry()}")
+            return
+        }
         val text = intent.getStringExtra("fv_poc_text") ?: "POC FlowVoice — "
         val result = when (action) {
             "direct" -> service.insertDirect(text)

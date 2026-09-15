@@ -137,6 +137,30 @@ class FlowVoiceAccessibilityService : AccessibilityService() {
         }
     }
 
+    // Diagnóstico da leitura acima para o receiver de depuração: classe, limites, chaves de dado extra e se a linha
+    // do cursor saiu. Nada de texto nem de índice do cursor.
+    internal fun describeFocusGeometry(): String {
+        freshAccessibilityData()
+        val root = runCatching { rootInActiveWindow }.getOrNull() ?: return "root=null"
+        val node = runCatching { root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT) }.getOrNull()
+        return try {
+            if (node == null) {
+                "focus=null"
+            } else {
+                val bounds = Rect()
+                node.getBoundsInScreen(bounds)
+                val extraKeys = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) node.availableExtraData else emptyList()
+                "focus=${node.className} editable=${node.isEditable} bounds=${bounds.toShortString()} " +
+                    "extraData=$extraKeys selectionKnown=${node.textSelectionEnd > 0} caret=${caretLine(node)}"
+            }
+        } catch (error: RuntimeException) {
+            "erro=${error.javaClass.simpleName}"
+        } finally {
+            node?.let(::releaseNode)
+            releaseNode(root)
+        }
+    }
+
     // Retângulo do caractere antes do cursor (EXTRA_DATA_TEXT_CHARACTER_LOCATION_KEY). Sem suporte, sem caractere
     // antes ou sem resposta, nulo: vale o campo inteiro.
     private fun caretLine(node: AccessibilityNodeInfo): IntRange? {
