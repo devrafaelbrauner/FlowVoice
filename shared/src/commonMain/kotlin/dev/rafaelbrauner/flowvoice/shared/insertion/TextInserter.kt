@@ -8,6 +8,9 @@ interface TextInserter {
     fun captureTargetIfUnknown() = Unit
 
     fun insert(text: String): TextInsertionResult
+
+    // Inserção sem toque do usuário (modo direto, P139). No Android passa pelo DirectInsertionGuard.
+    fun insertWithoutTap(text: String): TextInsertionResult = insert(text)
 }
 
 data class TextInsertionResult(
