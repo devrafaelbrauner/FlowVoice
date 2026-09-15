@@ -14,7 +14,7 @@ Histórico: [`CHANGELOG.md`](CHANGELOG.md). O que falta:
 | Área | Situação |
 | --- | --- |
 | Android: ditado, transcrição incremental, dicionário, notas, revisão | funcional |
-| Android: barra de ditado sobre o app aberto (Inserir no campo ativo) | funcional; falta validar com fala real e o visual no aparelho |
+| Android: bolha arrastável que digita direto no campo aberto, com prévia (ou barra com Inserir) | funcional; arraste e prévia vistos no S26, falta validar a digitação com fala real |
 | Login Google | opcional e local, sem validação do token em backend |
 | Sincronização | motor pronto, servidor remoto ainda em memória |
 | Windows (`desktopApp`) | compila; inserção, cofre e microfone só validados num Windows real |
@@ -70,21 +70,38 @@ adb install -r androidApp/build/outputs/apk/debug/androidApp-debug.apk
    - **Não** ponha o FlowVoice como atalho de acessibilidade (botão ou gesto): o
      atalho alterna o serviço e um toque acidental o desliga.
 3. **Ajustes:** ligue o botão flutuante (pede microfone, notificações e "sobrepor a
-   outros apps"), a revisão por IA e, se quiser, o Google Web Client ID.
+   outros apps") e, se quiser, o Google Web Client ID. "Revisar antes de inserir"
+   (desligado por padrão) troca a digitação direta pela barra com Inserir; a revisão
+   por IA só vale nesse modo e nas notas.
 
 ## Ditando
 
+- **Pela bolha flutuante:** toque na bolha no app em que está digitando. Cada trecho
+  (~4 s de fala) é **digitado no campo** assim que é transcrito, em ordem e com
+  espaço entre os trechos. Toque na bolha de novo para encerrar: o último trecho
+  entra em seguida. Nesse modo não há revisão por IA.
+- **Prévia:** um cartão ao lado da bolha mostra o cronômetro e o estado. Em **NO
+  CAMPO** fica o que já foi escrito, depois vêm "transcrevendo…" e o aviso de
+  trecho com falha (timeout, sem créditos…). "Cancelar" descarta só o que ainda não
+  foi digitado; o que está no campo fica.
+- **Troca de app ou de campo:** se o foco for para outro app, outra conversa ou uma
+  tela sem campo, nada mais é digitado sozinho, **mesmo que você volte**. O resto
+  aparece como **PENDENTE**, e "Inserir aqui" o escreve no app em foco e retoma a
+  digitação nesse campo. Um toque até 1 s depois da pausa é ignorado.
 - **Pelo Início:** toque no microfone. O FlowVoice reabre o último app em que você
   estava (o serviço de acessibilidade anota o app da janela ativa; o launcher e o
-  próprio FlowVoice não contam) e abre a barra de ditado acima do teclado. Sem app
-  anotado, volta para a tela anterior.
-- **Pela bolha flutuante:** toque na bolha no app em que está digitando.
-- Na barra: o texto aparece ao vivo (o trecho ainda não revisado fica pontilhado).
-  "Inserir" encerra a gravação, mostra o texto final e, com outro toque, escreve no
-  campo focado. "Cancelar" descarta.
-- Se o app em foco mudou antes do toque em "Inserir", nada é escrito: o texto
-  fica na barra, e o aviso diz que um novo toque escreve no app atual. Um toque
-  até 1 s depois da recusa (toque duplo) é ignorado.
+  próprio FlowVoice não contam) e digita só nesse app. Sem app anotado, volta para
+  a tela anterior, e o primeiro trecho espera "Inserir aqui".
+- **Mover a bolha:** arraste-a para qualquer ponto. Ao soltar, ela encosta na borda
+  mais próxima, e a posição fica salva, inclusive ao girar a tela. Com TalkBack, use
+  as ações "Mover para cima", "Mover para baixo" e "Mover para o outro lado".
+- **Revisar antes de inserir** (Ajustes): volta ao fluxo com barra acima do teclado.
+  O texto aparece ao vivo (o trecho ainda não revisado fica pontilhado). "Inserir"
+  encerra a gravação e mostra o texto final, com a revisão por IA se ligada, e outro
+  toque o escreve no campo focado. "Cancelar" descarta. Se o app em foco mudou antes
+  do toque em "Inserir", nada é escrito: o texto fica na barra, e o aviso diz que um
+  novo toque escreve no app atual. Um toque até 1 s depois da recusa (toque duplo) é
+  ignorado.
 - **Nas Notas:** "Nova nota" ou o microfone do detalhe ditam direto no corpo da nota.
 
 ## Licença

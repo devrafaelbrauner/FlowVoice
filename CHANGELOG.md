@@ -6,6 +6,62 @@ estão em [`docs/tasks/`](docs/tasks/README.md).
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-09-15
+
+Bolha arrastável e inserção direta com prévia (P138 e P139). Desenho e decisões
+em [`docs/tasks/P138-P139.md`](docs/tasks/P138-P139.md).
+
+### Added
+
+- P139: ditar pela bolha **digita cada trecho no campo aberto** assim que ele é
+  transcrito, sem a barra nem o toque em Inserir. Os trechos entram em ordem, com
+  espaço entre eles, e a palavra repetida na emenda sai do trecho novo (mesma regra
+  da P127, que continua aberta). Tocar de novo na bolha encerra e digita o último
+  trecho. Falha de trecho aparece na hora, e teto e chave recusada encerram como
+  antes.
+- P139: prévia ao lado da bolha, nos temas claro e escuro, com cronômetro, estado,
+  **NO CAMPO** (o que já foi escrito), "transcrevendo…", **PENDENTE** e avisos.
+  "Cancelar" descarta só o que não foi digitado. O resultado fica por 4 s
+  ("Digitado no campo · N palavras").
+- P139: ajuste **"Revisar antes de inserir"** (desligado por padrão), que mantém o
+  fluxo anterior: barra acima do teclado, Inserir e revisão por IA.
+- P138: a bolha pode ser **arrastada** para qualquer ponto da área segura e encosta
+  na borda mais próxima ao soltar. A posição (lado e fração da altura) fica salva
+  fora da sincronização e volta ao mesmo lugar ao girar a tela e depois de reiniciar.
+  Um toque curto aciona a bolha; um arraste nunca inicia ditado. Com TalkBack, a
+  bolha tem nome, papel de botão e as ações "Mover para cima", "Mover para baixo" e
+  "Mover para o outro lado". A posição padrão (direita, 30 % da altura) sai de
+  cima da tecla de ação e do microfone das Notas (P27, P123).
+
+### Changed
+
+- P139: a revisão por IA não roda na digitação direta: o texto já está no campo, e
+  revisar trecho a trecho dobraria custo e latência sem o contexto da frase. Ela
+  continua ao revisar antes de inserir e nas notas.
+- P139: o microfone do Início também digita direto, só no app que ele reabre
+  (P130).
+
+### Security
+
+- P139: a digitação sem toque só acontece com destino conhecido, no mesmo app e,
+  depois do primeiro trecho, no mesmo campo. O serviço de acessibilidade conta
+  início e fim de input, e trocar de conversa ou de campo pausa. Qualquer recusa
+  pausa a sessão até o fim, mesmo que o foco volte ao app de origem, e só "Inserir
+  aqui" escreve no app atual. Isso cobre, no modo direto, a conferência por pacote
+  da P85 e o sucesso falso sem campo da P114. Continuam as travas de senha, do
+  próprio FlowVoice e da P113 (toque até 1 s depois da recusa é ignorado).
+
+### Known issues
+
+- Validado no S26 sem fala: arraste, encaixe, posição lembrada depois de reiniciar
+  o app e de girar a tela, toque curto, prévia e cancelamento. A digitação com fala
+  ainda não foi testada.
+- A prévia colada à bolha pode cobrir a linha do cursor quando a bolha fica perto
+  do texto. No S26 isso aconteceu numa nota com a bolha a 23 % da altura. A saída
+  hoje é arrastar a bolha para longe do texto (ver `docs/tasks/P138-P139.md`).
+- Um app que reinicie o input a cada `commitText` pausaria a digitação a cada
+  trecho (`dictation_direct_paused route=trava:campo`). Não foi medido.
+
 ## [0.4.8] - 2026-09-15
 
 ### Changed
