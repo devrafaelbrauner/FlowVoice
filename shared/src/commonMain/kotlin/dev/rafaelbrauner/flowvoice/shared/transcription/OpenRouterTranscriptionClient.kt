@@ -46,6 +46,7 @@ class OpenRouterTranscriptionClient(
         val requestBody = OpenRouterSttRequest(
             model = usedModel,
             language = config.language,
+            temperature = config.temperature,
             inputAudio = OpenRouterInputAudio(
                 data = wav.encodeBase64(),
                 format = "wav"
@@ -139,6 +140,7 @@ class OpenRouterTranscriptionClient(
 internal data class OpenRouterSttRequest(
     val model: String,
     val language: String? = null,
+    val temperature: Double? = null,
     @SerialName("input_audio") val inputAudio: OpenRouterInputAudio
 )
 

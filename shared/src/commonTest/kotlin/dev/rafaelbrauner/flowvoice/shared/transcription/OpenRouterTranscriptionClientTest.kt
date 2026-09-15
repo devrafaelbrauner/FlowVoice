@@ -8,6 +8,7 @@ import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpMethod
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.content.TextContent
 import io.ktor.http.headersOf
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.utils.io.ByteReadChannel
@@ -103,6 +104,23 @@ class OpenRouterTranscriptionClientTest {
         assertEquals("transcription_error", error.event)
         assertEquals("402", error.metadata["status"])
         assertFalse(log.containsSecret())
+    }
+
+    @Test
+    fun sendsTemperatureZeroSoTheResultDoesNotDependOnProviderDefaults() = runTest {
+        val engine = MockEngine {
+            respond(
+                content = ByteReadChannel("""{"text":"ok"}"""),
+                status = HttpStatusCode.OK,
+                headers = jsonHeaders()
+            )
+        }
+        val client = OpenRouterTranscriptionClient(httpClient(engine), OpenRouterConfig())
+
+        client.transcribe(testWindow(), SECRET_KEY)
+
+        val body = (engine.requestHistory.single().body as TextContent).text
+        assertTrue(body.contains("\"temperature\":0.0"), body)
     }
 
     @Test

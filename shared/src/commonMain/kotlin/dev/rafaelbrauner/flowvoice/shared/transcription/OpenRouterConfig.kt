@@ -4,6 +4,7 @@ data class OpenRouterConfig(
     val baseUrl: String = DEFAULT_BASE_URL,
     val model: String = DEFAULT_MODEL,
     val language: String = DEFAULT_LANGUAGE,
+    val temperature: Double = DEFAULT_TEMPERATURE,
     val prompt: String? = null,
     val connectTimeoutMs: Long = DEFAULT_CONNECT_TIMEOUT_MS,
     val requestTimeoutMs: Long = DEFAULT_REQUEST_TIMEOUT_MS,
@@ -15,6 +16,7 @@ data class OpenRouterConfig(
     init {
         require(baseUrl.isNotBlank()) { "baseUrl must not be blank" }
         require(model.isNotBlank()) { "model must not be blank" }
+        require(temperature in 0.0..1.0) { "temperature must be in [0, 1]" }
         require(connectTimeoutMs > 0L) { "connectTimeoutMs must be positive" }
         require(requestTimeoutMs > 0L) { "requestTimeoutMs must be positive" }
         require(maxRetries >= 0) { "maxRetries must be non-negative" }
@@ -34,6 +36,9 @@ data class OpenRouterConfig(
         // Benchmark F05 no S26 (P136, docs/PLAN.md): WER 0 nas rodadas de 13/set e 15/set.
         const val DEFAULT_MODEL = "openai/gpt-transcribe"
         const val DEFAULT_LANGUAGE = "pt"
+        // Nem a OpenRouter nem a OpenAI documentam o padrão de temperature na transcrição; 0 é o
+        // valor mais determinístico e não depende do padrão de cada provedor (P137).
+        const val DEFAULT_TEMPERATURE = 0.0
         const val DEFAULT_CONNECT_TIMEOUT_MS = 10_000L
         const val DEFAULT_REQUEST_TIMEOUT_MS = 30_000L
         const val DEFAULT_MAX_RETRIES = 3
