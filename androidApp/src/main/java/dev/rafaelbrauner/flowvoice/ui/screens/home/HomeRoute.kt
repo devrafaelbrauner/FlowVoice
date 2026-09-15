@@ -84,6 +84,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 
 private const val RECENT_NOTES = 2
 private const val START_TIMEOUT_MS = 4_000L
+private const val LATE_START_GRACE_MS = 10_000L
 private const val NO_DATA = "—"
 
 @Immutable
@@ -205,7 +206,13 @@ private class DictationStarter(
             when (status) {
                 DictationPipelineStatus.Recording -> context.findActivity()?.moveTaskToBack(true)
                 is DictationPipelineStatus.Failed -> context.toast("Não foi possível iniciar o ditado: ${status.message}")
-                null -> context.toast("O microfone não respondeu a tempo.")
+                null -> {
+                    context.toast("O microfone não respondeu a tempo; ditado cancelado.")
+                    val late = withTimeoutOrNull(LATE_START_GRACE_MS) {
+                        pipeline.session.first { it.id > previous.id }
+                    }
+                    if (late != null && cancelAfterStartTimeout(previous, late)) pipeline.cancel()
+                }
                 else -> Unit
             }
         }

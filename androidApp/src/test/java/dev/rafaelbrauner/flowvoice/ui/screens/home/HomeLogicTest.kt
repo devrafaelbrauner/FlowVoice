@@ -5,7 +5,9 @@ import dev.rafaelbrauner.flowvoice.shared.pipeline.DictationPipelineStatus
 import dev.rafaelbrauner.flowvoice.shared.pipeline.DictationTarget
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class HomeLogicTest {
 
@@ -49,6 +51,18 @@ class HomeLogicTest {
             DictationPipelineStatus.Recording,
             startOutcome(previous, DictationPipelineSession(2, DictationTarget.ActiveField, DictationPipelineStatus.Recording))
         )
+    }
+
+    @Test
+    fun sessionStillOpeningAfterTheMicTimeoutIsCancelledSoTheMicrophoneNeverStaysOpenSilently() {
+        val previous = DictationPipelineSession(1, DictationTarget.ActiveField, DictationPipelineStatus.Idle)
+        fun next(status: DictationPipelineStatus, id: Int = 2) = DictationPipelineSession(id, DictationTarget.ActiveField, status)
+
+        assertTrue(cancelAfterStartTimeout(previous, next(DictationPipelineStatus.Starting)))
+        assertTrue(cancelAfterStartTimeout(previous, next(DictationPipelineStatus.Recording)))
+        assertFalse(cancelAfterStartTimeout(previous, previous))
+        assertFalse(cancelAfterStartTimeout(previous, next(DictationPipelineStatus.Failed("microfone indisponível"))))
+        assertFalse(cancelAfterStartTimeout(previous, next(DictationPipelineStatus.Recording, id = 3)))
     }
 
     @Test
