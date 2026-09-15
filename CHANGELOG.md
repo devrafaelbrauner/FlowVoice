@@ -19,10 +19,15 @@ em [`docs/tasks/P138-P139.md`](docs/tasks/P138-P139.md).
   da P127, que continua aberta). Tocar de novo na bolha encerra e digita o último
   trecho. Falha de trecho aparece na hora, e teto e chave recusada encerram como
   antes.
-- P139: prévia ao lado da bolha, nos temas claro e escuro, com cronômetro, estado,
+- P139: prévia junto à bolha, nos temas claro e escuro, com cronômetro, estado,
   **NO CAMPO** (o que já foi escrito), "transcrevendo…", **PENDENTE** e avisos.
   "Cancelar" descarta só o que não foi digitado. O resultado fica por 4 s
-  ("Digitado no campo · N palavras").
+  ("Digitado no campo · N palavras"). O cartão fica numa janela própria, que
+  **abre longe do cursor**: acima ou abaixo da linha do cursor em foco, sem cobri-la
+  nem cobrir o teclado. Com pouco espaço, encolhe; sem espaço, some. A posição do
+  cursor vem só das coordenadas do serviço de acessibilidade, sem ler o texto, e
+  só é consultada com a prévia visível (ao abrir, quando o conteúdo muda e a cada
+  1 s).
 - P139: ajuste **"Revisar antes de inserir"** (desligado por padrão), que mantém o
   fluxo anterior: barra acima do teclado, Inserir e revisão por IA.
 - P138: a bolha pode ser **arrastada** para qualquer ponto da área segura e encosta
@@ -56,9 +61,12 @@ em [`docs/tasks/P138-P139.md`](docs/tasks/P138-P139.md).
 - Validado no S26 sem fala: arraste, encaixe, posição lembrada depois de reiniciar
   o app e de girar a tela, toque curto, prévia e cancelamento. A digitação com fala
   ainda não foi testada.
-- A prévia colada à bolha pode cobrir a linha do cursor quando a bolha fica perto
-  do texto. No S26 isso aconteceu numa nota com a bolha a 23 % da altura. A saída
-  hoje é arrastar a bolha para longe do texto (ver `docs/tasks/P138-P139.md`).
+- A linha do cursor vem de `EXTRA_DATA_TEXT_CHARACTER_LOCATION_KEY`. Se o app não
+  a informa, a prévia evita o campo inteiro. Se o campo é grande (mais de 40 % da
+  faixa útil) e a linha é desconhecida, vale a regra antiga pela metade da tela da
+  bolha, que pode cobrir o cursor (ver `docs/tasks/P138-P139.md`).
+- Sem campo em foco, o cartão aberto pela regra antiga pode ficar sobre a linha
+  que se quer tocar e receber o toque. Focar o campo antes de ditar evita isso.
 - Um app que reinicie o input a cada `commitText` pausaria a digitação a cada
   trecho (`dictation_direct_paused route=trava:campo`). Não foi medido.
 

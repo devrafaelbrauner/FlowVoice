@@ -80,10 +80,13 @@ adb install -r androidApp/build/outputs/apk/debug/androidApp-debug.apk
   (~4 s de fala) é **digitado no campo** assim que é transcrito, em ordem e com
   espaço entre os trechos. Toque na bolha de novo para encerrar: o último trecho
   entra em seguida. Nesse modo não há revisão por IA.
-- **Prévia:** um cartão ao lado da bolha mostra o cronômetro e o estado. Em **NO
-  CAMPO** fica o que já foi escrito, depois vêm "transcrevendo…" e o aviso de
-  trecho com falha (timeout, sem créditos…). "Cancelar" descarta só o que ainda não
-  foi digitado; o que está no campo fica.
+- **Prévia:** um cartão junto à bolha mostra o cronômetro e o estado. Ele abre acima
+  ou abaixo da linha do cursor, **nunca sobre ela** nem sobre o teclado; se o cursor
+  anda, o cartão muda de lado. Com pouco espaço, encolhe e os textos rolam; sem
+  espaço nenhum, some até sobrar lugar. Em **NO CAMPO** fica o que já foi escrito,
+  depois vêm "transcrevendo…" e o aviso de trecho com falha (timeout, sem
+  créditos…). "Cancelar" descarta só o que ainda não foi digitado; o que está no
+  campo fica.
 - **Troca de app ou de campo:** se o foco for para outro app, outra conversa ou uma
   tela sem campo, nada mais é digitado sozinho, **mesmo que você volte**. O resto
   aparece como **PENDENTE**, e "Inserir aqui" o escreve no app em foco e retoma a
