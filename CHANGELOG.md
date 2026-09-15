@@ -38,6 +38,9 @@ cortada na pausa da fala (P140). Desenho e decisões da bolha em
   bolha tem nome, papel de botão e as ações "Mover para cima", "Mover para baixo" e
   "Mover para o outro lado". A posição padrão (direita, 30 % da altura) sai de
   cima da tecla de ação e do microfone das Notas (P27, P123).
+- P138: a bolha é **totalmente redonda**. A sombra e o anel pulsante passavam da
+  folga da janela retangular e eram cortados nas bordas dela, o que formava um halo
+  quadrado. Agora são recortados em círculo, com sombra menor.
 
 ### Changed
 
