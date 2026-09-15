@@ -5,10 +5,19 @@ import android.content.Context
 import android.content.Intent
 import android.util.Log
 import dev.rafaelbrauner.flowvoice.service.FlowVoiceAccessibilityService
+import dev.rafaelbrauner.flowvoice.shared.pipeline.DictationPipeline
+import org.koin.core.context.GlobalContext
 
 class FlowVoiceAdbReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.getStringExtra("fv_poc_debug_source") != "adb") return
+
+        // Fecha o microfone na hora num teste sem fala no aparelho, antes de a primeira janela ir à OpenRouter.
+        if (intent.getStringExtra("fv_poc_action") == "cancel") {
+            GlobalContext.get().get<DictationPipeline>().requestCancel()
+            Log.i(TAG, "[POC_ADB] action=cancel pedido")
+            return
+        }
 
         val service = FlowVoiceAccessibilityService.service
             ?: run {
