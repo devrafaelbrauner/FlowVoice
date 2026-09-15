@@ -603,7 +603,7 @@ private fun SettingsContentPreview(@PreviewParameter(ThemePreviewParameter::clas
                 keyDraftVisible = false,
                 validatingKey = false,
                 keyMessage = null,
-                modelLabel = "gpt-4o-mini-transcribe",
+                modelLabel = "gpt-transcribe",
                 languageLabel = "pt-BR",
                 accessibilityActive = true,
                 overlayRunning = false,

@@ -37,7 +37,7 @@ class OpenRouterTranscriptionClientTest {
         val request = engine.requestHistory.single()
 
         assertEquals("olá mundo", result.text)
-        assertEquals("openai/gpt-4o-mini-transcribe", result.model)
+        assertEquals(OpenRouterConfig.DEFAULT_MODEL, result.model)
         assertEquals(HttpMethod.Post, request.method)
         assertEquals("/api/v1/audio/transcriptions", request.url.encodedPath)
         assertEquals("Bearer $SECRET_KEY", request.headers[HttpHeaders.Authorization])
