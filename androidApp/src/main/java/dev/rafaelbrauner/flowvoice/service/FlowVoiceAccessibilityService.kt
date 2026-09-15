@@ -6,6 +6,7 @@ import android.accessibilityservice.InputMethod
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Rect
+import android.graphics.RectF
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
@@ -14,6 +15,7 @@ import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
 import android.view.inputmethod.EditorInfo
 import androidx.annotation.RequiresApi
+import androidx.core.os.BundleCompat
 import dev.rafaelbrauner.flowvoice.shared.insertion.CursorInsertion
 import dev.rafaelbrauner.flowvoice.shared.insertion.FocusedFieldDiagnostic
 import dev.rafaelbrauner.flowvoice.shared.insertion.FocusedPackage
@@ -111,6 +113,47 @@ class FlowVoiceAccessibilityService : AccessibilityService() {
         val bounds = Rect()
         keyboard.getBoundsInScreen(bounds)
         return bounds.top.takeIf { bounds.height() > 0 }
+    }
+
+    // Só coordenadas, na tela: faixa vertical do campo em foco e da linha do cursor, para a prévia não cobrir o que
+    // se digita (P139). O texto do campo nunca é lido.
+    data class FocusGeometry(val field: IntRange?, val caret: IntRange?)
+
+    fun focusGeometry(): FocusGeometry? {
+        freshAccessibilityData()
+        val root = runCatching { rootInActiveWindow }.getOrNull() ?: return null
+        val node = runCatching { root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT) }.getOrNull()
+        return try {
+            node?.let {
+                val bounds = Rect()
+                it.getBoundsInScreen(bounds)
+                FocusGeometry(field = (bounds.top..bounds.bottom).takeIf { bounds.height() > 0 }, caret = caretLine(it))
+            }
+        } catch (error: RuntimeException) {
+            null
+        } finally {
+            node?.let(::releaseNode)
+            releaseNode(root)
+        }
+    }
+
+    // Retângulo do caractere antes do cursor (EXTRA_DATA_TEXT_CHARACTER_LOCATION_KEY). Sem suporte, sem caractere
+    // antes ou sem resposta, nulo: vale o campo inteiro.
+    private fun caretLine(node: AccessibilityNodeInfo): IntRange? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return null
+        val key = AccessibilityNodeInfo.EXTRA_DATA_TEXT_CHARACTER_LOCATION_KEY
+        if (key !in node.availableExtraData) return null
+        val end = node.textSelectionEnd
+        if (end <= 0) return null
+        val args = Bundle().apply {
+            putInt(AccessibilityNodeInfo.EXTRA_DATA_TEXT_CHARACTER_LOCATION_ARG_START_INDEX, end - 1)
+            putInt(AccessibilityNodeInfo.EXTRA_DATA_TEXT_CHARACTER_LOCATION_ARG_LENGTH, 1)
+        }
+        if (!node.refreshWithExtraData(key, args)) return null
+        val rect = BundleCompat.getParcelableArray(node.extras, key, RectF::class.java)
+            ?.firstOrNull() as? RectF
+            ?: return null
+        return rect.top.toInt()..rect.bottom.toInt()
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
