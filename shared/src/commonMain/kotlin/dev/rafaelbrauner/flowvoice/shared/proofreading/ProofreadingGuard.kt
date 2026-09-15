@@ -1,45 +1,61 @@
 package dev.rafaelbrauner.flowvoice.shared.proofreading
 
-import kotlin.math.max
+import kotlin.math.abs
 import kotlin.math.min
 
-// A revisão só pode mexer em pontuação, maiúsculas, acentos e ortografia (P132). Comparando o
-// esqueleto dos dois textos (só letras e dígitos, minúsculos e sem acento), uma correção
-// ortográfica custa uma ou duas edições; uma palavra trocada, uma resposta ou uma reescrita custam
-// mais que o limite e a revisão é descartada. Aspas que o ditado não tinha também descartam.
+// A revisão só pode mexer em pontuação, maiúsculas, acentos e ortografia (P132). A comparação é
+// por palavras, em minúsculas e sem acento: a quantidade de palavras não muda, números e palavras
+// curtas ficam idênticos, e só palavras de 5 letras ou mais podem mudar, com até 2 edições. Assim
+// uma dose trocada, um "não" removido, "direito" por "esquerdo" ou uma resposta descartam a revisão
+// em qualquer tamanho de texto. Aspas, dois-pontos, quebras de linha e marcas <ditado> que o ditado
+// não tinha também descartam.
 object ProofreadingGuard {
-    private const val MIN_EDIT_BUDGET = 2
-    private const val CHARS_PER_EXTRA_EDIT = 20
-    private val QUOTES = setOf('"', '“', '”', '„', '«', '»')
+    private const val MIN_EDITABLE_WORD = 5
+    private const val MAX_WORD_EDITS = 2
+    private val NEW_SIGNALS = setOf('"', '“', '”', '„', '«', '»', '‘', '’', '\'', ':', '\n')
 
     fun accepts(original: String, revised: String): Boolean {
-        if (revised.any { it in QUOTES } && original.none { it in QUOTES }) return false
-        val source = skeleton(original)
-        val target = skeleton(revised)
-        val budget = max(MIN_EDIT_BUDGET, source.length / CHARS_PER_EXTRA_EDIT)
-        return editDistanceWithin(source, target, budget)
+        if (revised.contains("<ditado", ignoreCase = true) || revised.contains("</ditado", ignoreCase = true)) return false
+        if (NEW_SIGNALS.any { it in revised && it !in original }) return false
+        val source = words(original)
+        val target = words(revised)
+        if (source.size != target.size) return false
+        return source.indices.all { wordAccepted(source[it], target[it]) }
     }
 
-    private fun skeleton(text: String): String = buildString {
+    private fun wordAccepted(original: String, revised: String): Boolean = when {
+        original == revised -> true
+        original.any { it.isDigit() } || revised.any { it.isDigit() } -> false
+        min(original.length, revised.length) < MIN_EDITABLE_WORD -> false
+        else -> editDistanceWithin(original, revised, MAX_WORD_EDITS)
+    }
+
+    private fun words(text: String): List<String> {
+        val words = mutableListOf<String>()
+        val current = StringBuilder()
         text.lowercase().forEach { char ->
             val plain = ACCENTS[char] ?: char
-            if (plain.isLetterOrDigit()) append(plain)
+            if (plain.isLetterOrDigit()) {
+                current.append(plain)
+            } else if (current.isNotEmpty()) {
+                words += current.toString()
+                current.clear()
+            }
         }
+        if (current.isNotEmpty()) words += current.toString()
+        return words
     }
 
     private fun editDistanceWithin(a: String, b: String, budget: Int): Boolean {
-        if (kotlin.math.abs(a.length - b.length) > budget) return false
+        if (abs(a.length - b.length) > budget) return false
         var previous = IntArray(b.length + 1) { it }
         var current = IntArray(b.length + 1)
         for (i in 1..a.length) {
             current[0] = i
-            var rowMin = current[0]
             for (j in 1..b.length) {
                 val substitution = previous[j - 1] + if (a[i - 1] == b[j - 1]) 0 else 1
                 current[j] = min(substitution, min(previous[j] + 1, current[j - 1] + 1))
-                rowMin = min(rowMin, current[j])
             }
-            if (rowMin > budget) return false
             val swap = previous
             previous = current
             current = swap
