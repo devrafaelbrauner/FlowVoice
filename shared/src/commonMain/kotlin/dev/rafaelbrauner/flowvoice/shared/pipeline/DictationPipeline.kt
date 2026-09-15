@@ -10,6 +10,7 @@ import dev.rafaelbrauner.flowvoice.shared.prefs.PreferencesStore
 import dev.rafaelbrauner.flowvoice.shared.preview.LivePreview
 import dev.rafaelbrauner.flowvoice.shared.preview.LivePreviewAssembler
 import dev.rafaelbrauner.flowvoice.shared.proofreading.ProofreadingClient
+import dev.rafaelbrauner.flowvoice.shared.proofreading.ProofreadingGuard
 import dev.rafaelbrauner.flowvoice.shared.transcription.IncrementalTranscriptionController
 import dev.rafaelbrauner.flowvoice.shared.transcription.OpenRouterConfig
 import dev.rafaelbrauner.flowvoice.shared.transcription.SecretStore
@@ -377,8 +378,16 @@ class DictationPipeline(
         return try {
             val proofread = proofreading.proofread(revised, apiKey, prefs.proofreadingModel)
             if (logTranscriptText) log("proofreading_text", mapOf("input" to revised, "output" to proofread))
-            dictionary.apply(proofread).also {
-                log("proofreading_applied", mapOf("inputChars" to revised.length.toString(), "chars" to it.length.toString()))
+            if (!ProofreadingGuard.accepts(revised, proofread)) {
+                log(
+                    "proofreading_rejected",
+                    mapOf("inputChars" to revised.length.toString(), "outputChars" to proofread.length.toString())
+                )
+                revised
+            } else {
+                dictionary.apply(proofread).also {
+                    log("proofreading_applied", mapOf("inputChars" to revised.length.toString(), "chars" to it.length.toString()))
+                }
             }
         } catch (error: CancellationException) {
             throw error

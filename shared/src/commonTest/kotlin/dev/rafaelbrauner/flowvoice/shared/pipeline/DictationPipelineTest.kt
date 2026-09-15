@@ -182,6 +182,24 @@ class DictationPipelineTest {
     }
 
     @Test
+    fun proofreadingThatRewritesTheDictationIsDiscardedAndTheTranscriptIsKept() = runTest {
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = listOf(frame(50L)),
+            texts = mapOf(0 to "primeiro ditado pelo início"),
+            preferences = AppPreferences(proofreadingEnabled = true),
+            proofreadingOutput = { "Primeiro ditado: \"Pelo início.\"" }
+        )
+
+        env.pipeline.start()
+        val completed = assertIs<DictationPipelineStatus.Completed>(env.pipeline.reviewAndInsert())
+
+        assertEquals("primeiro ditado pelo início", completed.text)
+        assertTrue(env.log.events.any { it.event == "proofreading_rejected" })
+        assertTrue(env.log.events.none { it.event == "proofreading_applied" })
+    }
+
+    @Test
     fun keyReadAtStartServesTheWholeSessionSoAVaultHiccupDoesNotStopIt() = runTest {
         val vault = OnceReadableSecretStore("sk-or-v1-testkey123456")
         val env = PipelineEnv(
@@ -1078,13 +1096,14 @@ private class PipelineEnv(
     config: OpenRouterConfig = OpenRouterConfig(),
     timeSource: TimeSource = TimeSource.Monotonic,
     logTranscriptText: Boolean = false,
-    secretStore: SecretStore? = null
+    secretStore: SecretStore? = null,
+    proofreadingOutput: ((String) -> String)? = null
 ) {
     val log = RecordingLog()
     val engine = ScriptedAudioCaptureEngine(frames, startError)
     val dictionary = InMemoryPersonalDictionary()
     val inserter = RecordingInserter(inserterSucceeds)
-    val proofreader = FakeProofreader(proofreadingFails)
+    val proofreader = FakeProofreader(proofreadingFails, proofreadingOutput)
     val client = ScriptedTranscriptionClient(texts, transcriptionDelayMs, failures)
     val secrets = secretStore ?: InMemorySecretStore().apply { apiKey?.let { writeOpenRouterKey(it) } }
     val pipeline = DictationPipeline(
@@ -1189,13 +1208,16 @@ private class OnceReadableSecretStore(private val key: String) : SecretStore {
     override fun clearOpenRouterKey() = Unit
 }
 
-private class FakeProofreader(private val fails: Boolean) : ProofreadingClient {
+private class FakeProofreader(
+    private val fails: Boolean,
+    private val output: ((String) -> String)? = null
+) : ProofreadingClient {
     val received = mutableListOf<String>()
 
     override suspend fun proofread(text: String, apiKey: String, model: String): String {
         received += text
         if (fails) error("indisponível")
-        return text.replaceFirstChar { it.uppercase() } + "."
+        return output?.invoke(text) ?: (text.replaceFirstChar { it.uppercase() } + ".")
     }
 }
 
