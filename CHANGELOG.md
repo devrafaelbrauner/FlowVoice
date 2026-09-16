@@ -39,6 +39,18 @@ estão em [`docs/tasks/`](docs/tasks/README.md).
   a revisão vier igual ao ditado mas o campo não for o que foi ditado, o texto
   ditado é reposto (`dictation_field_restored`), com a mesma comparação por letras
   da P148.
+- P155: **a emenda reconhece a repetição quando a primeira palavra saiu
+  diferente.** Num ditado de dois minutos, 3 de 30 emendas entraram dobradas —
+  "do STF, No STF", "afirmações contundentes, informações contundentes",
+  "julgada. Em julgado." — porque o segundo de contexto começa num ponto qualquer
+  da fala e o modelo completa a primeira palavra cortada com outra. Agora essa
+  primeira palavra pode divergir de três formas explicáveis (palavra curta
+  trocada, final comum longo, palavra curta acrescida), desde que tudo depois dela
+  case exato. Negação nunca é tolerada, e "a dose de dipirona" + "Nova dose de
+  dipirona" continua inteiro. De quebra, dois defeitos antigos: "muito, muito
+  cansado" perdia a repetição, e "já tomou remédio" + "Não tomou remédio" podia
+  sumir inteiro. Limitação aceita: "o SAMU." + "No SAMU ninguém atendeu." perde o
+  "No SAMU", porque tem a mesma forma do caso real.
 - P154: **uma leitura vazia do microfone não mata mais o ditado.** O erro
   `audio capture read failed: code=0`, visto três vezes no S26, era **barulho de
   desligamento** — o `stop()` destravando a leitura pendente quando o usuário
