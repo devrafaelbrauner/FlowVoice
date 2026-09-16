@@ -51,6 +51,12 @@ estão em [`docs/tasks/`](docs/tasks/README.md).
   cansado" perdia a repetição, e "já tomou remédio" + "Não tomou remédio" podia
   sumir inteiro. Limitação aceita: "o SAMU." + "No SAMU ninguém atendeu." perde o
   "No SAMU", porque tem a mesma forma do caso real.
+- P155: **o começo cortado de uma palavra longa também é reconhecido quando o que
+  vem depois prova a repetição.** "indicações dos ministros" dobrou duas vezes no
+  S26, como "Ações dos ministros" e "Declarações dos ministros". Com duas palavras
+  exatas depois, uma delas longa, um final comum de 5 letras passa a bastar, desde
+  que o começo escrito pelo modelo não seja maior que o começo perdido. "Tratamento
+  da pressão arterial" depois de "aumento da pressão arterial" continua inteiro.
 - P154: **uma leitura vazia do microfone não mata mais o ditado.** O erro
   `audio capture read failed: code=0`, visto três vezes no S26, era **barulho de
   desligamento** — o `stop()` destravando a leitura pendente quando o usuário
