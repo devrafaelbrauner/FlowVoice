@@ -173,6 +173,161 @@ class TranscriptOverlapTest {
         assertEquals("chovia, tá muito frio", match.text)
     }
 
+    // P155, medido no S26 (2026-09-16 15:28, ditado de ~2 min, 30 janelas, `contextMs=1000`): três
+    // emendas entraram dobradas porque a PRIMEIRA palavra do trecho novo é justamente a que o modelo
+    // escreveu diferente — o contexto de 1 s começa num ponto qualquer da fala e corta o começo dessa
+    // palavra. As palavras seguintes casam exatas.
+
+    // Palavra curta trocada: "do STF" voltou "No STF".
+    @Test
+    fun aShortWordSwappedAtTheStartOfTheContextIsStillARepetition() {
+        val match = TranscriptOverlap.match(
+            "Desde o início da crise do STF,",
+            "No STF, no começo deste mês, Lula evitava fazer afirmações contundentes.",
+            contextDurationMs = 1000
+        )
+
+        assertEquals("no começo deste mês, Lula evitava fazer afirmações contundentes.", match.text)
+        assertFalse(match.glued)
+    }
+
+    // Palavra com o começo cortado: "afirmações" voltou "informações" — o fim ("rmações") foi ouvido.
+    @Test
+    fun aWordWhoseBeginningWasClippedByTheContextIsStillARepetition() {
+        val match = TranscriptOverlap.match(
+            "Lula evitava fazer afirmações contundentes.",
+            "informações contundentes sobre o caso.",
+            contextDurationMs = 1000
+        )
+
+        assertEquals("sobre o caso.", match.text)
+        assertFalse(match.glued)
+    }
+
+    // Palavra curta acrescida, com flexão na última vogal: "julgada" voltou "Em julgado".
+    @Test
+    fun aShortWordAddedBeforeAnInflectedRepetitionIsStillARepetition() {
+        val match = TranscriptOverlap.match(
+            "seja defendida e julgada.",
+            "Em julgado. Essa é a primeira vez que Lula fala nominalmente dos ministros.",
+            contextDurationMs = 1000
+        )
+
+        assertEquals("Essa é a primeira vez que Lula fala nominalmente dos ministros.", match.text)
+        assertFalse(match.glued)
+    }
+
+    // No mesmo ditado a emenda exata funcionou e tem de continuar funcionando.
+    @Test
+    fun theExactRepetitionMeasuredInTheSameDictationIsStillRemoved() {
+        val match = TranscriptOverlap.match(
+            "investigação contra Moraes.",
+            "Contra Moraes. Um pedido de visita do ministro Flávio Dino.",
+            contextDurationMs = 1000
+        )
+
+        assertEquals("Um pedido de visita do ministro Flávio Dino.", match.text)
+    }
+
+    // Contraprova P155 (não remover): "Nova" não se explica como erro de "a" — não é palavra curta e
+    // não divide final nenhum com ela. As três palavras seguintes casam exatas e cabem no contexto, e
+    // mesmo assim a frase fica inteira: quem decide é a primeira palavra.
+    @Test
+    fun aFirstWordThatCannotBeExplainedAsAClippedRepetitionKeepsTheWholeWindow() {
+        val match = TranscriptOverlap.match(
+            "tomou a dose de dipirona.",
+            "Nova dose de dipirona às 18h.",
+            contextDurationMs = 1000
+        )
+
+        assertEquals("Nova dose de dipirona às 18h.", match.text)
+    }
+
+    // Contraprova P155 — LIMITAÇÃO ACEITA, não distinção. "o SAMU" + "No SAMU ninguém atendeu." tem a
+    // mesma forma do caso medido ("do STF" + "No STF, no começo"): palavra curta com o começo trocado e
+    // a palavra seguinte idêntica. Pelo texto não há como saber se o usuário repetiu "no SAMU" ou se
+    // o modelo transcreveu o contexto de novo, e a regra remove. O que se perde é só a palavra curta —
+    // "SAMU" já está no campo, logo antes. Este teste existe para que a limitação não mude calada.
+    @Test
+    fun knownLimitationAShortWordPlusARepeatedNameSaidOnPurposeIsRemoved() {
+        val match = TranscriptOverlap.match(
+            "ligar para o SAMU.",
+            "No SAMU ninguém atendeu.",
+            contextDurationMs = 1000
+        )
+
+        assertEquals("ninguém atendeu.", match.text)
+    }
+
+    // A tolerância nova também exige contexto: sem ele os três casos medidos entram inteiros.
+    @Test
+    fun withoutContextTheClippedOnsetRuleNeverRemovesAnything() {
+        assertEquals(
+            "No STF, no começo deste mês.",
+            TranscriptOverlap.match("a crise do STF,", "No STF, no começo deste mês.").text
+        )
+        assertEquals(
+            "informações contundentes sobre o caso.",
+            TranscriptOverlap.match("afirmações contundentes.", "informações contundentes sobre o caso.").text
+        )
+        assertEquals(
+            "Em julgado. Essa é a primeira vez.",
+            TranscriptOverlap.match("defendida e julgada.", "Em julgado. Essa é a primeira vez.").text
+        )
+    }
+
+    // Nunca além do que o contexto comporta: com 200 ms (6 caracteres) "No STF," (7) não cabe.
+    @Test
+    fun theClippedOnsetRuleNeverRemovesMoreThanTheContextCouldHold() {
+        val match = TranscriptOverlap.match("a crise do STF,", "No STF, no começo.", contextDurationMs = 200)
+
+        assertEquals("No STF, no começo.", match.text)
+    }
+
+    // A palavra curta trocada precisa de uma palavra de conteúdo (3+ letras) casando depois dela:
+    // "do a" contra "no a" é coincidência entre palavras gramaticais, não repetição.
+    @Test
+    fun aSwappedShortWordFollowedOnlyByShortWordsIsNotEvidence() {
+        val match = TranscriptOverlap.match("veio do a", "No a mesma coisa.", contextDurationMs = 1000)
+
+        assertEquals("No a mesma coisa.", match.text)
+    }
+
+    // O final comum tem de ser maior que um sufixo de derivação: "rapidamente"/"lentamente" dividem
+    // só "amente", e são palavras diferentes.
+    @Test
+    fun wordsSharingOnlyADerivationalSuffixAreNotTheSameWord() {
+        val match = TranscriptOverlap.match(
+            "respondeu rapidamente depois.",
+            "lentamente depois disso.",
+            contextDurationMs = 1000
+        )
+
+        assertEquals("lentamente depois disso.", match.text)
+    }
+
+    // Final comum longo sozinho não basta: sem palavra casando depois dele, a troca de começo pode ser
+    // o que o usuário quis dizer. É o caso medido sem o "contundentes" que o sustentava.
+    @Test
+    fun aSharedLongEndingWithoutAFollowingMatchIsNotEvidence() {
+        val match = TranscriptOverlap.match(
+            "Lula evitava fazer afirmações.",
+            "informações sobre o caso.",
+            contextDurationMs = 1000
+        )
+
+        assertEquals("informações sobre o caso.", match.text)
+    }
+
+    // Flexão com palavra curta acrescida só vale em palavra de 7+ letras: as flexões mais frequentes
+    // da fala são curtas ("bonito", "outra", "nova"), e ali a repetição com artigo é fala real.
+    @Test
+    fun aShortInflectedRepetitionWithAnAddedArticleIsSpeech() {
+        val match = TranscriptOverlap.match("a casa ficou bonita.", "O bonito é que ninguém viu.", contextDurationMs = 1000)
+
+        assertEquals("O bonito é que ninguém viu.", match.text)
+    }
+
     // Um trecho só de pontuação casaria com qualquer outro, então não conta como repetição: o traço
     // repetido sobra, o que é preferível a apagar palavra de verdade por causa de um travessão.
     @Test
