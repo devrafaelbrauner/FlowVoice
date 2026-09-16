@@ -68,6 +68,24 @@ cortada na pausa da fala (P140). Desenho e decisões da bolha em
   sessão com o `gpt-transcribe` é de ~US$ 0,03.
 - P140: `dictation_window` no log traz `cut` (`pause`, `leading`, `ceiling`,
   `flush`) e `noiseFloor`.
+- P143: cada janela é transcrita **com o último 1 s da janela anterior** à
+  frente. Antes, cada janela ia sozinha, e quanto menor a janela, menos contexto
+  o modelo tinha: no S26 (`gpt-transcribe`) "diarreia" partida entre janelas saiu
+  como "arreio" e um nome próprio virou "Grandmont". A API de transcrição da
+  OpenRouter não aceita `prompt`, então o contexto só pode ser dado em áudio. O
+  contexto não entra na linha do tempo nem na contagem de bytes, e uma janela
+  muda continua sendo pulada sem custo (P124).
+- P143: a palavra repetida na emenda passa a ser reconhecida mesmo quando o
+  modelo a escreve com outro caixa, outra pontuação ou outro acento, e a palavra
+  partida no corte é fechada sem espaço ("…de di" + "de diarreia" → "diarreia").
+  Palavra que o usuário repetiu de propósito sobrevive quando o contexto a
+  ancora.
+- P143: a janela mínima passou de 1,2 s para 2 s e a pausa mínima de 300 ms para
+  450 ms, para uma hesitação no meio da frase não partir a frase. Custa ~150 ms a
+  mais depois de cada frase e até ~800 ms na primeira janela de uma frase curta.
+- P143: o áudio enviado por minuto de ditado sobe ~40 % (~US$ 0,0018 por
+  minuto); o teto de 90 pedidos por sessão não mudou e agora cobre ~3,7 min de
+  fala. `transcription_request` ganhou `contextMs`.
 
 ### Security
 
