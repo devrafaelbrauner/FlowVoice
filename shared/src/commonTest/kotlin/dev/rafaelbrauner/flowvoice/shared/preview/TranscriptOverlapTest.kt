@@ -392,6 +392,108 @@ class TranscriptOverlapTest {
         assertFalse(match.glued)
     }
 
+    // Sem contexto e além do que o contexto comporta, a forma nova também não remove nada: com 800 ms
+    // (24 caracteres) "Declarações dos ministros" (25) não cabe.
+    @Test
+    fun theShortSharedEndingRuleNeedsContextAndRoomInIt() {
+        assertEquals(
+            "Ações dos ministros Alexandre de Moraes.",
+            TranscriptOverlap.match("pelas indicações dos ministros.", "Ações dos ministros Alexandre de Moraes.").text
+        )
+        assertEquals(
+            "Declarações dos ministros Alexandre de Moraes.",
+            TranscriptOverlap.match(
+                "pelas indicações dos ministros.",
+                "Declarações dos ministros Alexandre de Moraes.",
+                contextDurationMs = 800
+            ).text
+        )
+    }
+
+    // Contraprova P155 (não remover): "melhora"/"piora" dividem só "ora". É contraste clínico, e nenhuma
+    // evidência depois compensa um final de 3 letras.
+    @Test
+    fun anOppositeClinicalWordWithAShortSharedEndingKeepsTheWholeWindow() {
+        val match = TranscriptOverlap.match(
+            "a paciente relatou melhora dos sintomas.",
+            "Piora dos sintomas à noite.",
+            contextDurationMs = 1000
+        )
+
+        assertEquals("Piora dos sintomas à noite.", match.text)
+    }
+
+    // Contraprova P155 (não remover): final comum de 5 letras ("ducao") com evidência fraca depois —
+    // "das doses" não tem palavra de 8+ letras. É o caso de "redução"/"indução" sem o degrau 4 no
+    // caminho ("condução" fica a 3 edições de "redução"), então isola a trava de evidência do degrau 5.
+    @Test
+    fun aFiveLetterSharedEndingWithWeakEvidenceAfterItKeepsTheWholeWindow() {
+        val match = TranscriptOverlap.match(
+            "houve redução das doses.",
+            "Condução das doses foi mantida.",
+            contextDurationMs = 1000
+        )
+
+        assertEquals("Condução das doses foi mantida.", match.text)
+    }
+
+    // Contraprova P155 (não remover): evidência forte depois ("da pressão arterial") e final comum de 5
+    // letras ("mento"), mas "Tratamento" escreve 5 letras de começo onde "aumento" perdeu 2. O modelo
+    // completa o som que perdeu; uma palavra bem maior que a dita é outra palavra dita inteira.
+    @Test
+    fun aMuchLongerWordSharingOnlyASuffixIsNotAClippedRepetition() {
+        val match = TranscriptOverlap.match(
+            "paciente com aumento da pressão arterial.",
+            "Tratamento da pressão arterial com losartana.",
+            contextDurationMs = 1000
+        )
+
+        assertEquals("Tratamento da pressão arterial com losartana.", match.text)
+    }
+
+    // Contraprova P155 — FORA DE ALCANCE, não pega. "de Moraes" + "Pedro Moraes, ...": a primeira
+    // palavra não divide final nenhum com "de" e depois dela só "Moraes" repete. É a forma da
+    // contraprova da dipirona com menos evidência ainda; pegar isso apagaria fala real.
+    @Test
+    fun aFirstWordWithNoSharedEndingAndASingleRepeatedNameKeepsTheWholeWindow() {
+        val match = TranscriptOverlap.match(
+            "o ministro Alexandre de Moraes.",
+            "Pedro Moraes, Cássio e outros.",
+            contextDurationMs = 1000
+        )
+
+        assertEquals("Pedro Moraes, Cássio e outros.", match.text)
+    }
+
+    // LIMITAÇÃO CONHECIDA (P156), anterior à P155 e não piorada por ela: "exportações"/"importações"
+    // ficam a 2 edições com o mesmo esqueleto, e o degrau 4 (P150) já as toma pela mesma palavra longa —
+    // o contraste some. Este teste existe para que a correção da P156 o inverta de propósito.
+    @Test
+    fun knownLimitationAPrefixContrastBetweenLongWordsIsRemovedByTheApproximateRule() {
+        val match = TranscriptOverlap.match(
+            "aumentaram as exportações do Brasil.",
+            "Importações do Brasil caíram.",
+            contextDurationMs = 1000
+        )
+
+        assertEquals("caíram.", match.text)
+    }
+
+    // LIMITAÇÃO CONHECIDA (família da P156), anterior à P155 e não piorada por ela: "redução"/"indução"
+    // ficam a 2 edições, e o degrau 4 (P150) aceita a primeira como palavra frouxa porque "das doses"
+    // casa idêntico dos dois lados — o contraste some antes de o degrau 5 ser consultado. A trava do
+    // degrau 5 para este final ("ducao", evidência fraca) está provada no caso de "Condução" acima.
+    @Test
+    fun knownLimitationAPrefixContrastBetweenMidLengthWordsIsRemovedAsALooseWord() {
+        val match = TranscriptOverlap.match(
+            "houve redução das doses.",
+            "Indução das doses foi mantida.",
+            contextDurationMs = 1000
+        )
+
+        assertEquals("foi mantida.", match.text)
+    }
+
     // Um trecho só de pontuação casaria com qualquer outro, então não conta como repetição: o traço
     // repetido sobra, o que é preferível a apagar palavra de verdade por causa de um travessão.
     @Test
