@@ -23,6 +23,14 @@ class DictationWindowSpeechTest {
 
     private fun speech(ms: Long) = voicedPcm(bytes(ms))
 
+    // Tom de nível constante: o nível de bloco do endpointer é a média do valor absoluto das
+    // amostras de 16 bits, então uma amostra fixa vira exatamente esse nível.
+    private fun tone(ms: Long, level: Int): ByteArray {
+        val low = (level and 0xFF).toByte()
+        val high = (level shr 8).toByte()
+        return ByteArray(bytes(ms)) { if (it % 2 == 0) low else high }
+    }
+
     private fun aggregator() = DictationWindowAggregator(
         pauseSearchBeforeMs = DictationWindowAggregator.SPEECH_PAUSE_SEARCH_BEFORE_MS,
         pauseSearchAfterMs = DictationWindowAggregator.SPEECH_PAUSE_SEARCH_AFTER_MS,
@@ -51,7 +59,11 @@ class DictationWindowSpeechTest {
         assertEquals(0L, leading.voicedMs, "a janela `leading` não tem fala própria")
         assertFalse(leading.hasOwnSpeech)
         assertEquals(0, leading.contextPcm.size, "janela sem fala não precisa levar contexto")
-        assertTrue(leading.onlyContext, "tem de ser pulada sem requisição")
+        assertEquals(
+            WindowSpeechGate.REASON_ONLY_CONTEXT,
+            WindowSpeechGate.skipReason(leading),
+            "tem de ser pulada sem requisição"
+        )
     }
 
     @Test
@@ -63,7 +75,7 @@ class DictationWindowSpeechTest {
         windows.forEach {
             assertNotNull(it.voicedMs)
             assertTrue(it.voicedMs!! > 0L, "janela ${it.index} com voicedMs ${it.voicedMs}")
-            assertFalse(it.onlyContext, "janela ${it.index} com fala não pode ser pulada")
+            assertNull(WindowSpeechGate.skipReason(it), "janela ${it.index} com fala não pode ser pulada")
         }
         val second = windows.first { it.index > 0 }
         assertTrue(second.contextPcm.isNotEmpty(), "janela com fala continua levando o contexto da P143")
@@ -81,7 +93,11 @@ class DictationWindowSpeechTest {
         assertNotNull(tail)
         assertEquals(WindowCut.Flush, tail.cut)
         assertEquals(0L, tail.voicedMs)
-        assertTrue(tail.onlyContext, "o flush só de silêncio tem de ser pulado")
+        assertEquals(
+            WindowSpeechGate.REASON_ONLY_CONTEXT,
+            WindowSpeechGate.skipReason(tail),
+            "o flush só de silêncio tem de ser pulado"
+        )
         assertEquals(0, tail.contextPcm.size)
     }
 
@@ -95,7 +111,7 @@ class DictationWindowSpeechTest {
         assertNotNull(tail)
         assertEquals(WindowCut.Flush, tail.cut)
         assertTrue(tail.voicedMs!! > 0L, "o flush com a última palavra não pode ser pulado")
-        assertFalse(tail.onlyContext)
+        assertNull(WindowSpeechGate.skipReason(tail))
     }
 
     // Sem endpointing não há piso de ruído nem limiar de fala: `voicedMs` fica desconhecido e nada é
@@ -108,11 +124,49 @@ class DictationWindowSpeechTest {
 
         assertNull(window.voicedMs)
         assertTrue(window.hasOwnSpeech, "desconhecido conta como tendo fala")
-        assertFalse(window.onlyContext)
+        assertNull(WindowSpeechGate.skipReason(window))
+    }
+
+    // P151: de onde vinham as janelas 6, 7 e 8 do S26 (2026-09-16 10:42), enviadas com
+    // `durationMs=3180/3680/4180` e devolvidas com `chars=0`. Ruído de sala parado, sem contraste no
+    // histórico: nenhum bloco fica abaixo do nível de pausa, então não há pausa nem corte `leading`,
+    // e a janela sai no teto — o corte que a P144 mandava enviar sempre.
+    @Test
+    fun steadyRoomNoiseBecomesACeilingWindowWithoutAnyMeasuredSpeech() {
+        val window = feed(aggregator(), tone(4_400L, ROOM_NOISE_LEVEL)).single()
+
+        assertEquals(WindowCut.Ceiling, window.cut)
+        assertEquals(3_160L, window.durationMs, "a janela de silêncio medida no aparelho tinha 3180 ms")
+        assertEquals(0L, window.voicedMs, "ruído parado não é fala")
+        assertEquals(
+            WindowSpeechGate.REASON_NOT_ENOUGH_SPEECH,
+            WindowSpeechGate.skipReason(window),
+            "não pode custar requisição"
+        )
+    }
+
+    // A trava da P151 não pode engolir voz baixa: 400 ms de fala fraca (nível 300, contra ruído 200)
+    // no meio do mesmo ruído da janela acima continuam sendo enviados, no mesmo corte de teto.
+    @Test
+    fun aShortQuietUtteranceInsideTheSameNoiseIsStillSent() {
+        val pcm = tone(1_500L, ROOM_NOISE_LEVEL) +
+            tone(400L, QUIET_SPEECH_LEVEL) +
+            tone(2_500L, ROOM_NOISE_LEVEL)
+
+        val window = feed(aggregator(), pcm).single()
+
+        assertEquals(WindowCut.Ceiling, window.cut)
+        assertEquals(400L, window.voicedMs, "os 400 ms de voz baixa têm de ser medidos")
+        assertNull(WindowSpeechGate.skipReason(window), "voz baixa continua indo à transcrição")
     }
 
     private companion object {
         const val BYTES_PER_MS = 32L
         const val FRAME_100_MS_BYTES = 3_200
+
+        // Níveis da zona morta do endpointer no aparelho: acima do nível de pausa e abaixo do de
+        // fala. O ruído fica aí parado; a voz baixa passa do limiar de fala (250 sem contraste).
+        const val ROOM_NOISE_LEVEL = 200
+        const val QUIET_SPEECH_LEVEL = 300
     }
 }
