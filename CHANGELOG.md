@@ -39,6 +39,19 @@ estão em [`docs/tasks/`](docs/tasks/README.md).
   a revisão vier igual ao ditado mas o campo não for o que foi ditado, o texto
   ditado é reposto (`dictation_field_restored`), com a mesma comparação por letras
   da P148.
+- P154: **uma leitura vazia do microfone não mata mais o ditado.** O erro
+  `audio capture read failed: code=0`, visto três vezes no S26, era **barulho de
+  desligamento** — o `stop()` destravando a leitura pendente quando o usuário
+  encerrava —, e não a causa de queda nenhuma: a ordem das linhas prova, porque o
+  caminho de falha teria limpado o áudio acumulado e escrito `dictation_failed`,
+  que não aparece em nenhum dos registros. Mas o caminho "uma leitura zero =
+  sessão morta" existia de verdade, dependendo de quem vencesse a corrida. Agora
+  leitura vazia é tolerada por 300 ms e, persistindo, o gravador é reaberto uma
+  vez antes de desistir; objeto morto vai direto para a reabertura, e parâmetro
+  inválido desiste na hora. Corrigida também uma corrida em que a thread de uma
+  captura anterior podia sobreviver e entregar áudio por cima do ditado novo. O
+  log passou a trazer o estado do gravador, as leituras vazias e as reaberturas —
+  números, nunca áudio nem texto.
 
 ## [0.5.0] - 2026-09-15
 
