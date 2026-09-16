@@ -3,6 +3,7 @@ package dev.rafaelbrauner.flowvoice.shared.di
 import dev.rafaelbrauner.flowvoice.shared.dictation.DictationSessionController
 import dev.rafaelbrauner.flowvoice.shared.dictation.JavaSoundAudioCaptureEngine
 import dev.rafaelbrauner.flowvoice.shared.dictation.AudioCaptureEngine
+import dev.rafaelbrauner.flowvoice.shared.dictation.SpeechEndpointing
 import dev.rafaelbrauner.flowvoice.shared.insertion.TextInserter
 import dev.rafaelbrauner.flowvoice.shared.insertion.UnsupportedTextInserter
 import dev.rafaelbrauner.flowvoice.shared.insertion.WindowsSendInputTextInserter
@@ -14,6 +15,7 @@ import dev.rafaelbrauner.flowvoice.shared.transcription.UnavailableSecretStore
 import org.koin.dsl.koinApplication
 import java.nio.file.Files
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
@@ -48,7 +50,7 @@ class DesktopModuleTest {
         assertIs<JavaSoundAudioCaptureEngine>(koin.get<AudioCaptureEngine>())
         assertIs<UnsupportedTextInserter>(koin.get<TextInserter>())
         assertIs<UnavailableSecretStore>(koin.get<SecretStore>())
-        koin.get<DictationSessionController>()
+        assertEquals(SpeechEndpointing(), koin.get<DictationSessionController>().windowEndpointing)
         koin.get<TranscriptionClient>()
         koin.close()
     }

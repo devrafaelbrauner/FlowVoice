@@ -11,6 +11,7 @@ import dev.rafaelbrauner.flowvoice.shared.preview.LivePreview
 import dev.rafaelbrauner.flowvoice.shared.preview.LivePreviewAssembler
 import dev.rafaelbrauner.flowvoice.shared.proofreading.ProofreadingClient
 import dev.rafaelbrauner.flowvoice.shared.proofreading.ProofreadingGuard
+import dev.rafaelbrauner.flowvoice.shared.proofreading.ProofreadingMerge
 import dev.rafaelbrauner.flowvoice.shared.transcription.IncrementalTranscriptionController
 import dev.rafaelbrauner.flowvoice.shared.transcription.OpenRouterConfig
 import dev.rafaelbrauner.flowvoice.shared.transcription.SecretStore
@@ -70,6 +71,8 @@ class DictationPipeline(
     private val pipelineSessionState = MutableStateFlow(
         DictationPipelineSession(sessionId, DictationTarget.ActiveField, DictationPipelineStatus.Idle)
     )
+    private val directState = MutableStateFlow(DirectInsertionProgress())
+    private var directPlan = DirectInsertionPlan()
 
     val status: StateFlow<DictationPipelineStatus> = statusState.asStateFlow()
     val target: StateFlow<DictationTarget> = targetState.asStateFlow()
@@ -78,6 +81,7 @@ class DictationPipeline(
     val segments: StateFlow<List<TranscriptionSegment>> = transcription.segments
     val sessionWindows: StateFlow<List<DictationWindow>> = windowsState.asStateFlow()
     val events: SharedFlow<String> = eventLines.asSharedFlow()
+    val directInsertion: StateFlow<DirectInsertionProgress> = directState.asStateFlow()
 
     val capturedDurationMs: Long
         get() = controller.capturedDurationMs
@@ -96,11 +100,19 @@ class DictationPipeline(
                 submittedWindows.value += 1
                 log(
                     "dictation_window",
-                    mapOf(
-                        "window" to (window.index + 1).toString(),
-                        "durationMs" to window.durationMs.toString(),
-                        "model" to config.model
-                    )
+                    buildMap {
+                        put("window", (window.index + 1).toString())
+                        put("durationMs", window.durationMs.toString())
+                        put("model", config.model)
+                        put("cut", window.cut.name.lowercase())
+                        window.noiseFloor?.let { put("noiseFloor", it.toString()) }
+                        // Fala medida na janela (P151): é o número que diz, no aparelho, por que a
+                        // janela foi ou não à rede — e se a trava encostou em fala baixa.
+                        window.voicedMs?.let { put("voicedMs", it.toString()) }
+                        // Bloco mais alto do áudio próprio (P153): é por ele que se compara esta
+                        // janela com outra que já voltou vazia.
+                        window.peakLevel?.let { put("peak", it.toString()) }
+                    }
                 )
             }
         }
@@ -124,6 +136,9 @@ class DictationPipeline(
             transcription.fatalError.collect { error ->
                 if (error != null) stopOnInvalidKey()
             }
+        }
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            transcription.segments.collect { advanceDirect() }
         }
     }
 
@@ -151,6 +166,11 @@ class DictationPipeline(
         val token = ++sessionToken
         sessionId++
         targetState.value = target
+        directPlan = DirectInsertionPlan()
+        directState.value = DirectInsertionProgress(
+            sessionId = sessionId,
+            active = target == DictationTarget.ActiveField && !preferences.read().reviewBeforeInsert
+        )
         publish(DictationPipelineStatus.Starting)
         sessionApiKey = secrets.readOpenRouterKey()?.takeIf { it.isNotBlank() }
         transcription.reset(sessionApiKey)
@@ -235,6 +255,7 @@ class DictationPipeline(
 
     private suspend fun finalizeForReview(captureTarget: Boolean): DictationPipelineStatus {
         if (targetState.value == DictationTarget.Note) return finalize()
+        if (isDirectSession()) return finalizeDirect()
         if (statusState.value != DictationPipelineStatus.Recording) return statusState.value
         val token = sessionToken
         val mark = timeSource.markNow()
@@ -272,6 +293,7 @@ class DictationPipeline(
     }
 
     fun insertReady(): DictationPipelineStatus {
+        if (isDirectSession()) return insertPending()
         val ready = statusState.value as? DictationPipelineStatus.Ready ?: return statusState.value
         if (ready.refusal != null && refusalMark?.let { it.elapsedNow() < RETRY_GUARD } == true) {
             log("dictation_insert_retry_ignored", emptyMap())
@@ -304,6 +326,8 @@ class DictationPipeline(
             controller.cancel()
         } finally {
             publish(DictationPipelineStatus.Cancelled)
+            // O que já foi digitado fica no campo; o pendente é descartado.
+            directState.value = directState.value.copy(pending = "", pausedReason = null)
             log("dictation_cancelled", emptyMap())
         }
     }
@@ -317,6 +341,258 @@ class DictationPipeline(
     fun requestInsertReady(): Job = scope.launch { insertReady() }
 
     fun requestCancel(): Job = scope.launch { cancel() }
+
+    fun requestInsertPending(): Job = scope.launch { insertPending() }
+
+    // "Inserir aqui" da sessão direta (P139): toque do usuário, então recaptura o destino (app em foco),
+    // escreve o pendente e retoma a digitação sem toque nesse campo. Toque até 1 s depois da pausa é
+    // ignorado, como na P113.
+    fun insertPending(): DictationPipelineStatus {
+        val status = statusState.value
+        val progress = directState.value
+        if (!isDirectSession() || progress.pending.isBlank()) return status
+        if (status != DictationPipelineStatus.Recording &&
+            status != DictationPipelineStatus.Transcribing &&
+            status !is DictationPipelineStatus.Ready
+        ) {
+            return status
+        }
+        if (refusalMark?.let { it.elapsedNow() < RETRY_GUARD } == true) {
+            log("dictation_insert_retry_ignored", emptyMap())
+            return status
+        }
+        inserter.captureTarget()
+        val insertion = inserter.insert(progress.pending)
+        if (!insertion.success) {
+            refusalMark = timeSource.markNow()
+            log("dictation_insert_refused", mapOf("chars" to progress.pending.length.toString()))
+            directState.value = progress.copy(pausedReason = insertion.message)
+            if (status is DictationPipelineStatus.Ready) {
+                val retry = status.copy(refusal = insertion.message)
+                publish(retry)
+                return retry
+            }
+            return status
+        }
+        log("dictation_direct_resumed", mapOf("chars" to progress.pending.length.toString()))
+        val resumed = progress.copy(typed = progress.typed + progress.pending, pending = "", pausedReason = null)
+        directState.value = resumed
+        // "Inserir aqui" pode ter escrito noutro campo: o próximo pedaço não apaga nada (P144).
+        directPlan = directPlan.copy(contiguous = false)
+        if (status is DictationPipelineStatus.Ready) {
+            val outcome = completed(resumed.typed, directDelivery(resumed.typed), status.warning, status.latencyMs, failedWindows = null)
+            publish(outcome)
+            return outcome
+        }
+        advanceDirect()
+        return statusState.value
+    }
+
+    private fun isDirectSession(): Boolean = directState.value.let { it.active && it.sessionId == sessionId }
+
+    // Digita as janelas resolvidas, em ordem, enquanto a sessão direta captura ou finaliza. Depois de
+    // qualquer recusa, nada mais é digitado sem toque: o resto vai para o pendente, mesmo que o foco
+    // volte ao app de origem (a volta pode ser noutra conversa).
+    private fun advanceDirect() {
+        val progress = directState.value
+        if (!isDirectSession()) return
+        when (statusState.value) {
+            DictationPipelineStatus.Starting,
+            DictationPipelineStatus.Recording,
+            DictationPipelineStatus.Transcribing -> Unit
+            else -> return
+        }
+        val segments = transcription.segments.value
+        val step = DirectInsertionPlanner.advance(directPlan, segments)
+        var next = progress
+        // Deixa de valer assim que um pedaço não entra direto no campo: o que está antes do cursor
+        // passa a ser texto do usuário, e apagá-lo seria apagar o que não é nosso (P144).
+        var contiguous = true
+        step.pieces.forEach { piece ->
+            val text = piece.separator + dictionary.apply(piece.text)
+            val window = (piece.windowIndex + 1).toString()
+            next = if (next.paused) {
+                // O pendente ainda não está no campo: o ponto a tirar está nele mesmo. Com o pendente
+                // vazio, o ponto está no campo, de antes da pausa, e não se toca nele.
+                val erasable = piece.deleteBefore > 0 && next.pending.length >= piece.deleteBefore
+                val head = if (erasable) next.pending.dropLast(piece.deleteBefore) else next.pending
+                contiguous = false
+                next.copy(pending = head + text)
+            } else {
+                val insertion = inserter.insertWithoutTap(text, piece.deleteBefore)
+                if (insertion.success) {
+                    log(
+                        "dictation_direct_inserted",
+                        buildMap {
+                            put("window", window)
+                            put("chars", text.length.toString())
+                            if (piece.deleteBefore > 0) put("erased", piece.deleteBefore.toString())
+                        }
+                    )
+                    next.copy(typed = next.typed.dropLast(piece.deleteBefore) + text)
+                } else {
+                    refusalMark = timeSource.markNow()
+                    log("dictation_direct_paused", mapOf("window" to window, "route" to insertion.route))
+                    contiguous = false
+                    next.copy(pending = next.pending + text, pausedReason = insertion.message)
+                }
+            }
+        }
+        directPlan = step.plan.copy(contiguous = step.plan.contiguous && contiguous)
+        val warning = TranscriptionFailureSummary.from(segments, controller.emittedWindowCount)?.partialMessage
+        next = next.copy(warning = warning)
+        if (next != progress) directState.value = next
+    }
+
+    private suspend fun finalizeDirect(): DictationPipelineStatus {
+        if (statusState.value != DictationPipelineStatus.Recording) return statusState.value
+        val token = sessionToken
+        val mark = timeSource.markNow()
+        publish(DictationPipelineStatus.Transcribing)
+        val outcome = try {
+            controller.finalize()
+            submittedWindows.first { it >= controller.emittedWindowCount }
+            transcription.awaitIdle()
+            if (token != sessionToken) {
+                DictationPipelineStatus.Cancelled
+            } else {
+                directOutcome(mark)
+            }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            log("dictation_failed", mapOf("stage" to "finalize"))
+            DictationPipelineStatus.Failed(error.message ?: "erro desconhecido")
+        }
+        if (token == sessionToken) {
+            publish(outcome)
+        }
+        return outcome
+    }
+
+    // A latência só é medida depois da revisão final (P147): o que interessa é o tempo entre o toque
+    // que encerra o ditado e o texto final estar no campo.
+    private suspend fun directOutcome(mark: TimeMark): DictationPipelineStatus {
+        advanceDirect()
+        proofreadDictation()
+        val latencyMs = mark.elapsedNow().inWholeMilliseconds
+        val progress = directState.value
+        val failures = TranscriptionFailureSummary.from(transcription.segments.value, controller.emittedWindowCount)
+        val dictated = progress.typed + progress.pending
+        if (dictated.isNotBlank()) dictionary.suggestFrom(dictated)
+        return when {
+            progress.pending.isNotBlank() -> {
+                log(
+                    "dictation_ready",
+                    mapOf(
+                        "chars" to progress.pending.length.toString(),
+                        "latencyMs" to latencyMs.toString(),
+                        "failedWindows" to (failures?.failedCount ?: 0).toString()
+                    )
+                )
+                DictationPipelineStatus.Ready(progress.pending, failures?.partialMessage, latencyMs, progress.pausedReason)
+            }
+            progress.typed.isBlank() && failures != null -> noTextFailure(failures)
+            else -> completed(
+                progress.typed,
+                directDelivery(progress.typed),
+                failures?.partialMessage,
+                latencyMs,
+                failedWindows = failures?.failedCount ?: 0
+            )
+        }
+    }
+
+    // Revisão final do ditado direto (P147). Cada janela foi pontuada isolada; no fim o texto inteiro
+    // vai ao modelo de revisão, que só pode mexer em pontuação, maiúsculas, acentos e ortografia
+    // (P132). Qualquer falha — guard, rede, campo trocado — deixa o campo exatamente como está:
+    // nunca se apaga sem escrever de volta.
+    private suspend fun proofreadDictation() {
+        val prefs = preferences.read()
+        val before = directState.value
+        val request = DictationProofread.request(
+            typed = before.typed,
+            pending = before.pending,
+            contiguous = directPlan.contiguous,
+            enabled = prefs.proofreadingEnabled
+        )
+        val text = when (request) {
+            is DictationProofread.Request.Skip -> return skipProofread(request.reason)
+            is DictationProofread.Request.Send -> request.text
+        }
+        val apiKey = sessionApiKey.takeIf { transcription.fatalError.value == null }
+            ?: return skipProofread(DictationProofread.REASON_ERROR)
+        directState.value = before.copy(proofreading = true)
+        val revised = try {
+            // O ditado já está no campo: quem espera aqui é o usuário, de olho no texto (P152).
+            withTimeoutOrNull(DictationProofread.TIMEOUT_MS) {
+                proofreading.proofread(text, apiKey, prefs.proofreadingModel)
+            }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Exception) {
+            directState.value = directState.value.copy(proofreading = false)
+            return skipProofread(DictationProofread.REASON_ERROR)
+        }
+        directState.value = directState.value.copy(proofreading = false)
+        if (revised == null) return skipProofread(DictationProofread.REASON_TIMEOUT)
+        transcriptTextLog.log("proofreading_input", mapOf("text" to text))
+        transcriptTextLog.log("proofreading_output", mapOf("text" to revised))
+        // Uma palavra trocada não pode custar a pontuação do ditado inteiro (P149): onde a revisão
+        // mexeu no que não podia, fica a palavra do ditado; a pontuação dela entra do mesmo jeito, e o
+        // guard ainda confere o resultado.
+        val merged = ProofreadingMerge.merge(text, revised) ?: revised
+        if (merged != revised) transcriptTextLog.log("proofreading_merged", mapOf("text" to merged))
+        when (val outcome = DictationProofread.outcome(text, merged)) {
+            is DictationProofread.Outcome.Skip -> skipProofread(outcome.reason)
+            is DictationProofread.Outcome.Replace -> replaceDictation(text, outcome)
+        }
+    }
+
+    // A troca só acontece se nada mexeu no campo enquanto a revisão ia e voltava (~1 s).
+    private fun replaceDictation(sent: String, outcome: DictationProofread.Outcome.Replace) {
+        val current = directState.value
+        if (current.typed != sent || current.pending.isNotBlank() || !directPlan.contiguous) {
+            return skipProofread(DictationProofread.REASON_NOT_CONTIGUOUS)
+        }
+        // O campo é a verdade, não a conta do app (P148): no S26 a conta saiu um caractere menor que o
+        // campo, a troca apagou de menos e sobrou a primeira letra do ditado ("HHoje o dia..."). Quem
+        // não souber ler o que está antes do cursor continua com a conta do app.
+        val before = inserter.readBeforeCursor(sent.length + DictationFieldTail.SLACK)
+        val erase = if (before == null) {
+            outcome.deleteBefore
+        } else {
+            DictationFieldTail.eraseLength(before, sent)
+                ?: return skipProofread(DictationProofread.REASON_FIELD_CHANGED)
+        }
+        val insertion = inserter.insertWithoutTap(outcome.text, erase)
+        if (!insertion.success) {
+            refusalMark = timeSource.markNow()
+            return skipProofread(DictationProofread.REASON_REFUSED)
+        }
+        directState.value = current.copy(typed = outcome.text)
+        log(
+            "dictation_proofread_applied",
+            mapOf(
+                "chars" to outcome.text.length.toString(),
+                "erased" to erase.toString(),
+                // Quanto o campo divergiu da conta do app: zero é o esperado, e o que não for zero diz
+                // que algum apagar ou escrever anterior não saiu como o app anotou.
+                "drift" to (erase - outcome.deleteBefore).toString()
+            )
+        )
+    }
+
+    private fun skipProofread(reason: String) {
+        log("dictation_proofread_skipped", mapOf("reason" to reason))
+    }
+
+    private fun directDelivery(typed: String): TextInsertionResult =
+        if (typed.isBlank()) {
+            TextInsertionResult(success = false, route = DIRECT_ROUTE, message = "sem texto para inserir")
+        } else {
+            TextInsertionResult(success = true, route = DIRECT_ROUTE, message = "digitado no campo")
+        }
 
     // Depois do aviso de timeout do microfone do Início, a sessão pedida por aquele toque não pode
     // seguir gravando: se abrir em até graceMs, é cancelada. Roda no escopo do pipeline, que não
@@ -442,6 +718,7 @@ class DictationPipeline(
     private companion object {
         const val EVENT_BUFFER = 64
         const val INVALID_KEY_MESSAGE = "chave OpenRouter ausente ou inválida"
+        const val DIRECT_ROUTE = "direto"
         val RETRY_GUARD = 1.seconds
         val NOTE_DELIVERY = TextInsertionResult(success = false, route = "nota", message = "texto entregue à nota")
     }

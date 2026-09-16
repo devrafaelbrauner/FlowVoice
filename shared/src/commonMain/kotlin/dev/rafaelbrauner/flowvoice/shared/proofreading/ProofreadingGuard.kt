@@ -1,6 +1,6 @@
 package dev.rafaelbrauner.flowvoice.shared.proofreading
 
-import kotlin.math.abs
+import dev.rafaelbrauner.flowvoice.shared.text.EditDistance
 import kotlin.math.min
 
 // A revisão só pode mexer em pontuação, maiúsculas, acentos e ortografia (P132). A comparação é
@@ -23,11 +23,20 @@ object ProofreadingGuard {
         return source.indices.all { wordAccepted(source[it], target[it]) }
     }
 
+    // A mesma regra para uma palavra só (P149), para misturar a revisão palavra a palavra em vez de
+    // descartá-la inteira por causa de uma. Recebe as palavras como estão no texto.
+    fun acceptsWord(original: String, revised: String): Boolean =
+        wordAccepted(normalize(original), normalize(revised))
+
+    private fun normalize(word: String): String = buildString {
+        word.lowercase().forEach { char -> append(ACCENTS[char] ?: char) }
+    }
+
     private fun wordAccepted(original: String, revised: String): Boolean = when {
         original == revised -> true
         original.any { it.isDigit() } || revised.any { it.isDigit() } -> false
         min(original.length, revised.length) < MIN_EDITABLE_WORD -> false
-        else -> editDistanceWithin(original, revised, MAX_WORD_EDITS)
+        else -> EditDistance.within(original, revised, MAX_WORD_EDITS)
     }
 
     private fun words(text: String): List<String> {
@@ -44,23 +53,6 @@ object ProofreadingGuard {
         }
         if (current.isNotEmpty()) words += current.toString()
         return words
-    }
-
-    private fun editDistanceWithin(a: String, b: String, budget: Int): Boolean {
-        if (abs(a.length - b.length) > budget) return false
-        var previous = IntArray(b.length + 1) { it }
-        var current = IntArray(b.length + 1)
-        for (i in 1..a.length) {
-            current[0] = i
-            for (j in 1..b.length) {
-                val substitution = previous[j - 1] + if (a[i - 1] == b[j - 1]) 0 else 1
-                current[j] = min(substitution, min(previous[j] + 1, current[j - 1] + 1))
-            }
-            val swap = previous
-            previous = current
-            current = swap
-        }
-        return previous[b.length] <= budget
     }
 
     private val ACCENTS: Map<Char, Char> = buildMap {

@@ -28,7 +28,8 @@ import dev.rafaelbrauner.flowvoice.ui.theme.FlowVoiceTheme
 
 @Composable
 fun MicButton(
-    onClick: () -> Unit,
+    // Nulo quando o contêiner trata toque e semântica (bolha arrastável, P138).
+    onClick: (() -> Unit)?,
     modifier: Modifier = Modifier,
     size: Dp = 112.dp,
     iconSize: Dp = 52.dp,
@@ -61,7 +62,13 @@ fun MicButton(
             }
             .clip(CircleShape)
             .background(colors.accent)
-            .clickable(role = Role.Button, onClickLabel = contentDescription, onClick = onClick),
+            .then(
+                if (onClick != null) {
+                    Modifier.clickable(role = Role.Button, onClickLabel = contentDescription, onClick = onClick)
+                } else {
+                    Modifier
+                }
+            ),
         contentAlignment = Alignment.Center
     ) {
         Icon(

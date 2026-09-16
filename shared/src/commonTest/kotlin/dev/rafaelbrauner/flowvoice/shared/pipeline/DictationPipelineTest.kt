@@ -7,6 +7,7 @@ import dev.rafaelbrauner.flowvoice.shared.dictation.DictationSessionController
 import dev.rafaelbrauner.flowvoice.shared.dictation.DictationSessionState
 import dev.rafaelbrauner.flowvoice.shared.dictation.DictationWindow
 import dev.rafaelbrauner.flowvoice.shared.dictionary.InMemoryPersonalDictionary
+import dev.rafaelbrauner.flowvoice.shared.insertion.DirectInsertionGuard
 import dev.rafaelbrauner.flowvoice.shared.insertion.TextInserter
 import dev.rafaelbrauner.flowvoice.shared.insertion.TextInsertionResult
 import dev.rafaelbrauner.flowvoice.shared.notes.InMemoryNoteStore
@@ -125,7 +126,7 @@ class DictationPipelineTest {
             scope = backgroundScope,
             frames = listOf(frame(50L)),
             texts = mapOf(0 to "tomar dipirona"),
-            preferences = AppPreferences(proofreadingEnabled = true)
+            preferences = AppPreferences(proofreadingEnabled = true, reviewBeforeInsert = true)
         )
         env.dictionary.approve("Dipirona")
 
@@ -143,7 +144,7 @@ class DictationPipelineTest {
             scope = backgroundScope,
             frames = listOf(frame(50L)),
             texts = mapOf(0 to "tomar dipirona"),
-            preferences = AppPreferences(proofreadingEnabled = true),
+            preferences = AppPreferences(proofreadingEnabled = true, reviewBeforeInsert = true),
             proofreadingFails = true
         )
         env.dictionary.approve("Dipirona")
@@ -160,7 +161,7 @@ class DictationPipelineTest {
             scope = backgroundScope,
             frames = listOf(frame(50L)),
             texts = mapOf(0 to "primeiro ditado pelo início"),
-            preferences = AppPreferences(proofreadingEnabled = true)
+            preferences = AppPreferences(proofreadingEnabled = true, reviewBeforeInsert = true)
         )
         val lines = mutableListOf<String>()
         backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { env.pipeline.events.collect { lines += it } }
@@ -188,7 +189,7 @@ class DictationPipelineTest {
             scope = backgroundScope,
             frames = listOf(frame(50L)),
             texts = mapOf(0 to "primeiro ditado pelo início"),
-            preferences = AppPreferences(proofreadingEnabled = true),
+            preferences = AppPreferences(proofreadingEnabled = true, reviewBeforeInsert = true),
             proofreadingOutput = { "Primeiro ditado: \"Pelo início.\"" }
         )
 
@@ -249,7 +250,7 @@ class DictationPipelineTest {
             scope = backgroundScope,
             frames = listOf(frame(100L), frame(100L), frame(50L)),
             texts = mapOf(0 to "o médico", 1 to "pediu o exame", 2 to "de sangue"),
-            preferences = AppPreferences(proofreadingEnabled = true),
+            preferences = AppPreferences(proofreadingEnabled = true, reviewBeforeInsert = true),
             secretStore = vault
         )
 
@@ -952,7 +953,7 @@ class DictationPipelineTest {
             frames = List(4) { frame(100L) },
             texts = mapOf(0 to "um"),
             failures = mapOf(1 to TranscriptionError.InvalidKey()),
-            preferences = AppPreferences(proofreadingEnabled = true)
+            preferences = AppPreferences(proofreadingEnabled = true, reviewBeforeInsert = true)
         )
 
         env.pipeline.start()
@@ -1055,6 +1056,703 @@ class DictationPipelineTest {
         assertFalse(engine.isRunning)
     }
 
+    @Test
+    fun directSessionTypesEachWindowAsSoonAsItIsTranscribedAndStoppingTypesTheRest() = runTest {
+        val inserter = DirectInserter()
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = listOf(frame(100L), frame(100L), frame(50L)),
+            texts = mapOf(0 to "o médico", 1 to "pediu o exame", 2 to "de sangue"),
+            preferences = AppPreferences(),
+            textInserter = inserter
+        )
+
+        env.pipeline.start()
+        runCurrent()
+
+        assertEquals(DictationPipelineStatus.Recording, env.pipeline.status.value)
+        assertEquals(listOf("o médico", " pediu o exame"), inserter.automatic)
+        assertEquals("o médico pediu o exame", env.pipeline.directInsertion.value.typed)
+        assertTrue(env.pipeline.directInsertion.value.active)
+
+        val completed = assertIs<DictationPipelineStatus.Completed>(env.pipeline.finalize())
+
+        assertEquals("o médico pediu o exame de sangue", completed.text)
+        assertTrue(completed.insertion.success)
+        assertEquals("o médico pediu o exame de sangue", inserter.field.toString())
+        assertTrue(inserter.tapped.isEmpty())
+        assertFalse(env.pipeline.status.value.isBusy)
+    }
+
+    // P139 + P147: nada vai à revisão trecho a trecho — o texto já está no campo e faltaria o contexto
+    // da frase. A revisão acontece uma vez só, com o ditado inteiro, no fim.
+    @Test
+    fun directSessionProofreadsOnceAtTheEndAndNeverWindowByWindow() = runTest {
+        val inserter = DirectInserter()
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = listOf(frame(100L), frame(50L)),
+            texts = mapOf(0 to "tomar dipirona", 1 to "de manhã"),
+            preferences = AppPreferences(proofreadingEnabled = true),
+            textInserter = inserter
+        )
+
+        env.pipeline.start()
+        runCurrent()
+
+        assertTrue(env.proofreader.received.isEmpty())
+
+        val completed = assertIs<DictationPipelineStatus.Completed>(env.pipeline.finalize())
+
+        assertEquals(listOf("tomar dipirona de manhã"), env.proofreader.received)
+        assertEquals("Tomar dipirona de manhã.", completed.text)
+        assertEquals("Tomar dipirona de manhã.", inserter.field.toString())
+    }
+
+    @Test
+    fun reviewBeforeInsertSettingKeepsTheReviewFlowAndTypesNothingWhileRecording() = runTest {
+        val inserter = DirectInserter()
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = listOf(frame(100L), frame(50L)),
+            texts = mapOf(0 to "o médico", 1 to "pediu o exame"),
+            preferences = AppPreferences(reviewBeforeInsert = true),
+            textInserter = inserter
+        )
+
+        env.pipeline.start()
+        runCurrent()
+
+        assertFalse(env.pipeline.directInsertion.value.active)
+        assertTrue(inserter.automatic.isEmpty())
+        assertIs<DictationPipelineStatus.Ready>(env.pipeline.finalize())
+        assertEquals("", inserter.field.toString())
+    }
+
+    @Test
+    fun directSessionDoesNotTypeTwiceTheWordRepeatedAtTheWindowBoundary() = runTest {
+        val inserter = DirectInserter()
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = listOf(frame(100L), frame(100L)),
+            texts = mapOf(0 to "é muito", 1 to "muito importante"),
+            preferences = AppPreferences(),
+            textInserter = inserter
+        )
+
+        env.pipeline.start()
+        runCurrent()
+
+        assertEquals(listOf("é muito", " importante"), inserter.automatic)
+    }
+
+    @Test
+    fun directSessionAppliesTheDictionaryToEachTypedPiece() = runTest {
+        val inserter = DirectInserter()
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = listOf(frame(100L), frame(100L)),
+            texts = mapOf(0 to "tomar", 1 to "dipirona"),
+            preferences = AppPreferences(),
+            textInserter = inserter
+        )
+        env.dictionary.approve("Dipirona")
+
+        env.pipeline.start()
+        runCurrent()
+
+        assertEquals("tomar Dipirona", inserter.field.toString())
+    }
+
+    @Test
+    fun failedWindowInDirectSessionIsSkippedAndTheWarningShowsWhileRecording() = runTest {
+        val inserter = DirectInserter()
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = listOf(frame(100L), frame(100L), frame(100L)),
+            texts = mapOf(0 to "um", 2 to "três"),
+            failures = mapOf(1 to TranscriptionError.Timeout()),
+            preferences = AppPreferences(),
+            textInserter = inserter
+        )
+
+        env.pipeline.start()
+        runCurrent()
+
+        assertEquals(listOf("um", " três"), inserter.automatic)
+        assertEquals("Trecho 2 de 3 falhou (timeout): texto incompleto", env.pipeline.directInsertion.value.warning)
+        val completed = assertIs<DictationPipelineStatus.Completed>(env.pipeline.finalize())
+        assertEquals("um três", completed.text)
+        assertEquals("Trecho 2 de 3 falhou (timeout): texto incompleto", completed.warning)
+    }
+
+    @Test
+    fun focusChangePausesTypingForTheRestOfTheSessionEvenIfTheOriginAppComesBack() = runTest {
+        val manual = ManualAudioCaptureEngine()
+        val inserter = DirectInserter()
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = emptyList(),
+            texts = mapOf(0 to "um", 1 to "dois", 2 to "três"),
+            preferences = AppPreferences(),
+            textInserter = inserter,
+            captureEngine = manual
+        )
+
+        env.pipeline.start()
+        manual.push(frame(100L))
+        runCurrent()
+        inserter.focused = WHATSAPP
+        manual.push(frame(100L))
+        runCurrent()
+        inserter.focused = NOTES
+        manual.push(frame(100L))
+        runCurrent()
+
+        val progress = env.pipeline.directInsertion.value
+        assertEquals("um", inserter.field.toString())
+        assertEquals(listOf("um", " dois"), inserter.automatic)
+        assertEquals(" dois três", progress.pending)
+        assertEquals(DirectInsertionGuard.Reason.AppChanged.message, progress.pausedReason)
+
+        val ready = assertIs<DictationPipelineStatus.Ready>(env.pipeline.finalize())
+        assertEquals(" dois três", ready.text)
+        assertEquals(DirectInsertionGuard.Reason.AppChanged.message, ready.refusal)
+        assertEquals("um", inserter.field.toString())
+    }
+
+    @Test
+    fun insertHereAfterTheSessionEndsWritesThePendingTextInTheAppInFrontAndCompletes() = runTest {
+        val clock = TestTimeSource()
+        val manual = ManualAudioCaptureEngine()
+        val inserter = DirectInserter()
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = emptyList(),
+            texts = mapOf(0 to "um", 1 to "dois"),
+            preferences = AppPreferences(),
+            textInserter = inserter,
+            captureEngine = manual,
+            timeSource = clock
+        )
+
+        env.pipeline.start()
+        manual.push(frame(100L))
+        runCurrent()
+        inserter.focused = WHATSAPP
+        manual.push(frame(100L))
+        runCurrent()
+        assertIs<DictationPipelineStatus.Ready>(env.pipeline.finalize())
+
+        clock += 1.seconds
+        val completed = assertIs<DictationPipelineStatus.Completed>(env.pipeline.insertReady())
+
+        assertEquals("um dois", completed.text)
+        assertTrue(completed.insertion.success)
+        assertEquals(listOf(" dois"), inserter.tapped)
+        assertEquals(WHATSAPP, inserter.target)
+        assertEquals("", env.pipeline.directInsertion.value.pending)
+    }
+
+    @Test
+    fun insertHereTappedRightAfterThePauseIsIgnored() = runTest {
+        val clock = TestTimeSource()
+        val manual = ManualAudioCaptureEngine()
+        val inserter = DirectInserter()
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = emptyList(),
+            texts = mapOf(0 to "um", 1 to "dois"),
+            preferences = AppPreferences(),
+            textInserter = inserter,
+            captureEngine = manual,
+            timeSource = clock
+        )
+
+        env.pipeline.start()
+        manual.push(frame(100L))
+        runCurrent()
+        inserter.focused = WHATSAPP
+        manual.push(frame(100L))
+        runCurrent()
+
+        clock += 200.milliseconds
+        env.pipeline.insertPending()
+
+        assertTrue(inserter.tapped.isEmpty())
+        assertEquals(" dois", env.pipeline.directInsertion.value.pending)
+        assertEquals(DictationPipelineStatus.Recording, env.pipeline.status.value)
+    }
+
+    @Test
+    fun insertHereWhileRecordingResumesTypingInTheNewFieldAndPausesAgainIfTheFieldChanges() = runTest {
+        val clock = TestTimeSource()
+        val manual = ManualAudioCaptureEngine()
+        val inserter = DirectInserter()
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = emptyList(),
+            texts = mapOf(0 to "um", 1 to "dois", 2 to "três", 3 to "quatro"),
+            preferences = AppPreferences(),
+            textInserter = inserter,
+            captureEngine = manual,
+            timeSource = clock
+        )
+
+        env.pipeline.start()
+        manual.push(frame(100L))
+        runCurrent()
+        inserter.focused = WHATSAPP
+        manual.push(frame(100L))
+        runCurrent()
+
+        clock += 1.seconds
+        env.pipeline.insertPending()
+        assertEquals(listOf(" dois"), inserter.tapped)
+        assertNull(env.pipeline.directInsertion.value.pausedReason)
+
+        manual.push(frame(100L))
+        runCurrent()
+        assertEquals(" três", inserter.automatic.last())
+        assertEquals("um dois três", env.pipeline.directInsertion.value.typed)
+
+        inserter.input += 1
+        manual.push(frame(100L))
+        runCurrent()
+        assertEquals(" quatro", env.pipeline.directInsertion.value.pending)
+        assertEquals(DirectInsertionGuard.Reason.FieldChanged.message, env.pipeline.directInsertion.value.pausedReason)
+    }
+
+    @Test
+    fun unknownDestinationAtStartKeepsTheFirstWindowPendingUntilInsertHere() = runTest {
+        val clock = TestTimeSource()
+        val manual = ManualAudioCaptureEngine()
+        val inserter = DirectInserter().apply { focused = null }
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = emptyList(),
+            texts = mapOf(0 to "um", 1 to "dois"),
+            preferences = AppPreferences(),
+            textInserter = inserter,
+            captureEngine = manual,
+            timeSource = clock
+        )
+
+        env.pipeline.start()
+        inserter.focused = NOTES
+        manual.push(frame(100L))
+        runCurrent()
+
+        assertEquals("", inserter.field.toString())
+        assertEquals("um", env.pipeline.directInsertion.value.pending)
+        assertEquals(DirectInsertionGuard.Reason.UnknownDestination.message, env.pipeline.directInsertion.value.pausedReason)
+
+        clock += 1.seconds
+        env.pipeline.insertPending()
+        manual.push(frame(100L))
+        runCurrent()
+
+        assertEquals("um dois", inserter.field.toString())
+        assertEquals(NOTES, inserter.target)
+    }
+
+    @Test
+    fun cancelWhilePausedDiscardsThePendingTextAndTypesNothingMore() = runTest {
+        val clock = TestTimeSource()
+        val manual = ManualAudioCaptureEngine()
+        val inserter = DirectInserter()
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = emptyList(),
+            texts = mapOf(0 to "um", 1 to "dois"),
+            preferences = AppPreferences(),
+            textInserter = inserter,
+            captureEngine = manual,
+            timeSource = clock
+        )
+
+        env.pipeline.start()
+        manual.push(frame(100L))
+        runCurrent()
+        inserter.focused = WHATSAPP
+        manual.push(frame(100L))
+        runCurrent()
+
+        env.pipeline.cancel()
+        clock += 1.seconds
+        env.pipeline.insertPending()
+        env.pipeline.insertReady()
+
+        assertEquals(DictationPipelineStatus.Cancelled, env.pipeline.status.value)
+        assertEquals("", env.pipeline.directInsertion.value.pending)
+        assertEquals("um", env.pipeline.directInsertion.value.typed)
+        assertEquals("um", inserter.field.toString())
+        assertTrue(inserter.tapped.isEmpty())
+    }
+
+    @Test
+    fun cancelWhileTheLastWindowIsBeingTranscribedDoesNotTypeIt() = runTest {
+        val inserter = DirectInserter()
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = listOf(frame(100L), frame(50L)),
+            texts = mapOf(0 to "o médico", 1 to "pediu o exame"),
+            transcriptionDelayMs = 1_000L,
+            preferences = AppPreferences(),
+            textInserter = inserter
+        )
+
+        env.pipeline.start()
+        advanceTimeBy(1_100L)
+        runCurrent()
+        assertEquals(listOf("o médico"), inserter.automatic)
+
+        val finalizing = async { env.pipeline.finalize() }
+        runCurrent()
+        assertEquals(DictationPipelineStatus.Transcribing, env.pipeline.status.value)
+        env.pipeline.cancel()
+        advanceUntilIdle()
+
+        assertEquals(DictationPipelineStatus.Cancelled, finalizing.await())
+        assertEquals(listOf("o médico"), inserter.automatic)
+        assertEquals("o médico", inserter.field.toString())
+    }
+
+    @Test
+    fun budgetStopInDirectSessionCompletesWithTheTypedTextAndTheWarning() = runTest {
+        val inserter = DirectInserter()
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = List(4) { frame(100L) },
+            texts = mapOf(0 to "um", 1 to "dois", 2 to "três", 3 to "quatro"),
+            preferences = AppPreferences(),
+            textInserter = inserter,
+            config = OpenRouterConfig(maxRequestsPerSession = 2)
+        )
+
+        env.pipeline.start()
+        runCurrent()
+
+        val completed = assertIs<DictationPipelineStatus.Completed>(env.pipeline.status.value)
+        assertEquals(1, env.engine.stopCount)
+        assertEquals("um dois", completed.text)
+        assertTrue(completed.warning.orEmpty().contains("teto de requisições da sessão"), completed.warning)
+        assertEquals("um dois", inserter.field.toString())
+    }
+
+    @Test
+    fun directSessionWithOnlyFailedWindowsFailsWithTheReason() = runTest {
+        val inserter = DirectInserter()
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = listOf(frame(50L)),
+            failures = mapOf(0 to TranscriptionError.Timeout()),
+            preferences = AppPreferences(),
+            textInserter = inserter
+        )
+
+        env.pipeline.start()
+        val failed = assertIs<DictationPipelineStatus.Failed>(env.pipeline.finalize())
+
+        assertEquals("Nenhum trecho transcrito (timeout)", failed.message)
+        assertEquals("", inserter.field.toString())
+    }
+
+    @Test
+    fun directSessionWithNothingSaidCompletesWithoutInsertion() = runTest {
+        val inserter = DirectInserter()
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = listOf(frame(50L)),
+            texts = mapOf(0 to ""),
+            preferences = AppPreferences(),
+            textInserter = inserter
+        )
+
+        env.pipeline.start()
+        val completed = assertIs<DictationPipelineStatus.Completed>(env.pipeline.finalize())
+
+        assertEquals("", completed.text)
+        assertFalse(completed.insertion.success)
+        assertTrue(inserter.automatic.isEmpty())
+    }
+
+    @Test
+    fun noteSessionNeverTypesInAnotherAppEvenWithDirectModeOn() = runTest {
+        val inserter = CallRecordingInserter()
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = listOf(frame(100L), frame(50L)),
+            texts = mapOf(0 to "o médico", 1 to "pediu o exame"),
+            preferences = AppPreferences(),
+            textInserter = inserter
+        )
+        val note = NoteHarness(env.pipeline, backgroundScope)
+
+        env.pipeline.start(DictationTarget.Note)
+        runCurrent()
+        env.pipeline.finalize()
+        runCurrent()
+
+        assertFalse(env.pipeline.directInsertion.value.active)
+        assertEquals(emptyList(), inserter.calls)
+        assertEquals("o médico pediu o exame", note.body())
+    }
+
+    // P147: cada janela é pontuada isolada, e só no fim existe a frase inteira. Terminado o ditado, o
+    // texto todo vai à revisão e volta trocado no campo de uma vez. No S26 (2026-09-16 09:29) saiu
+    // "Hoje o dia está muito bonito." / "Por isso iremos para a praia.", duas frases onde havia uma.
+    @Test
+    fun theFinishedDirectDictationIsProofreadAndReplacedInTheField() = runTest {
+        val inserter = DirectInserter()
+        val typed = "Hoje o dia está muito bonito. Por isso iremos para a praia."
+        val revised = "Hoje o dia está muito bonito, por isso iremos para a praia."
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = listOf(frame(100L), frame(50L)),
+            texts = mapOf(0 to "Hoje o dia está muito bonito.", 1 to "Por isso iremos para a praia."),
+            preferences = AppPreferences(proofreadingEnabled = true),
+            textInserter = inserter,
+            proofreadingOutput = { revised }
+        )
+
+        env.pipeline.start()
+        val completed = assertIs<DictationPipelineStatus.Completed>(env.pipeline.finalize())
+
+        assertEquals(listOf(typed), env.proofreader.received)
+        assertEquals(revised, inserter.field.toString())
+        assertEquals(revised, completed.text)
+        val applied = env.log.events.single { it.event == "dictation_proofread_applied" }
+        assertEquals(typed.length.toString(), applied.metadata["erased"])
+        assertEquals(revised.length.toString(), applied.metadata["chars"])
+    }
+
+    // P148: no S26 (2026-09-16 10:29) o campo tinha um caractere a mais do que o app contabilizou; a
+    // troca apagou os 151 da conta, o campo tinha 152, e sobrou a primeira letra — "HHoje o dia...".
+    // O que manda é o texto do campo, não a conta do app.
+    @Test
+    fun theFinalRevisionErasesWhatIsInTheFieldEvenWhenItDivergesFromTheAppCount() = runTest {
+        val inserter = DirectInserter().apply { driftAfterFirstWrite = "." }
+        val revised = "Hoje o dia está muito bonito, por isso iremos para a praia."
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = listOf(frame(100L), frame(50L)),
+            texts = mapOf(0 to "Hoje o dia está muito bonito.", 1 to "Por isso iremos para a praia."),
+            preferences = AppPreferences(proofreadingEnabled = true),
+            textInserter = inserter,
+            proofreadingOutput = { revised }
+        )
+
+        env.pipeline.start()
+        env.pipeline.finalize()
+
+        assertEquals(revised, inserter.field.toString())
+        val applied = env.log.events.single { it.event == "dictation_proofread_applied" }
+        assertEquals("1", applied.metadata["drift"])
+    }
+
+    // Texto do usuário digitado no meio do ditado: as letras não conferem, e nada é apagado.
+    @Test
+    fun aFieldWhoseTextNoLongerMatchesTheDictationKeepsEverything() = runTest {
+        val inserter = DirectInserter().apply { driftAfterFirstWrite = " anotação minha" }
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = listOf(frame(100L), frame(50L)),
+            texts = mapOf(0 to "Hoje o dia está muito bonito.", 1 to "Por isso iremos para a praia."),
+            preferences = AppPreferences(proofreadingEnabled = true),
+            textInserter = inserter,
+            proofreadingOutput = { "Hoje o dia está muito bonito, por isso iremos para a praia." }
+        )
+
+        env.pipeline.start()
+        env.pipeline.finalize()
+
+        assertEquals(
+            "Hoje o dia está muito bonito. anotação minha Por isso iremos para a praia.",
+            inserter.field.toString()
+        )
+        assertEquals(DictationProofread.REASON_FIELD_CHANGED, proofreadSkipReason(env))
+    }
+
+    // P149: a troca de palavra não custa mais a pontuação do ditado. No S26 (2026-09-16 10:42) a
+    // revisão trocou "Tá" por "Está" e o guard descartou tudo, junto com a vírgula que estava certa.
+    // Agora a palavra do ditado fica — sem a maiúscula, que a vírgula tirou — e a pontuação entra.
+    @Test
+    fun aFinalRevisionThatChangesAWordStillBringsItsPunctuation() = runTest {
+        val inserter = DirectInserter()
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = listOf(frame(100L), frame(50L)),
+            texts = mapOf(0 to "Estava muito cansado.", 1 to "Tá com dor."),
+            preferences = AppPreferences(proofreadingEnabled = true),
+            textInserter = inserter,
+            proofreadingOutput = { "Estava muito cansado, está com dor." }
+        )
+
+        env.pipeline.start()
+        env.pipeline.finalize()
+
+        assertEquals("Estava muito cansado, tá com dor.", inserter.field.toString())
+    }
+
+    // Rede pendurada no fim do ditado: sem teto próprio valeria o `requestTimeoutMs` do
+    // `OpenRouterConfig` (30 s) com o usuário esperando de olho no campo. A revisão desiste rápido e o
+    // ditado fica exatamente como foi digitado.
+    @Test
+    fun aFinalRevisionThatHangsGivesUpAndLeavesTheDictationAsTyped() = runTest {
+        val inserter = DirectInserter()
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = listOf(frame(100L)),
+            texts = mapOf(0 to "Estava muito cansado."),
+            preferences = AppPreferences(proofreadingEnabled = true),
+            textInserter = inserter,
+            proofreadingDelayMs = 30_000L,
+            proofreadingOutput = { "Estava muito cansado!" }
+        )
+
+        env.pipeline.start()
+        env.pipeline.finalize()
+
+        assertEquals("Estava muito cansado.", inserter.field.toString())
+        assertEquals(DictationProofread.REASON_TIMEOUT, proofreadSkipReason(env))
+    }
+
+    // Trocada a palavra e nada mais, não sobra o que mudar: o campo não é tocado.
+    @Test
+    fun aFinalRevisionThatOnlyChangesAWordLeavesTheFieldUntouched() = runTest {
+        val inserter = DirectInserter()
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = listOf(frame(100L)),
+            texts = mapOf(0 to "Paciente refere dor no joelho direito."),
+            preferences = AppPreferences(proofreadingEnabled = true),
+            textInserter = inserter,
+            proofreadingOutput = { it.replace("direito", "esquerdo") }
+        )
+
+        env.pipeline.start()
+        env.pipeline.finalize()
+
+        assertEquals("Paciente refere dor no joelho direito.", inserter.field.toString())
+        assertEquals(DictationProofread.REASON_UNCHANGED, proofreadSkipReason(env))
+    }
+
+    // Revisão fora do ar: o ditado fica exatamente como foi digitado, nunca apagado pela metade.
+    @Test
+    fun aFinalRevisionThatFailsLeavesTheDictationExactlyAsItWasTyped() = runTest {
+        val inserter = DirectInserter()
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = listOf(frame(100L)),
+            texts = mapOf(0 to "Estava muito cansado."),
+            preferences = AppPreferences(proofreadingEnabled = true),
+            textInserter = inserter,
+            proofreadingFails = true
+        )
+
+        env.pipeline.start()
+        env.pipeline.finalize()
+
+        assertEquals("Estava muito cansado.", inserter.field.toString())
+        assertEquals(DictationProofread.REASON_ERROR, proofreadSkipReason(env))
+    }
+
+    @Test
+    fun withAiProofreadingOffTheDirectDictationNeverReachesTheModel() = runTest {
+        val inserter = DirectInserter()
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = listOf(frame(100L)),
+            texts = mapOf(0 to "Estava muito cansado."),
+            preferences = AppPreferences(),
+            textInserter = inserter
+        )
+
+        env.pipeline.start()
+        env.pipeline.finalize()
+
+        assertTrue(env.proofreader.received.isEmpty())
+        assertEquals("Estava muito cansado.", inserter.field.toString())
+        assertEquals(DictationProofread.REASON_DISABLED, proofreadSkipReason(env))
+    }
+
+    // Com trecho pendente, parte do ditado nunca chegou ao campo: não há o que trocar lá.
+    @Test
+    fun aDirectDictationWithTextStillPendingIsNotProofread() = runTest {
+        val inserter = DirectInserter()
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = listOf(frame(100L), frame(50L)),
+            texts = mapOf(0 to "primeiro trecho", 1 to "segundo trecho"),
+            preferences = AppPreferences(proofreadingEnabled = true),
+            textInserter = inserter
+        )
+
+        env.pipeline.start()
+        inserter.focused = WHATSAPP
+        assertIs<DictationPipelineStatus.Ready>(env.pipeline.finalize())
+
+        assertTrue(env.proofreader.received.isEmpty())
+        assertEquals(DictationProofread.REASON_PENDING, proofreadSkipReason(env))
+    }
+
+    private fun proofreadSkipReason(env: PipelineEnv): String? =
+        env.log.events.single { it.event == "dictation_proofread_skipped" }.metadata["reason"]
+
+    // Dublê do AccessibilityTextInserter: mesma trava da produção (DirectInsertionGuard) nas inserções sem
+    // toque; `input` faz o papel da geração de input do serviço de acessibilidade.
+    private class DirectInserter : TextInserter {
+        var focused: String? = NOTES
+        var input = 1
+        var target: String? = null
+        private var pinnedInput: Int? = null
+        val field = StringBuilder()
+        val automatic = mutableListOf<String>()
+        val tapped = mutableListOf<String>()
+
+        // Caractere que o campo ganha sem o app saber, logo depois da primeira escrita: é o que
+        // aconteceu no S26 (P148), onde a conta do app ficou um caractere menor que o campo.
+        var driftAfterFirstWrite: String? = null
+        private var writes = 0
+
+        override val isAvailable: Boolean = true
+
+        override fun captureTarget() {
+            target = focused
+            pinnedInput = null
+        }
+
+        override fun captureTargetIfUnknown() {
+            if (target == null) captureTarget()
+        }
+
+        override fun insert(text: String): TextInsertionResult {
+            if (focused == null) return TextInsertionResult(success = false, route = "teste", message = "sem foco")
+            tapped += text
+            return written(text)
+        }
+
+        override fun insertWithoutTap(text: String, deleteBefore: Int): TextInsertionResult {
+            automatic += text
+            DirectInsertionGuard.refusal(target, focused, OWN, pinnedInput, input)?.let {
+                return TextInsertionResult(success = false, route = it.reason.route, message = it.message)
+            }
+            if (deleteBefore > 0) field.setLength((field.length - deleteBefore).coerceAtLeast(0))
+            return written(text)
+        }
+
+        override fun readBeforeCursor(limit: Int): String? = field.toString().takeLast(limit)
+
+        private fun written(text: String): TextInsertionResult {
+            field.append(text)
+            writes++
+            if (writes == 1) driftAfterFirstWrite?.let(field::append)
+            pinnedInput = input
+            return TextInsertionResult(success = true, route = "teste", message = "ok")
+        }
+    }
+
     // Entrega os frames e só então fica preso no start: as janelas são transcritas com o pipeline
     // ainda em Starting, como num AudioRecord que demora a confirmar o início.
     private class FramesThenGatedAudioCaptureEngine(private val frames: List<AudioFrame>) : AudioCaptureEngine {
@@ -1081,6 +1779,12 @@ class DictationPipelineTest {
         fun release() {
             gate.complete(Unit)
         }
+    }
+
+    private companion object {
+        const val OWN = "dev.rafaelbrauner.flowvoice"
+        const val NOTES = "com.samsung.android.app.notes"
+        const val WHATSAPP = "com.whatsapp"
     }
 
     private suspend fun DictationPipeline.reviewAndInsert(): DictationPipelineStatus {
@@ -1127,8 +1831,10 @@ private class PipelineEnv(
     scope: CoroutineScope,
     frames: List<AudioFrame>,
     texts: Map<Int, String> = emptyMap(),
-    preferences: AppPreferences = AppPreferences(),
+    // Os testes antigos descrevem o fluxo com revisão; a sessão direta (P139) passa AppPreferences() explícito.
+    preferences: AppPreferences = AppPreferences(reviewBeforeInsert = true),
     proofreadingFails: Boolean = false,
+    proofreadingDelayMs: Long = 0L,
     transcriptionDelayMs: Long = 0L,
     startError: Throwable? = null,
     failures: Map<Int, Throwable> = emptyMap(),
@@ -1146,7 +1852,7 @@ private class PipelineEnv(
     val engine = ScriptedAudioCaptureEngine(frames, startError)
     val dictionary = InMemoryPersonalDictionary()
     val inserter = RecordingInserter(inserterSucceeds)
-    val proofreader = FakeProofreader(proofreadingFails, proofreadingOutput)
+    val proofreader = FakeProofreader(proofreadingFails, proofreadingOutput, proofreadingDelayMs)
     val client = ScriptedTranscriptionClient(texts, transcriptionDelayMs, failures)
     val secrets = secretStore ?: InMemorySecretStore().apply { apiKey?.let { writeOpenRouterKey(it) } }
     val pipeline = DictationPipeline(
@@ -1196,6 +1902,11 @@ private class CallRecordingInserter : TextInserter {
 
     override fun captureTargetIfUnknown() {
         calls += "captureTargetIfUnknown"
+    }
+
+    override fun insertWithoutTap(text: String, deleteBefore: Int): TextInsertionResult {
+        calls += "insertWithoutTap:$text"
+        return TextInsertionResult(success = true, route = "teste", message = "ok")
     }
 
     override fun insert(text: String): TextInsertionResult {
@@ -1253,12 +1964,14 @@ private class OnceReadableSecretStore(private val key: String) : SecretStore {
 
 private class FakeProofreader(
     private val fails: Boolean,
-    private val output: ((String) -> String)? = null
+    private val output: ((String) -> String)? = null,
+    private val delayMs: Long = 0L
 ) : ProofreadingClient {
     val received = mutableListOf<String>()
 
     override suspend fun proofread(text: String, apiKey: String, model: String): String {
         received += text
+        if (delayMs > 0L) delay(delayMs)
         if (fails) error("indisponível")
         return output?.invoke(text) ?: (text.replaceFirstChar { it.uppercase() } + ".")
     }

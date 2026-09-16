@@ -10,8 +10,7 @@ object LivePreviewAssembler {
         val merged = segments
             .sortedBy { it.windowIndex }
             .filter { it.status == TranscriptionSegment.Status.Ok && it.text.isNotBlank() }
-            .map { it.text.trim() }
-            .fold("") { acc, next -> mergeAdjacent(acc, next) }
+            .fold("") { acc, segment -> mergeAdjacent(acc, segment.text.trim(), segment.contextDurationMs) }
 
         val transcribing = segments.any { it.status == TranscriptionSegment.Status.Transcribing }
         return if (sessionComplete && !transcribing) {
@@ -25,24 +24,20 @@ object LivePreviewAssembler {
         }
     }
 
-    fun mergeAdjacent(left: String, right: String): String {
+    fun mergeAdjacent(left: String, right: String, contextDurationMs: Long = 0L): String {
         if (left.isBlank()) return right.trim()
         if (right.isBlank()) return left.trim()
-        val leftTokens = tokenize(left)
-        val rightTokens = tokenize(right)
-        val overlap = overlapSize(leftTokens, rightTokens)
-        val mergedTokens = leftTokens + rightTokens.drop(overlap)
-        return mergedTokens.joinToString(" ")
-    }
-
-    private fun overlapSize(left: List<String>, right: List<String>): Int {
-        val max = minOf(left.size, right.size)
-        for (size in max downTo 1) {
-            if (left.takeLast(size) == right.take(size)) return size
+        val match = TranscriptOverlap.match(left, right, contextDurationMs)
+        val head = left.trimEnd()
+        return when {
+            match.text.isEmpty() -> head
+            match.glued -> head + match.text
+            else -> "$head ${match.text}"
         }
-        return 0
     }
 
-    private fun tokenize(text: String): List<String> =
-        text.split(Regex("\\s+")).filter { it.isNotBlank() }
+    // O que de `right` falta depois de `left`, com a mesma deduplicação de mergeAdjacent (P127/P143).
+    // Na inserção direta (P139) `left` já está no campo e não se apaga: a sobreposição sai de `right`.
+    fun continuation(left: String, right: String, contextDurationMs: Long = 0L): String =
+        TranscriptOverlap.match(left, right, contextDurationMs).text
 }

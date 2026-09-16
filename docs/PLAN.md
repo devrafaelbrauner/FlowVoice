@@ -25,6 +25,11 @@ App de ditado **voz → texto** em nuvem (**OpenRouter**), com:
      `currentInputConnection` for nulo ou em Android < 13 (API 33, onde
      `getInputMethod()` foi introduzido).
    - **Área de transferência é opcional**, não obrigatória.
+   - **Inserção incremental (0.5.0, P139)**: por padrão, a bolha digita cada
+     janela transcrita assim que fica pronta, sem revisão por IA, só no app e no
+     campo de origem (`DirectInsertionGuard`). "Revisar antes de inserir" mantém
+     a inserção única no fim. Detalhes em
+     [`docs/tasks/P138-P139.md`](tasks/P138-P139.md).
 2. **Texto durante a fala** (limitação real):
    - A documentação da OpenRouter **não** comprova entrada contínua de
      microfone com transcrição parcial (streaming de áudio).
@@ -45,10 +50,20 @@ App de ditado **voz → texto** em nuvem (**OpenRouter**), com:
      aprovado e preferências.
    - A **chave OpenRouter fica local e cifrada**; **nunca** sincronizada.
 5. **Política de captura / janelas / silêncio** (F03):
-   - Captura: `16 kHz`, `PCM 16-bit mono`.
-   - Janela alvo fixa: `DEFAULT_TARGET_DURATION_MS = 4_000L` (`~4 s`); a última
-     janela pode ser parcial.
-   - **Sem sobreposição de contexto** nesta versão.
+   - Captura: `16 kHz`, `PCM 16-bit mono`, em frames de `100 ms`
+     (`CaptureFrames`, P140).
+   - Janela cortada na pausa natural da fala (`SpeechEndpointing`, P140/P143):
+     sai com `≥ 2 s` acumulados, `≥ 400 ms` de fala e `450 ms` de pausa, cortada
+     no meio da pausa, com limiares relativos ao piso de ruído da sessão. Sem
+     pausa, vale o teto de `DEFAULT_TARGET_DURATION_MS = 4_000L` + `300 ms`, com
+     o corte no trecho mais silencioso (P131). A última janela pode ser parcial.
+   - Teto de `90` pedidos por sessão, contado na submissão (P107, P140).
+   - **Sobreposição de contexto em áudio** (`SPEECH_CONTEXT_MS = 1_000L`, P143):
+     cada janela é enviada com o último `1 s` da anterior à frente, porque a API
+     de transcrição da OpenRouter não aceita `prompt`. O contexto viaja em
+     `DictationWindow.contextPcm`, fora do `pcm`: linha do tempo, contagem de
+     bytes e silêncio digital (P124) só olham o áudio próprio da janela. A
+     repetição sai do texto em `TranscriptOverlap`.
    - Silêncio: `RMS < 300f` por `800 ms`; finalização automática
      (`autoFinalizeOnSilence`) vem **desativada** por padrão em
      `DictationSessionController`.

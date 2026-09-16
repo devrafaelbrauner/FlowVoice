@@ -54,6 +54,54 @@ class LivePreviewAssemblerTest {
         assertEquals("", preview.full)
     }
 
+    @Test
+    fun continuationDropsFromTheNewPieceTheWordsThatRepeatTheEndOfTheTextAlreadyTyped() {
+        assertEquals("de sangue", LivePreviewAssembler.continuation("o médico pediu o exame", "o exame de sangue"))
+        assertEquals("importante", LivePreviewAssembler.continuation("é muito", "muito importante"))
+        assertEquals("", LivePreviewAssembler.continuation("pediu o exame", "o exame"))
+    }
+
+    @Test
+    fun continuationOfTheFirstPieceIsTheTrimmedPieceAndABlankPieceAddsNothing() {
+        assertEquals("olá mundo", LivePreviewAssembler.continuation("", "  olá mundo "))
+        assertEquals("", LivePreviewAssembler.continuation("olá", "   "))
+    }
+
+    @Test
+    fun typingEachContinuationWithASpaceGivesTheSameTextAsMergingTheWindows() {
+        val windows = listOf("o médico pediu", "pediu o exame", "de sangue para", "para amanhã cedo")
+        val merged = windows.fold("") { acc, next -> LivePreviewAssembler.mergeAdjacent(acc, next) }
+        val typed = windows.fold("") { acc, next ->
+            val piece = LivePreviewAssembler.continuation(acc, next)
+            if (acc.isEmpty() || piece.isEmpty()) acc + piece else "$acc $piece"
+        }
+
+        assertEquals(merged, typed)
+    }
+
+    // P143: com contexto sobreposto o começo de cada janela repete o fim da anterior, e a repetição
+    // não volta idêntica do modelo.
+    @Test
+    fun overlappingContextIsMergedEvenWhenTheModelWritesItDifferently() {
+        val segments = listOf(
+            ok(0, "Paciente evoluiu com diarreia"),
+            ok(1, "com diarréia, há três dias,"),
+            ok(2, "há três dias, e dispneia.")
+        )
+
+        val preview = LivePreviewAssembler.assemble(segments, sessionComplete = true)
+
+        assertEquals("Paciente evoluiu com diarreia há três dias, e dispneia.", preview.finalized)
+    }
+
+    @Test
+    fun aWordBrokenAtTheCutIsClosedWithoutASpaceWhenMerging() {
+        assertEquals(
+            "com episódios de diarreia",
+            LivePreviewAssembler.mergeAdjacent("com episódios de di", "de diarreia")
+        )
+    }
+
     private fun ok(index: Int, text: String) =
         TranscriptionSegment(index, TranscriptionSegment.Status.Ok, text)
 }

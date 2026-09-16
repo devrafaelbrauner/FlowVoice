@@ -56,6 +56,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
 import androidx.lifecycle.compose.LifecycleResumeEffect
+import dev.rafaelbrauner.flowvoice.service.AccessibilityTextInserter
 import dev.rafaelbrauner.flowvoice.service.FlowVoiceAccessibilityService
 import dev.rafaelbrauner.flowvoice.service.FlowVoiceOverlayService
 import dev.rafaelbrauner.flowvoice.shared.notes.NoteDictationCoordinator
@@ -222,7 +223,14 @@ private class DictationStarter(
         val previousApp = FlowVoiceAccessibilityService.service?.previousAppLaunchIntent()
         // startActivity direto: startActivitySafely marcaria o app de origem como aberto pelo FlowVoice.
         val reopened = previousApp != null && runCatching { context.startActivity(previousApp) }.isSuccess
-        if (!reopened) context.findActivity()?.moveTaskToBack(true)
+        // A sessão começou com o FlowVoice na frente (destino nulo): o destino é o app reaberto, e a
+        // inserção sem toque (P139) nunca vai para outro. Sem app reaberto, o destino fica desconhecido
+        // e o primeiro trecho espera "Inserir aqui".
+        if (reopened) {
+            (previousApp?.component?.packageName ?: previousApp?.`package`)?.let(AccessibilityTextInserter::pinTarget)
+        } else {
+            context.findActivity()?.moveTaskToBack(true)
+        }
     }
 }
 

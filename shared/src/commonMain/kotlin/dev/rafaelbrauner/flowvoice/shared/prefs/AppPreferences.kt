@@ -9,7 +9,9 @@ data class AppPreferences(
     val googleWebClientId: String = "",
     val syncEndpoint: String = "",
     val loginCompleted: Boolean = false,
-    val onboardingCompleted: Boolean = false
+    val onboardingCompleted: Boolean = false,
+    // Desligado (padrão), a bolha digita cada trecho direto no campo (P139); ligado, mantém a barra com Inserir e a revisão por IA.
+    val reviewBeforeInsert: Boolean = false
 ) {
     companion object {
         const val DEFAULT_PROOFREADING_MODEL = "openai/gpt-4o-mini"

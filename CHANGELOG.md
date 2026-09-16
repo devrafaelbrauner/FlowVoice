@@ -6,6 +6,236 @@ estão em [`docs/tasks/`](docs/tasks/README.md).
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-09-15
+
+Bolha arrastável e inserção direta com prévia (P138 e P139) e janela de áudio
+cortada na pausa da fala (P140). Desenho e decisões da bolha em
+[`docs/tasks/P138-P139.md`](docs/tasks/P138-P139.md).
+
+### Added
+
+- P139: ditar pela bolha **digita cada trecho no campo aberto** assim que ele é
+  transcrito, sem a barra nem o toque em Inserir. Os trechos entram em ordem, com
+  espaço entre eles, e a palavra repetida na emenda sai do trecho novo (mesma regra
+  da P127, que continua aberta). Tocar de novo na bolha encerra e digita o último
+  trecho. Falha de trecho aparece na hora, e teto e chave recusada encerram como
+  antes.
+- P139: prévia junto à bolha, nos temas claro e escuro, com cronômetro, estado,
+  **NO CAMPO** (o que já foi escrito), "transcrevendo…", **PENDENTE** e avisos.
+  "Cancelar" descarta só o que não foi digitado. O resultado fica por 4 s
+  ("Digitado no campo · N palavras"). O cartão fica numa janela própria, que
+  **abre longe do cursor**: acima ou abaixo da linha do cursor em foco, sem cobri-la
+  nem cobrir o teclado. Com pouco espaço, encolhe; sem espaço, some. A posição do
+  cursor vem só das coordenadas do serviço de acessibilidade, sem ler o texto, e
+  só é consultada com a prévia visível (ao abrir, quando o conteúdo muda e a cada
+  1 s).
+- P139: ajuste **"Revisar antes de inserir"** (desligado por padrão), que mantém o
+  fluxo anterior: barra acima do teclado, Inserir e revisão por IA.
+- P138: a bolha pode ser **arrastada** para qualquer ponto da área segura e encosta
+  na borda mais próxima ao soltar. A posição (lado e fração da altura) fica salva
+  fora da sincronização e volta ao mesmo lugar ao girar a tela e depois de reiniciar.
+  Um toque curto aciona a bolha; um arraste nunca inicia ditado. Com TalkBack, a
+  bolha tem nome, papel de botão e as ações "Mover para cima", "Mover para baixo" e
+  "Mover para o outro lado". A posição padrão (direita, 30 % da altura) sai de
+  cima da tecla de ação e do microfone das Notas (P27, P123).
+- P138: a bolha é **totalmente redonda**. A sombra e o anel pulsante passavam da
+  folga da janela retangular e eram cortados nas bordas dela, o que formava um halo
+  quadrado. Agora são recortados em círculo, com sombra menor.
+- P141: a bolha **volta sozinha depois de atualizar o app**. Reinstalar mata o
+  processo e leva a bolha junto, e antes era preciso religá-la em Ajustes. O estado
+  "ligada" agora fica guardado no aparelho, fora da sincronização, e o app religa a
+  bolha ao voltar ao primeiro plano, se as permissões continuarem valendo.
+
+### Changed
+
+- P147: a revisão por IA passa a valer também na digitação direta, **uma vez só,
+  no fim do ditado** (a P139 a dispensava por completo aqui). Revisar trecho a
+  trecho dobraria custo e latência sem o contexto da frase; no fim, a frase
+  inteira existe e é ela que vai ao modelo. Ela continua ao revisar antes de
+  inserir e nas notas.
+- P139: o microfone do Início também digita direto, só no app que ele reabre
+  (P130).
+- P140: a janela de áudio é **cortada na pausa natural da fala**, e não mais a
+  cada ~4 s. Ela sai com 300 ms de pausa depois de ao menos 1,2 s de áudio e
+  400 ms de fala, cortada no meio da pausa. Falando sem pausa, continua o teto de
+  ~4 s. O limiar de pausa acompanha o ruído de fundo da sessão, e silêncio ou
+  ruído sem fala só saem no teto, sem pedidos a mais. Com as janelas fixas, no S26
+  (`gpt-transcribe`, ditado de 23 s), os pedidos saíam a cada 3,4–4,3 s, a
+  OpenRouter respondia em 1,1–1,7 s e o primeiro texto entrou 6,1 s depois do
+  início. A meta é o texto ~1,5–2 s depois de cada frase, ainda não medida.
+- P140: a captura lê frames de 100 ms (eram 256 ms no S26), o que dá resolução
+  ao corte na pausa.
+- P140: o teto de pedidos por sessão passou de 30 para 90 (~3 min de fala com as
+  janelas menores). Uma captura muda ainda para, em ~6 min. O custo máximo por
+  sessão com o `gpt-transcribe` é de ~US$ 0,03.
+- P140: `dictation_window` no log traz `cut` (`pause`, `leading`, `ceiling`,
+  `flush`) e `noiseFloor`.
+- P143: cada janela é transcrita **com o último 1 s da janela anterior** à
+  frente. Antes, cada janela ia sozinha, e quanto menor a janela, menos contexto
+  o modelo tinha: no S26 (`gpt-transcribe`) "diarreia" partida entre janelas saiu
+  como "arreio" e um nome próprio virou "Grandmont". A API de transcrição da
+  OpenRouter não aceita `prompt`, então o contexto só pode ser dado em áudio. O
+  contexto não entra na linha do tempo nem na contagem de bytes, e uma janela
+  muda continua sendo pulada sem custo (P124).
+- P143: a palavra repetida na emenda passa a ser reconhecida mesmo quando o
+  modelo a escreve com outro caixa, outra pontuação ou outro acento, e a palavra
+  partida no corte é fechada sem espaço ("…de di" + "de diarreia" → "diarreia").
+  Palavra que o usuário repetiu de propósito sobrevive quando o contexto a
+  ancora.
+- P143: a janela mínima passou de 1,2 s para 2 s e a pausa mínima de 300 ms para
+  450 ms, para uma hesitação no meio da frase não partir a frase. Custa ~150 ms a
+  mais depois de cada frase e até ~800 ms na primeira janela de uma frase curta.
+- P143: o áudio enviado por minuto de ditado sobe ~40 % (~US$ 0,0018 por
+  minuto); o teto de 90 pedidos por sessão não mudou e agora cobre ~3,7 min de
+  fala. `transcription_request` ganhou `contextMs`.
+- P144: **janela sem fala não é mais transcrita**. Depois da P143, uma janela
+  cortada antes da fala (ou o resto do fim) podia conter só silêncio mais o
+  contexto, e o modelo devolvia **o contexto** como texto novo, que entrava no
+  campo ("3Gs.", "Tô cansado."). Agora a fala de cada janela é medida só no áudio
+  dela, com o limiar que acompanha o ruído da sessão, e a janela sem fala vira
+  trecho vazio sem gastar requisição. Fala baixa continua indo à transcrição: só
+  os cortes que por construção não esperam fala são pulados.
+- P144: **o ponto não fica mais no meio da frase**. O modelo fecha cada trecho
+  com ponto; quando o trecho seguinte continuava a frase, saía "O exame de
+  sangue. mostrou leucocitose.". Agora esse ponto é apagado antes de escrever o
+  trecho novo. Só vale para ponto que o próprio FlowVoice escreveu e que ainda
+  está logo antes do cursor: depois de "Inserir aqui" ou de qualquer recusa, nada
+  é apagado. Trecho que começa com maiúscula é tratado como frase nova e mantém o
+  ponto.
+- P144: `transcription_silent_window` ganhou `reason` e `cut`;
+  `dictation_direct_inserted` ganhou `erased`.
+- P146: a repetição do contexto sobreposto passa a ser cortada **pelo tempo**, e
+  não por comparação de texto. Quando o modelo transcrevia o contexto de outro
+  jeito, a repetição não era reconhecida e o trecho entrava dobrado: no S26,
+  "Avaliado pelo doutor." seguido de "Segundo doutor Grandmont." deixou no campo
+  "Avaliado pelo doutor. Segundo doutor Grandmont.". Agora a janela que leva
+  contexto pede os tempos por palavra e tudo o que termina antes do fim do
+  contexto é descartado, mesmo com outras palavras.
+- P146: **o ditado não para se o provedor não der tempos**. Sem `words`, o corte
+  é por segmento; sem tempo nenhum, ou se o provedor recusar o formato, a janela
+  é refeita no formato de antes e vale a comparação por texto. A recusa fica
+  lembrada por modelo, então acontece uma vez, não a cada janela
+  (`transcription_verbose_unsupported`).
+- P146: o áudio enviado não muda e o custo por minuto de ditado continua o da
+  P143; só a resposta fica maior (os tempos de ~20 palavras por janela). A folga
+  do corte é de 120 ms e anda para trás: na dúvida a palavra fica, e a
+  deduplicação por texto a remove. `transcription_context_trimmed` traz quanto
+  foi cortado, sem o texto.
+- P147: **a pontuação do ditado direto é revista no fim.** O modelo de
+  transcrição só vê uma janela de 2 a 4 s por vez e pontua cada uma como se fosse
+  a frase inteira: no S26 (2026-09-16 09:29) saíram "Hoje o dia está muito
+  bonito.", "Por isso iremos para a praia." e "Para a praia pela manhã.", com
+  ponto final cedo demais e sem vírgula. Terminado o ditado (toque na bolha ou
+  teto), o texto inteiro que o FlowVoice escreveu vai ao modelo de revisão
+  (`openai/gpt-4o-mini`), que só pode mexer em pontuação, maiúsculas, acentos e
+  ortografia, e volta trocado no campo de uma vez: apaga exatamente os caracteres
+  que o app inseriu e escreve a versão revisada.
+- P147: **qualquer falha deixa o campo como está.** Guard recusando a resposta,
+  rede fora do ar, chave inválida, trecho ainda pendente, campo trocado no meio
+  ou ditado acima de 4000 caracteres: nada é apagado. A troca só acontece com o
+  que o app escreveu ainda imediatamente antes do cursor, no mesmo campo (as
+  travas da P139 e da P144), e a contiguidade é conferida **de novo depois da
+  resposta**, porque o campo pode ter mudado no ~1 s da chamada. Revisão idêntica
+  ao ditado não apaga nem escreve nada.
+- P147: a prévia mostra **"revisando…"** enquanto isso, e o resultado depois. O
+  custo é de uma chamada a mais por ditado (~US$ 0,0001 num ditado de 300
+  caracteres com o `gpt-4o-mini`) e o fim do ditado atrasa ~1 s; o `latencyMs` do
+  `dictation_finalized` passa a incluir essa espera.
+- P147: log `dictation_proofread_applied chars= erased= drift=` e
+  `dictation_proofread_skipped reason=` (`desligado`, `pendente`, `vazio`,
+  `nao_contiguo`, `muito_longo`, `guard`, `sem_mudanca`, `erro`, `recusado`,
+  `campo_diferente`), sem texto; o texto continua só no log da P135
+  (`proofreading_input` e `proofreading_output`).
+- P148: **a troca apaga o que está no campo, não o que o app anotou.** No S26
+  (2026-09-16 10:29) a pontuação saiu certa, mas sobrou a primeira letra do
+  ditado — "HHoje o dia..." —, porque o campo tinha um caractere a mais do que a
+  conta do app. Agora a revisão lê o texto que está de fato antes do cursor
+  (`getSurroundingText`, API 33+) e o casa com o ditado letra a letra, ignorando
+  espaços e pontuação, que é justamente o que diverge; os sinais que sobram no
+  meio entram no que será apagado. Letra diferente no meio (alguém digitou junto)
+  ou diferença acima de 16 caracteres para mais ou para menos **não apagam nada**
+  (`reason=campo_diferente`), e quem não souber ler o campo continua com a conta
+  do app. O `drift=` do log mede essa diferença: `drift=0` é o esperado.
+- P149: **uma palavra trocada não custa mais a pontuação do ditado inteiro.** No
+  S26 (2026-09-16 10:42) a revisão trocou "Tá" por "Está" — palavra curta, que o
+  guard não deixa mudar, pela mesma regra que barra "direito" por "esquerdo" — e
+  o texto inteiro foi descartado, junto com a vírgula e as maiúsculas que estavam
+  certas. Agora o ditado e a revisão são alinhados palavra a palavra: onde o
+  guard aceita a palavra, entra a da revisão (acento, ortografia, maiúscula);
+  onde não aceita, **fica a do ditado**, com a maiúscula que a revisão deu, para
+  a frase não recomeçar com letra maiúscula depois de uma vírgula. Pontuação e
+  espaços vêm sempre da revisão, e o resultado ainda passa pelo guard inteiro:
+  aspas, dois-pontos, quebras de linha e marcas `<ditado>` continuam descartando
+  a revisão. O texto misturado vai ao log da P135 (`proofreading_merged`).
+- P152: a revisão final **desiste em 5 s**. Sem teto próprio valia o das
+  transcrições (30 s), com o ditado já no campo e o usuário parado esperando o
+  texto trocar; as duas revisões medidas no S26 levaram ~1,5 s. Estourando o
+  teto, o ditado fica exatamente como foi digitado e o log registra
+  `dictation_proofread_skipped reason=demorou`.
+- P150: **a emenda reconhece o contexto transcrito com outras palavras.** O 1 s de
+  áudio sobreposto da P143 pode voltar escrito diferente: no S26 (2026-09-16
+  10:42) a janela anterior tinha "está muito bonito" e a nova veio "Tá muito
+  bonito", a comparação por letras não reconheceu e "muito bonito" entrou duas
+  vezes no campo. Agora, **só onde a comparação atual desiste**, o fim do texto já
+  escrito é comparado com o começo do trecho novo deixando as palavras divergirem
+  um pouco. A remoção exige contexto na janela, cabe no tempo dele (30 caracteres
+  por segundo, no máximo 120), vale só na emenda — nunca no meio da fala — e
+  precisa de evidência: duas palavras casando ou uma longa, com a palavra curta
+  divergente valendo só encostada em vizinhas idênticas. Na dúvida, o texto fica
+  como veio: um "tá" repetido é melhor do que fala comida.
+- P151: **silêncio não custa mais requisição.** No S26 (2026-09-16 10:42), os 28 s
+  entre o fim da fala e o toque que encerrou gastaram três chamadas que voltaram
+  vazias (~14 s de áudio enviado à toa). A barreira que faltava era o corte: a
+  regra da P144 só pulava janela `leading` e `flush`, e com ruído de sala parado
+  a janela sai no teto e ia sempre à API. Agora a janela com menos de 80 ms de
+  fala medida não é enviada (`transcription_silent_window
+  reason=fala_insuficiente`), em qualquer corte. O limiar é o menor acima de zero
+  que a medição permite, e fala real curta dá cinco vezes isso; janela sem
+  medição vai à API, porque falta de medição não é silêncio. A janela pulada
+  continua ocupando a vaga do teto de requisições (P107), e o `dictation_window`
+  passou a registrar `voicedMs=`.
+- P153: **o mesmo nível de áudio não é pago duas vezes.** No S26 (2026-09-16
+  11:04), num ditado sussurrado, duas janelas com voz medida bem acima do limiar
+  da P151 foram transcritas e voltaram vazias: o limiar de fala num quarto
+  silencioso fica em 250 (−42 dBFS), que respiração e ruído de sala cruzam. Em
+  vez de adivinhar um limiar novo — o jeito de quebrar quem fala baixo —, a
+  sessão aprende com a resposta que já foi paga: a janela é pulada quando não é
+  mais alta que alguma que já voltou vazia **e** é mais baixa que qualquer uma
+  que já rendeu texto (`transcription_silent_window reason=nivel_ja_vazio`).
+  Assim, o nível que já produziu texto nunca é tomado por silêncio. O
+  `dictation_window` passou a registrar `peak=`, o bloco mais alto do áudio
+  próprio da janela.
+
+### Security
+
+- P139: a digitação sem toque só acontece com destino conhecido, no mesmo app e,
+  depois do primeiro trecho, no mesmo campo. O serviço de acessibilidade conta
+  início e fim de input, e trocar de conversa ou de campo pausa. Qualquer recusa
+  pausa a sessão até o fim, mesmo que o foco volte ao app de origem, e só "Inserir
+  aqui" escreve no app atual. Isso cobre, no modo direto, a conferência por pacote
+  da P85 e o sucesso falso sem campo da P114. Continuam as travas de senha, do
+  próprio FlowVoice e da P113 (toque até 1 s depois da recusa é ignorado).
+
+### Known issues
+
+- Validado no S26 sem fala: arraste, encaixe, posição lembrada depois de reiniciar
+  o app e de girar a tela, toque curto, prévia e cancelamento. A digitação com fala
+  ainda não foi testada.
+- A linha do cursor vem de `EXTRA_DATA_TEXT_CHARACTER_LOCATION_KEY`. Se o app não
+  a informa, a prévia evita o campo inteiro. Se o campo é grande (mais de 40 % da
+  faixa útil) e a linha é desconhecida, vale a regra antiga pela metade da tela da
+  bolha, que pode cobrir o cursor (ver `docs/tasks/P138-P139.md`).
+- Sem campo em foco, o cartão aberto pela regra antiga pode ficar sobre a linha
+  que se quer tocar e receber o toque. Focar o campo antes de ditar evita isso.
+- Um app que reinicie o input a cada `commitText` pausaria a digitação a cada
+  trecho (`dictation_direct_paused route=trava:campo`). Não foi medido.
+- P140: os limiares do corte na pausa foram escolhidos sem fala real (pausa até
+  2× o piso de ruído, mínimo 100; fala acima de 3×, mínimo 250) e não foram
+  medidos no S26. Uma hesitação de 300 ms no meio da frase parte a janela, e o
+  modelo pode fechar o trecho com ponto e abrir o seguinte com maiúscula. A
+  transcrição continua uma de cada vez: uma janela que sai com a anterior ainda na
+  OpenRouter espera por ela.
+
 ## [0.4.8] - 2026-09-15
 
 ### Changed

@@ -44,6 +44,12 @@ data class OpenRouterConfig(
         const val DEFAULT_MAX_RETRIES = 3
         const val DEFAULT_INITIAL_BACKOFF_MS = 500L
         const val DEFAULT_MAX_BACKOFF_MS = 8_000L
-        const val DEFAULT_MAX_REQUESTS_PER_SESSION = 30
+        // Janelas cortadas na pausa (P140, P143) têm de ~2 a 4,3 s, mais 1 s de contexto sobreposto
+        // no que é enviado. Com ~2,5 s de média, 90 pedidos dão uma sessão útil de ~3,7 min, mais que
+        // os ~3 min de antes da P143: o teto de 90 segue valendo. O teto continua contado na
+        // submissão (P107), e silêncio só sai no teto de ~4 s, então uma captura muda ainda para, em
+        // ~6 min. Custo máximo por sessão com o gpt-transcribe (~US$ 0,0011 por 15 s de áudio):
+        // 90 × (4,3 s + 1 s) ≈ US$ 0,035.
+        const val DEFAULT_MAX_REQUESTS_PER_SESSION = 90
     }
 }

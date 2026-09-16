@@ -1,7 +1,9 @@
 package dev.rafaelbrauner.flowvoice.shared.transcription
 
 import dev.rafaelbrauner.flowvoice.shared.dictation.DictationWindow
+import dev.rafaelbrauner.flowvoice.shared.dictation.EmptyAudioMemory
 import dev.rafaelbrauner.flowvoice.shared.dictation.SilentWindow
+import dev.rafaelbrauner.flowvoice.shared.dictation.WindowSpeechGate
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -27,6 +29,8 @@ class IncrementalTranscriptionController(
     private val jobs = mutableListOf<Job>()
     private var cancelled = false
     private var requestCount = 0
+    // O que já se provou vazio nesta sessão, para não pagar duas vezes pelo mesmo nível (P153).
+    private val emptyAudio = EmptyAudioMemory()
     private var sessionApiKey: String? = null
     private val budgetState = MutableStateFlow(false)
     private val fatalState = MutableStateFlow<TranscriptionError?>(null)
@@ -71,6 +75,7 @@ class IncrementalTranscriptionController(
         sessionApiKey = apiKey?.takeIf { it.isNotBlank() }
         budgetState.value = false
         fatalState.value = null
+        emptyAudio.clear()
         provisional.value = ""
         segmentState.value = emptyList()
     }
@@ -100,7 +105,19 @@ class IncrementalTranscriptionController(
     private suspend fun process(window: DictationWindow) {
         if (cancelled) return
         if (SilentWindow.detect(window)) {
-            skipSilent(window)
+            skipSilent(window, "digital")
+            return
+        }
+        // Sem fala medida bastante, a janela não vale uma requisição: com o piso de ruído alto o
+        // silêncio do fim do ditado chegava aqui como janela de teto e voltava vazia (P151).
+        WindowSpeechGate.skipReason(window)?.let { reason ->
+            skipSilent(window, reason)
+            return
+        }
+        // Áudio que não é mais alto do que um que já voltou vazio nesta sessão não se paga de novo
+        // (P153). Quem fala baixo escapa da trava: o nível que já rendeu texto nunca é silêncio.
+        if (emptyAudio.skips(window.peakLevel)) {
+            skipSilent(window, WindowSpeechGate.REASON_LEVEL_ALREADY_EMPTY)
             return
         }
         upsert(
@@ -124,9 +141,11 @@ class IncrementalTranscriptionController(
                 TranscriptionSegment(
                     windowIndex = window.index,
                     status = TranscriptionSegment.Status.Ok,
-                    text = result.text
+                    text = result.text,
+                    contextDurationMs = window.contextDurationMs
                 )
             )
+            emptyAudio.remember(window.peakLevel, result.text.isNotBlank())
             textLog.log("transcription_window_text", mapOf("window" to window.index.toString(), "text" to result.text))
             rebuildProvisionalText()
         } catch (error: CancellationException) {
@@ -142,14 +161,19 @@ class IncrementalTranscriptionController(
 
     // A janela silenciosa já ocupou uma vaga do teto na submissão: sem isso, uma captura muda
     // nunca atingiria o teto e o microfone ficaria aberto (P107).
-    private suspend fun skipSilent(window: DictationWindow) {
+    private suspend fun skipSilent(window: DictationWindow, reason: String) {
         upsert(TranscriptionSegment(windowIndex = window.index, status = TranscriptionSegment.Status.Ok))
         eventLog.log(
             "transcription_silent_window",
-            mapOf(
-                "window" to window.index.toString(),
-                "durationMs" to window.durationMs.toString()
-            )
+            buildMap {
+                put("window", window.index.toString())
+                put("durationMs", window.durationMs.toString())
+                put("reason", reason)
+                put("cut", window.cut.name.lowercase())
+                // Quanto de fala foi medido na janela barrada: é o número que diz, no aparelho, se o
+                // corte da P151 pegou silêncio mesmo ou se encostou em fala baixa.
+                window.voicedMs?.let { put("voicedMs", it.toString()) }
+            }
         )
     }
 
