@@ -115,6 +115,64 @@ class TranscriptOverlapTest {
         assertFalse(match.glued)
     }
 
+    // P150: no S26 (2026-09-16, `openai/gpt-transcribe`) o contexto de 1 s da P143 voltou transcrito
+    // com outras palavras — a janela 0 disse "está muito bonito" e a janela 1 disse "Tá muito bonito"
+    // pelo mesmo áudio. A comparação por letras não reconheceu e "muito bonito" entrou duas vezes.
+    @Test
+    fun theContextTranscribedWithOtherWordsIsStillRecognizedAsARepetition() {
+        val match = TranscriptOverlap.match(
+            "Hoje o dia está muito bonito.",
+            "Tá muito bonito, por isso iremos para a praia pela manhã.",
+            contextDurationMs = 1000
+        )
+
+        assertEquals("por isso iremos para a praia pela manhã.", match.text)
+        assertFalse(match.glued)
+    }
+
+    // A janela sem contexto não repetiu áudio nenhum: o que parece repetição ali é fala de verdade, e
+    // o casamento aproximado nem é tentado.
+    @Test
+    fun withoutContextTheApproximateRuleNeverRemovesAnything() {
+        val match = TranscriptOverlap.match(
+            "Hoje o dia está muito bonito.",
+            "Tá muito bonito, por isso iremos para a praia pela manhã."
+        )
+
+        assertEquals("Tá muito bonito, por isso iremos para a praia pela manhã.", match.text)
+    }
+
+    // Nunca se apaga mais do que o contexto poderia conter: com 200 ms de contexto não cabem as três
+    // palavras, então nada sai. Repetir é reversível pelo usuário; apagar fala, não.
+    @Test
+    fun theApproximateRuleNeverRemovesMoreThanTheContextCouldHold() {
+        val match = TranscriptOverlap.match(
+            "Hoje o dia está muito bonito.",
+            "Tá muito bonito, por isso iremos para a praia pela manhã.",
+            contextDurationMs = 200
+        )
+
+        assertEquals("Tá muito bonito, por isso iremos para a praia pela manhã.", match.text)
+    }
+
+    // Uma palavra curta e diferente é palpite, não prova: sem duas palavras casando atrás dela, a
+    // frase nova entra inteira.
+    @Test
+    fun aSingleDivergentShortWordIsNotEvidenceEnoughToRemoveAnything() {
+        val match = TranscriptOverlap.match("Hoje o dia está", "Tá chovendo muito.", contextDurationMs = 1000)
+
+        assertEquals("Tá chovendo muito.", match.text)
+    }
+
+    // A regra só olha o começo da janela nova contra o fim da anterior. O que o usuário repetiu no
+    // meio da própria fala não é emenda e não é tocado.
+    @Test
+    fun aRepetitionInsideTheNewWindowIsNotTouched() {
+        val match = TranscriptOverlap.match("hoje o dia está", "chovia, tá muito frio", contextDurationMs = 1000)
+
+        assertEquals("chovia, tá muito frio", match.text)
+    }
+
     // Um trecho só de pontuação casaria com qualquer outro, então não conta como repetição: o traço
     // repetido sobra, o que é preferível a apagar palavra de verdade por causa de um travessão.
     @Test
