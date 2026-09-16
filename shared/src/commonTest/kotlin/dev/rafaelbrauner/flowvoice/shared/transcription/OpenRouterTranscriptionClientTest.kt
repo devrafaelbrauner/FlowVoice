@@ -29,6 +29,33 @@ import kotlin.test.assertTrue
 
 private const val WAV_HEADER = 44
 
+// Resposta `verbose_json` com o contexto de 1 s à frente (P143): "Segundo doutor" é o contexto que o
+// modelo retranscreveu de outro jeito, e "Grandmont" é a fala da janela.
+private val VERBOSE_WORDS_BODY = """
+    {
+      "task": "transcribe",
+      "language": "portuguese",
+      "duration": 2.4,
+      "text": "Segundo doutor Grandmont.",
+      "words": [
+        {"word": "Segundo", "start": 0.1, "end": 0.5},
+        {"word": "doutor", "start": 0.5, "end": 0.86},
+        {"word": "Grandmont", "start": 1.1, "end": 1.6}
+      ]
+    }
+""".trimIndent()
+
+private val VERBOSE_SEGMENTS_BODY = """
+    {
+      "task": "transcribe",
+      "text": "Avaliado pelo doutor. Grandmont chegou.",
+      "segments": [
+        {"id": 0, "start": 0.0, "end": 0.85, "text": "Avaliado pelo doutor."},
+        {"id": 1, "start": 1.0, "end": 2.4, "text": "Grandmont chegou."}
+      ]
+    }
+""".trimIndent()
+
 class OpenRouterTranscriptionClientTest {
     @Test
     fun postsJsonAudioAndReturnsTextWithoutLoggingSecrets() = runTest {
@@ -197,6 +224,130 @@ class OpenRouterTranscriptionClientTest {
 
         assertFalse(error is TranscriptionError.InvalidKey)
         assertEquals("forbidden", error.kind)
+    }
+
+    // P146: o tempo por palavra só é pedido quando há contexto sobreposto para cortar. A janela 0 vai
+    // sozinha e não tem repetição nenhuma, então não paga uma resposta maior.
+    @Test
+    fun asksForWordTimestampsOnlyWhenThereIsContextToTrim() = runTest {
+        val log = RecordingLog()
+        val engine = MockEngine {
+            respond(
+                content = ByteReadChannel("""{"text":"Avaliado pelo doutor."}"""),
+                status = HttpStatusCode.OK,
+                headers = jsonHeaders()
+            )
+        }
+        val client = OpenRouterTranscriptionClient(httpClient(engine), OpenRouterConfig(), log)
+
+        client.transcribe(testWindow(index = 0), SECRET_KEY)
+        client.transcribe(testWindow(index = 1, contextMs = 1_000L), SECRET_KEY)
+
+        val first = (engine.requestHistory[0].body as TextContent).text
+        val second = (engine.requestHistory[1].body as TextContent).text
+        assertFalse(first.contains("response_format"), first)
+        assertTrue(second.contains("\"response_format\":\"verbose_json\""), second)
+        assertTrue(second.contains("\"timestamp_granularities\":[\"word\"]"), second)
+        assertTrue(log.events.none { it.event == "transcription_context_trimmed" }, "sem tempos, nada é cortado")
+    }
+
+    // O caso medido no S26 (2026-09-16): "Avaliado pelo doutor" voltou como "Segundo doutor" na janela
+    // seguinte. A comparação por texto não acharia a repetição; o tempo acha.
+    @Test
+    fun trimsTheContextByWordTimeAndLogsHowMuchWasDropped() = runTest {
+        val log = RecordingLog()
+        val engine = MockEngine {
+            respond(content = ByteReadChannel(VERBOSE_WORDS_BODY), status = HttpStatusCode.OK, headers = jsonHeaders())
+        }
+        val client = OpenRouterTranscriptionClient(httpClient(engine), OpenRouterConfig(), log)
+
+        val result = client.transcribe(testWindow(index = 1, contextMs = 1_000L), SECRET_KEY)
+
+        assertEquals("Grandmont.", result.text)
+        val trimmed = log.events.first { it.event == "transcription_context_trimmed" }
+        assertEquals("1", trimmed.metadata["window"])
+        assertEquals("words", trimmed.metadata["strategy"])
+        assertEquals("860", trimmed.metadata["droppedMs"])
+        assertEquals("2", trimmed.metadata["droppedWords"])
+        assertTrue(
+            log.events.none { event -> event.metadata.values.any { it.contains("Grandmont") } },
+            "o texto transcrito só sai no log de texto da P135"
+        )
+    }
+
+    @Test
+    fun withoutWordsTheContextIsTrimmedBySegment() = runTest {
+        val log = RecordingLog()
+        val engine = MockEngine {
+            respond(content = ByteReadChannel(VERBOSE_SEGMENTS_BODY), status = HttpStatusCode.OK, headers = jsonHeaders())
+        }
+        val client = OpenRouterTranscriptionClient(httpClient(engine), OpenRouterConfig(), log)
+
+        val result = client.transcribe(testWindow(index = 1, contextMs = 1_000L), SECRET_KEY)
+
+        assertEquals("Grandmont chegou.", result.text)
+        val trimmed = log.events.first { it.event == "transcription_context_trimmed" }
+        assertEquals("segments", trimmed.metadata["strategy"])
+        assertEquals("1", trimmed.metadata["droppedSegments"])
+    }
+
+    // Provedor que recusa `verbose_json`: a janela é refeita em `json` na hora, e a sessão inteira
+    // segue em `json` — a recusa não se repete a cada janela.
+    @Test
+    fun aProviderThatRefusesVerboseJsonFallsBackAndTheSessionKeepsPlainJson() = runTest {
+        val log = RecordingLog()
+        val engine = MockEngine { request ->
+            if ((request.body as TextContent).text.contains("verbose_json")) {
+                respond(
+                    content = ByteReadChannel("""{"error":{"message":"response_format is not supported"}}"""),
+                    status = HttpStatusCode.BadRequest,
+                    headers = jsonHeaders()
+                )
+            } else {
+                respond(
+                    content = ByteReadChannel("""{"text":"Segundo doutor Grandmont."}"""),
+                    status = HttpStatusCode.OK,
+                    headers = jsonHeaders()
+                )
+            }
+        }
+        val client = OpenRouterTranscriptionClient(httpClient(engine), OpenRouterConfig(), log)
+
+        val first = client.transcribe(testWindow(index = 1, contextMs = 1_000L), SECRET_KEY)
+        val second = client.transcribe(testWindow(index = 2, contextMs = 1_000L), SECRET_KEY)
+
+        assertEquals("Segundo doutor Grandmont.", first.text, "o ditado não pode parar por causa do formato")
+        assertEquals("Segundo doutor Grandmont.", second.text)
+        assertEquals(3, engine.requestHistory.size, "só a primeira janela paga a recusa")
+        assertFalse((engine.requestHistory[2].body as TextContent).text.contains("response_format"))
+        val refusal = log.events.single { it.event == "transcription_verbose_unsupported" }
+        assertEquals("http_400", refusal.metadata["reason"])
+        assertEquals("400", refusal.metadata["status"])
+        assertTrue(log.events.none { it.event == "transcription_error" }, "recusa de formato não é falha do trecho")
+    }
+
+    // Provedor que aceita o formato e devolve sem tempos: o texto vale, nada é cortado por tempo e as
+    // janelas seguintes deixam de pedir a resposta maior.
+    @Test
+    fun aVerboseAnswerWithoutTimesStopsTheSessionFromAskingAgain() = runTest {
+        val log = RecordingLog()
+        val engine = MockEngine {
+            respond(
+                content = ByteReadChannel("""{"text":"Segundo doutor Grandmont."}"""),
+                status = HttpStatusCode.OK,
+                headers = jsonHeaders()
+            )
+        }
+        val client = OpenRouterTranscriptionClient(httpClient(engine), OpenRouterConfig(), log)
+
+        val result = client.transcribe(testWindow(index = 1, contextMs = 1_000L), SECRET_KEY)
+        client.transcribe(testWindow(index = 2, contextMs = 1_000L), SECRET_KEY)
+
+        assertEquals("Segundo doutor Grandmont.", result.text)
+        assertEquals(2, engine.requestHistory.size, "sem tempos não se repete o pedido: o texto já veio")
+        assertFalse((engine.requestHistory[1].body as TextContent).text.contains("response_format"))
+        val refusal = log.events.single { it.event == "transcription_verbose_unsupported" }
+        assertEquals("sem_tempos", refusal.metadata["reason"])
     }
 
     private fun httpClient(engine: MockEngine): HttpClient = HttpClient(engine) {

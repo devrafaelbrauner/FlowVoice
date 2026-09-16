@@ -6,6 +6,7 @@ import io.ktor.client.plugins.timeout
 import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
+import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
@@ -27,6 +28,13 @@ class OpenRouterTranscriptionClient(
     @Volatile
     private var currentJob: Job? = null
 
+    // Modelos que não devolvem tempos (P146), porque recusaram `verbose_json` ou responderam sem
+    // `words`/`segments`. Guardado por modelo, não por sessão: quem não devolve tempo hoje não passa a
+    // devolver no meio do ditado, e assim a recusa não se repete a cada janela. Escrita por cópia —
+    // as janelas são transcritas uma de cada vez, mas o cliente é único.
+    @Volatile
+    private var withoutTimestamps: Set<String> = emptySet()
+
     override suspend fun transcribe(
         window: DictationWindow,
         apiKey: String,
@@ -44,52 +52,62 @@ class OpenRouterTranscriptionClient(
                 "model" to usedModel
             )
         )
-        val wav = WavEncoder.encode(window.transmittedPcm, window.format)
-        val requestBody = OpenRouterSttRequest(
-            model = usedModel,
-            language = config.language,
-            temperature = config.temperature,
-            inputAudio = OpenRouterInputAudio(
-                data = wav.encodeBase64(),
-                format = "wav"
-            )
+        val audio = OpenRouterInputAudio(
+            data = WavEncoder.encode(window.transmittedPcm, window.format).encodeBase64(),
+            format = "wav"
         )
+        // Só há repetição para cortar quando a janela leva contexto: a janela 0 vai sozinha e não paga
+        // uma resposta maior.
+        var verbose = window.contextDurationMs > 0L && usedModel !in withoutTimestamps
         var httpStatus: Int? = null
         return try {
-            val response = http.post("${config.baseUrl}${config.transcriptionsPath}") {
-                timeout {
-                    connectTimeoutMillis = config.connectTimeoutMs
-                    requestTimeoutMillis = config.requestTimeoutMs
-                    socketTimeoutMillis = config.requestTimeoutMs
+            var payload: TranscriptionPayload? = null
+            while (payload == null) {
+                val response = post(audio, usedModel, apiKey, verbose)
+                val status = response.status.value
+                val raw = response.bodyAsText()
+                if (!response.status.isSuccess()) {
+                    // Provedor que recusa o formato: a janela é refeita em `json` na hora, para o
+                    // ditado não parar por causa de um campo a mais no pedido.
+                    if (verbose && status in FORMAT_REFUSED) {
+                        dropTimestamps(window, usedModel, "http_$status", status)
+                        verbose = false
+                        continue
+                    }
+                    httpStatus = status
+                    throw TranscriptionErrorClassifier.fromHttpStatus(
+                        status,
+                        response.headers[HttpHeaders.RetryAfter],
+                        extractErrorMessage(raw)
+                    )
                 }
-                header(HttpHeaders.Authorization, "Bearer $apiKey")
-                header("X-Title", "FlowVoice")
-                contentType(ContentType.Application.Json)
-                setBody(requestBody)
+                payload = TranscriptionPayloadParser.parse(raw)
+                    ?: throw TranscriptionError.InvalidResponse("unparseable json")
+                // Aceitou o formato e não mandou tempo: refazer não adiantaria e o texto já veio.
+                if (verbose && !payload.hasTimes && payload.text.isNotEmpty()) {
+                    dropTimestamps(window, usedModel, "sem_tempos", null)
+                }
             }
-            val status = response.status.value
-            val raw = response.bodyAsText()
-            if (!response.status.isSuccess()) {
-                httpStatus = status
-                throw TranscriptionErrorClassifier.fromHttpStatus(
-                    status,
-                    response.headers[HttpHeaders.RetryAfter],
-                    extractErrorMessage(raw)
+            val trimmed = ContextTrim.trim(payload, window.contextDurationMs)
+            if (trimmed.strategy != ContextTrim.Strategy.Text) {
+                eventLog.log(
+                    "transcription_context_trimmed",
+                    mapOf(
+                        "window" to window.index.toString(),
+                        "strategy" to trimmed.strategy.name.lowercase(),
+                        "contextMs" to window.contextDurationMs.toString(),
+                        "droppedMs" to trimmed.droppedMs.toString(),
+                        "droppedWords" to trimmed.droppedWords.toString(),
+                        "droppedSegments" to trimmed.droppedSegments.toString()
+                    )
                 )
             }
-            val payload = try {
-                responseJson.decodeFromString(OpenRouterTranscriptionResponse.serializer(), raw)
-            } catch (error: CancellationException) {
-                throw error
-            } catch (_: Throwable) {
-                throw TranscriptionError.InvalidResponse("unparseable json")
-            }
-            val text = payload.text?.trim().orEmpty()
+            val text = trimmed.text.trim()
             val result = TranscriptionResult(
                 text = text,
                 model = usedModel,
                 durationMs = window.durationMs,
-                costUsd = payload.usage?.cost
+                costUsd = payload.costUsd
             )
             eventLog.log(
                 "transcription_success",
@@ -111,6 +129,47 @@ class OpenRouterTranscriptionClient(
             logError(window, usedModel, classified, httpStatus)
             throw classified
         }
+    }
+
+    private suspend fun post(
+        audio: OpenRouterInputAudio,
+        model: String,
+        apiKey: String,
+        verbose: Boolean
+    ): HttpResponse {
+        val requestBody = OpenRouterSttRequest(
+            model = model,
+            language = config.language,
+            temperature = config.temperature,
+            inputAudio = audio,
+            responseFormat = if (verbose) VERBOSE_JSON else null,
+            timestampGranularities = if (verbose) WORD_GRANULARITY else null
+        )
+        return http.post("${config.baseUrl}${config.transcriptionsPath}") {
+            timeout {
+                connectTimeoutMillis = config.connectTimeoutMs
+                requestTimeoutMillis = config.requestTimeoutMs
+                socketTimeoutMillis = config.requestTimeoutMs
+            }
+            header(HttpHeaders.Authorization, "Bearer $apiKey")
+            header("X-Title", "FlowVoice")
+            contentType(ContentType.Application.Json)
+            setBody(requestBody)
+        }
+    }
+
+    private fun dropTimestamps(window: DictationWindow, model: String, reason: String, status: Int?) {
+        if (model in withoutTimestamps) return
+        withoutTimestamps = withoutTimestamps + model
+        eventLog.log(
+            "transcription_verbose_unsupported",
+            buildMap {
+                put("window", window.index.toString())
+                put("model", model)
+                put("reason", reason)
+                if (status != null) put("status", status.toString())
+            }
+        )
     }
 
     private fun logError(window: DictationWindow, model: String, error: TranscriptionError, httpStatus: Int?) {
@@ -143,6 +202,8 @@ internal data class OpenRouterSttRequest(
     val model: String,
     val language: String? = null,
     val temperature: Double? = null,
+    @SerialName("response_format") val responseFormat: String? = null,
+    @SerialName("timestamp_granularities") val timestampGranularities: List<String>? = null,
     @SerialName("input_audio") val inputAudio: OpenRouterInputAudio
 )
 
@@ -150,17 +211,6 @@ internal data class OpenRouterSttRequest(
 internal data class OpenRouterInputAudio(
     val data: String,
     val format: String
-)
-
-@Serializable
-internal data class OpenRouterTranscriptionResponse(
-    val text: String? = null,
-    val usage: OpenRouterTranscriptionUsage? = null
-)
-
-@Serializable
-internal data class OpenRouterTranscriptionUsage(
-    val cost: Double? = null
 )
 
 @Serializable
@@ -172,5 +222,13 @@ internal data class OpenRouterErrorEnvelope(
 internal data class OpenRouterErrorData(
     val message: String? = null
 )
+
+// "additionally returns task, language, duration, and segment-level timestamps; only supported by
+// OpenAI-compatible providers" e "returns word-level timestamps in the words array" (docs da
+// OpenRouter). Um provedor que não conheça os campos costuma responder 400; 422 cobre quem valida o
+// corpo antes de processar.
+private const val VERBOSE_JSON = "verbose_json"
+private val WORD_GRANULARITY = listOf("word")
+private val FORMAT_REFUSED = setOf(400, 422)
 
 private val responseJson = Json { ignoreUnknownKeys = true }
