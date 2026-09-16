@@ -156,6 +156,17 @@ cortada na pausa da fala (P140). Desenho e decisões da bolha em
   ou diferença acima de 16 caracteres para mais ou para menos **não apagam nada**
   (`reason=campo_diferente`), e quem não souber ler o campo continua com a conta
   do app. O `drift=` do log mede essa diferença: `drift=0` é o esperado.
+- P149: **uma palavra trocada não custa mais a pontuação do ditado inteiro.** No
+  S26 (2026-09-16 10:42) a revisão trocou "Tá" por "Está" — palavra curta, que o
+  guard não deixa mudar, pela mesma regra que barra "direito" por "esquerdo" — e
+  o texto inteiro foi descartado, junto com a vírgula e as maiúsculas que estavam
+  certas. Agora o ditado e a revisão são alinhados palavra a palavra: onde o
+  guard aceita a palavra, entra a da revisão (acento, ortografia, maiúscula);
+  onde não aceita, **fica a do ditado**, com a maiúscula que a revisão deu, para
+  a frase não recomeçar com letra maiúscula depois de uma vírgula. Pontuação e
+  espaços vêm sempre da revisão, e o resultado ainda passa pelo guard inteiro:
+  aspas, dois-pontos, quebras de linha e marcas `<ditado>` continuam descartando
+  a revisão. O texto misturado vai ao log da P135 (`proofreading_merged`).
 
 ### Security
 
