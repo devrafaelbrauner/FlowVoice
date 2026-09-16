@@ -361,6 +361,37 @@ class TranscriptOverlapTest {
         assertEquals("O bonito é que ninguém viu.", match.text)
     }
 
+    // P155, segunda medição no S26 (2026-09-16, `contextMs=1000`): o MESMO ponto do texto falhou em
+    // dois ditados. O segundo de contexto começou no meio de "indicações", o modelo ouviu só o fim e
+    // completou como outra palavra; "dos ministros" casa exato até o fim do texto anterior. O final
+    // comum é "ações" (5 letras), abaixo das 6 que o degrau 5 exige sem mais evidência.
+
+    // 15:28 — a palavra nova é só o final ouvido.
+    @Test
+    fun aFirstWordThatIsOnlyTheHeardEndingIsStillARepetitionWithStrongEvidenceAfterIt() {
+        val match = TranscriptOverlap.match(
+            "que não pode ser responsabilizado pelas indicações dos ministros.",
+            "Ações dos ministros Alexandre de Moraes.",
+            contextDurationMs = 1000
+        )
+
+        assertEquals("Alexandre de Moraes.", match.text)
+        assertFalse(match.glued)
+    }
+
+    // 15:55 — `chars=47`: o final ouvido foi completado com outro começo.
+    @Test
+    fun aFirstWordCompletedWithAnotherBeginningIsStillARepetitionWithStrongEvidenceAfterIt() {
+        val match = TranscriptOverlap.match(
+            "que não pode ser responsabilizado pelas indicações dos ministros.",
+            "Declarações dos ministros Alexandre de Moraes.",
+            contextDurationMs = 1000
+        )
+
+        assertEquals("Alexandre de Moraes.", match.text)
+        assertFalse(match.glued)
+    }
+
     // Um trecho só de pontuação casaria com qualquer outro, então não conta como repetição: o traço
     // repetido sobra, o que é preferível a apagar palavra de verdade por causa de um travessão.
     @Test

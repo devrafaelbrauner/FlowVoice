@@ -181,10 +181,11 @@ object TranscriptOverlap {
     // fala, então o começo da primeira palavra chega cortado e o modelo completa com o que soa
     // plausível; o fim dela e as palavras seguintes foram ouvidos inteiros.
     //
-    // Por isso a tolerância vale só para essa primeira palavra, e só de três formas que o corte
-    // explica (`isShortSwap`, `sharesClippedEnding`, palavra curta acrescida em
-    // `explainsAddedShortWord`). Todas as palavras depois dela casam exatas e vão até o fim de `left`,
-    // e o trecho removido cabe no que o contexto comporta.
+    // Por isso a tolerância vale só para essa primeira palavra, e só das formas que o corte explica
+    // (`isShortSwap`, `sharesClippedEnding`, `sharesClippedEndingBackedByEvidence` — final comum curto,
+    // só com evidência forte depois — e palavra curta acrescida em `explainsAddedShortWord`). Todas as
+    // palavras depois dela casam exatas e vão até o fim de `left`, e o trecho removido cabe no que o
+    // contexto comporta.
     private fun clippedOnsetOverlapSize(
         left: List<String>,
         right: List<String>,
@@ -211,7 +212,9 @@ object TranscriptOverlap {
         if (followers != left.takeLast(size - 1) || !hasContentWord(followers)) return false
         val aligned = left[left.size - size]
         val first = right[0]
-        return isShortSwap(aligned, first) || sharesClippedEnding(aligned, first)
+        return isShortSwap(aligned, first) ||
+            sharesClippedEnding(aligned, first) ||
+            (hasStrongEvidence(followers) && sharesClippedEndingBackedByEvidence(aligned, first))
     }
 
     // `right[0]` é uma palavra curta a mais ("Em"), `right[1]` é a palavra de `left` — igual ou só com
@@ -251,6 +254,36 @@ object TranscriptOverlap {
             shared * 2 >= maxOf(aligned.length, first.length) &&
             aligned.length - shared <= CLIPPED_ONSET_MAX_CHARS &&
             first.length - shared <= CLIPPED_ONSET_MAX_CHARS
+    }
+
+    // Palavra longa com o começo cortado, quando o final comum é do tamanho de um sufixo (P155, segunda
+    // medição no S26, 2026-09-16 15:28 e 15:55): o mesmo "indicações dos ministros." voltou "Ações dos
+    // ministros" num ditado e "Declarações dos ministros" noutro. O modelo ouviu só "-ações" e escreveu
+    // a palavra inteira que conhecia — às vezes nenhum começo, às vezes um começo maior que o perdido.
+    //
+    // Cinco letras sozinhas não provam nada: "-ações", "-mente", "-mento", "-idade" são sufixos de
+    // derivação, e "aumento"/"tratamento" são palavras diferentes. Por isso esta forma só vale com
+    // `hasStrongEvidence` depois, e perde as travas de `sharesClippedEnding` que o corte explica mas o
+    // sufixo não: a metade da palavra maior ("ações" é metade de "declarações" menos uma letra) e as 4
+    // letras de começo ("indic" tem 5). No lugar delas, o começo escrito não passa do começo perdido mais
+    // uma letra: o modelo completa o som que perdeu, não acrescenta uma palavra maior que a dita. Nas
+    // três medições foi assim — "Ações" (0 por 5), "Declarações" (6 por 5), "informações" (3 por 2) —, e
+    // "Tratamento" (5 por 2) contra "aumento" fica de fora.
+    private fun sharesClippedEndingBackedByEvidence(aligned: String, first: String): Boolean {
+        if (aligned == first || !isWord(aligned) || !isWord(first)) return false
+        if (aligned in NEGATIONS || first in NEGATIONS) return false
+        val shared = commonSuffixLength(aligned, first)
+        return shared >= CLIPPED_SUFFIX_MIN_CHARS &&
+            first.length - shared <= aligned.length - shared + CLIPPED_ONSET_EXTRA_CHARS
+    }
+
+    // Evidência forte depois da primeira palavra: duas palavras repetidas exatas, uma delas de 8+ letras.
+    // Uma palavra longa repetida exata no mesmo lugar, com outra ao lado, é o que o contexto produz e a
+    // fala quase nunca. "das doses" (nenhuma longa) não basta; "dose de dipirona" basta, mas ali a
+    // primeira palavra ("Nova" por "a") não divide final nenhum.
+    private fun hasStrongEvidence(followers: List<String>): Boolean {
+        val words = followers.filter { it.isNotEmpty() }
+        return words.size >= STRONG_EVIDENCE_WORDS && words.any { it.length >= LONG_WORD_CHARS }
     }
 
     // Mesma palavra com a última vogal trocada: gênero e número do particípio ("julgada"/"julgado").
@@ -294,6 +327,9 @@ object TranscriptOverlap {
     private const val CONTENT_WORD_MIN_CHARS = 3
     private const val CLIPPED_ENDING_MIN_CHARS = 6
     private const val CLIPPED_ONSET_MAX_CHARS = 4
+    private const val CLIPPED_SUFFIX_MIN_CHARS = 5
+    private const val CLIPPED_ONSET_EXTRA_CHARS = 1
+    private const val STRONG_EVIDENCE_WORDS = 2
 
     // Sem palavra repetida depois, a palavra alinhada é a única prova e precisa de 7+ letras: as
     // flexões mais frequentes da fala são curtas ("ele"/"ela", "todo"/"toda", "outro"/"outra",
