@@ -473,8 +473,10 @@ class DictationPipeline(
     private fun auditDirectWrite(window: String, before: String?, after: String?, erased: Int, written: String) {
         when (val verdict = DirectFieldWrite.verdict(before, after, erased, written)) {
             is DirectFieldWrite.Verdict.Ok, is DirectFieldWrite.Verdict.Unknown -> Unit
-            is DirectFieldWrite.Verdict.Mismatch ->
+            is DirectFieldWrite.Verdict.Mismatch -> {
                 log("dictation_write_mismatch", mapOf("window" to window, "acao" to verdict.reason))
+                logWriteAudit(window, before, after)
+            }
             is DirectFieldWrite.Verdict.Repair -> {
                 val redone = inserter.rewriteTail(verdict.deleteBefore, verdict.text)
                 log(
@@ -492,8 +494,19 @@ class DictationPipeline(
                         }
                     )
                 )
+                logWriteAudit(window, before, after)
             }
         }
+    }
+
+    // O que o campo tinha antes e depois de escrever, só quando houve divergência e só no log da P135
+    // (build debuggable + marcador do adb). É o que diz o que o editor fez com o pedaço — o espaço
+    // que sumiu, o ponto que ficou — e nunca vai para o log comum nem para o Diagnóstico.
+    private fun logWriteAudit(window: String, before: String?, after: String?) {
+        transcriptTextLog.log(
+            "direct_write_audit",
+            mapOf("window" to window, "antes" to (before ?: "—"), "depois" to (after ?: "—"))
+        )
     }
 
     private suspend fun finalizeDirect(): DictationPipelineStatus {

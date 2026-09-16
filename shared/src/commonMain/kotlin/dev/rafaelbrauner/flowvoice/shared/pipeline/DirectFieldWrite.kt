@@ -27,6 +27,12 @@ object DirectFieldWrite {
     // Não há leitura do campo (desktop, API antiga, campo ilegível).
     const val REASON_UNREADABLE = "sem_leitura"
 
+    // A leitura de depois voltou idêntica à de antes. No S26 (2026-09-16 14:47) isso aconteceu com o
+    // texto já no campo — o editor ainda não tinha aplicado a escrita quando lemos, e o ditado
+    // terminou certo. Campo que não mudou em nada é leitura velha, não escrita perdida: refazer
+    // escreveria o pedaço duas vezes, que é pior do que não conferir.
+    const val REASON_STALE = "leitura_velha"
+
     sealed interface Verdict {
         // O campo ficou como o app pediu.
         data object Ok : Verdict
@@ -58,6 +64,8 @@ object DirectFieldWrite {
     fun verdict(before: String?, after: String?, erased: Int, written: String): Verdict {
         if (before == null || after == null) return Verdict.Unknown(REASON_UNREADABLE)
         if (written.isEmpty()) return Verdict.Unknown(REASON_UNREADABLE)
+        // Nada mudou no campo, nem o que apagamos nem o que escrevemos: é a leitura que está velha.
+        if (after == before) return Verdict.Unknown(REASON_STALE)
         val head = before.dropLast(erased)
         val expected = head + written
         // As duas leituras têm o mesmo teto, e depois de escrever o campo cresceu: basta uma ser

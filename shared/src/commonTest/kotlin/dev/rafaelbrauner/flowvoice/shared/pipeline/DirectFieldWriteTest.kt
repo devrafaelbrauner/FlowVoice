@@ -5,6 +5,42 @@ import kotlin.test.assertEquals
 import kotlin.test.assertIs
 
 class DirectFieldWriteTest {
+    // No S26 (2026-09-16 14:47) a leitura feita logo depois de escrever voltou com o campo **de
+    // antes**: `dictation_write_mismatch window=1 campo=0 chars=36 acao=falhou`. O texto tinha
+    // entrado — o ditado terminou com `inserted=true` e a revisão final apagou o que havia escrito —,
+    // e a rota atômica só não escreveu o pedaço uma segunda vez porque foi recusada. Campo que não
+    // mudou em nada é leitura velha, não escrita perdida: não se refaz.
+    @Test
+    fun aFieldReadThatCameBackUnchangedIsNotTakenForAFailedWrite() {
+        val before = "Paciente com dispneia aos esforços."
+
+        val verdict = DirectFieldWrite.verdict(
+            before = before,
+            after = before,
+            erased = 0,
+            written = " Segue internada."
+        )
+
+        assertIs<DirectFieldWrite.Verdict.Unknown>(verdict)
+        assertEquals(DirectFieldWrite.REASON_STALE, verdict.reason)
+    }
+
+    // Mesma leitura velha, agora com o apagar da P144 no meio: o campo volta idêntico ao de antes.
+    @Test
+    fun aFieldReadThatCameBackUnchangedAfterAnEraseIsNotRedoneEither() {
+        val before = "O exame de sangue."
+
+        val verdict = DirectFieldWrite.verdict(
+            before = before,
+            after = before,
+            erased = 1,
+            written = " mostrou leucocitose."
+        )
+
+        assertIs<DirectFieldWrite.Verdict.Unknown>(verdict)
+        assertEquals(DirectFieldWrite.REASON_STALE, verdict.reason)
+    }
+
     @Test
     fun theFieldEndingWithWhatTheAppWroteErasesWhatWasAskedFor() {
         val typed = "O exame de sangue."
