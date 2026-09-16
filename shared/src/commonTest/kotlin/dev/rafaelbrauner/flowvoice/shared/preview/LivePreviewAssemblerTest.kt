@@ -79,6 +79,29 @@ class LivePreviewAssemblerTest {
         assertEquals(merged, typed)
     }
 
+    // P143: com contexto sobreposto o começo de cada janela repete o fim da anterior, e a repetição
+    // não volta idêntica do modelo.
+    @Test
+    fun overlappingContextIsMergedEvenWhenTheModelWritesItDifferently() {
+        val segments = listOf(
+            ok(0, "Paciente evoluiu com diarreia"),
+            ok(1, "com diarréia, há três dias,"),
+            ok(2, "há três dias, e dispneia.")
+        )
+
+        val preview = LivePreviewAssembler.assemble(segments, sessionComplete = true)
+
+        assertEquals("Paciente evoluiu com diarreia há três dias, e dispneia.", preview.finalized)
+    }
+
+    @Test
+    fun aWordBrokenAtTheCutIsClosedWithoutASpaceWhenMerging() {
+        assertEquals(
+            "com episódios de diarreia",
+            LivePreviewAssembler.mergeAdjacent("com episódios de di", "de diarreia")
+        )
+    }
+
     private fun ok(index: Int, text: String) =
         TranscriptionSegment(index, TranscriptionSegment.Status.Ok, text)
 }
