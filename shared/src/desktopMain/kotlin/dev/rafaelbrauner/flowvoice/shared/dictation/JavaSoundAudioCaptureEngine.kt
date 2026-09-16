@@ -11,7 +11,12 @@ import javax.sound.sampled.AudioFormat as JavaSoundFormat
 class JavaSoundAudioCaptureEngine(
     override val format: AudioFormat = AudioFormat.DEFAULT,
     private val openLine: (JavaSoundFormat) -> TargetDataLine = ::defaultTargetDataLine,
-    private val stalledReadTimeoutMs: Long = DEFAULT_STALLED_READ_TIMEOUT_MS
+    private val stalledReadTimeoutMs: Long = DEFAULT_STALLED_READ_TIMEOUT_MS,
+    // Mesma decisão do Android (P154), com a tolerância longa que o desktop já tinha e sem
+    // reabertura por omissão: aqui nunca houve queda por leitura vazia.
+    private val newReadPolicy: () -> CaptureReadPolicy = {
+        CaptureReadPolicy(emptyToleranceMs = stalledReadTimeoutMs, maxRestarts = 0)
+    }
 ) : AudioCaptureEngine {
     private val captureActive = AtomicBoolean(false)
 
@@ -38,21 +43,14 @@ class JavaSoundAudioCaptureEngine(
         }
         val javaFormat = format.toJavaSoundFormat()
         val target = try {
-            openLine(javaFormat).also { opened ->
-                try {
-                    opened.open(javaFormat, readBufferBytes() * LINE_BUFFER_MULTIPLIER)
-                    opened.start()
-                } catch (error: Throwable) {
-                    runCatching { opened.close() }
-                    throw error
-                }
-            }
+            openTarget(javaFormat)
         } catch (error: Throwable) {
             captureActive.set(false)
             throw wrapStartFailure(error)
         }
         line = target
-        val thread = Thread({ captureLoop(target, onFrame, onError) }, THREAD_NAME).apply { isDaemon = true }
+        val thread = Thread({ captureLoop(target, javaFormat, onFrame, onError) }, THREAD_NAME)
+            .apply { isDaemon = true }
         captureThread = thread
         thread.start()
     }
@@ -70,38 +68,63 @@ class JavaSoundAudioCaptureEngine(
         captureThread = null
     }
 
+    private fun openTarget(javaFormat: JavaSoundFormat): TargetDataLine =
+        openLine(javaFormat).also { opened ->
+            try {
+                opened.open(javaFormat, readBufferBytes() * LINE_BUFFER_MULTIPLIER)
+                opened.start()
+            } catch (error: Throwable) {
+                runCatching { opened.close() }
+                throw error
+            }
+        }
+
     private fun captureLoop(
         target: TargetDataLine,
+        javaFormat: JavaSoundFormat,
         onFrame: suspend (AudioFrame) -> Unit,
         onError: suspend (AudioCaptureException) -> Unit
     ) {
         val buffer = ByteArray(readBufferBytes())
+        val policy = newReadPolicy()
+        var current = target
         var failure: AudioCaptureException? = null
-        var silentSinceNanos: Long? = null
         try {
             while (captureActive.get()) {
-                val bytesRead = target.read(buffer, 0, buffer.size)
-                when {
-                    bytesRead > 0 -> {
-                        silentSinceNanos = null
+                val bytesRead = current.read(buffer, 0, buffer.size)
+                if (bytesRead <= 0 && !current.isOpen && captureActive.get()) {
+                    if (captureActive.getAndSet(false)) {
+                        failure = AudioCaptureException("microphone line closed unexpectedly")
+                    }
+                    break
+                }
+                when (val action = policy.onRead(bytesRead, captureActive.get(), System.currentTimeMillis())) {
+                    is CaptureReadAction.Deliver ->
                         runBlocking { onFrame(AudioFrame(buffer.copyOf(bytesRead), format)) }
-                    }
-                    !target.isOpen -> {
-                        if (captureActive.getAndSet(false)) {
-                            failure = AudioCaptureException("microphone line closed unexpectedly")
-                        }
-                    }
-                    else -> {
-                        val now = System.nanoTime()
-                        val silentSince = silentSinceNanos ?: now.also { silentSinceNanos = it }
-                        if (now - silentSince >= stalledReadTimeoutMs * NANOS_PER_MILLI) {
+
+                    is CaptureReadAction.Stop -> Unit
+
+                    is CaptureReadAction.WaitAndRetry ->
+                        if (action.pauseMs > 0L) Thread.sleep(action.pauseMs)
+
+                    is CaptureReadAction.Restart -> {
+                        runCatching { current.stop() }
+                        runCatching { current.close() }
+                        val reopened = runCatching { openTarget(javaFormat) }.getOrNull()
+                        if (reopened == null) {
                             if (captureActive.getAndSet(false)) {
-                                failure = AudioCaptureException("microphone delivered no audio for $stalledReadTimeoutMs ms")
+                                failure = AudioCaptureException("failed to reopen microphone line")
                             }
                         } else {
-                            Thread.sleep(STALLED_READ_PAUSE_MS)
+                            current = reopened
+                            line = reopened
                         }
                     }
+
+                    is CaptureReadAction.GiveUp ->
+                        if (captureActive.getAndSet(false)) {
+                            failure = AudioCaptureException("audio capture read failed: ${action.reason}")
+                        }
                 }
             }
         } catch (error: Throwable) {
@@ -110,8 +133,8 @@ class JavaSoundAudioCaptureEngine(
             }
             System.err.println("$TAG: audio capture failed: ${error::class.simpleName}: ${error.message}")
         } finally {
-            runCatching { target.stop() }
-            runCatching { target.close() }
+            runCatching { current.stop() }
+            runCatching { current.close() }
         }
         failure?.let { runBlocking { onError(it) } }
     }
@@ -131,8 +154,6 @@ class JavaSoundAudioCaptureEngine(
         private const val THREAD_NAME = "flowvoice-audio-capture"
         private const val LINE_BUFFER_MULTIPLIER = 4
         private const val STOP_JOIN_TIMEOUT_MS = 1_000L
-        private const val STALLED_READ_PAUSE_MS = 20L
-        private const val NANOS_PER_MILLI = 1_000_000L
     }
 }
 
