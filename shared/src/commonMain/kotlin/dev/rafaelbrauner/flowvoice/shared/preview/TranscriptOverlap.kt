@@ -46,7 +46,7 @@ object TranscriptOverlap {
         if (exact > 0) return Match(rightTokens.drop(exact).joinToString(" "), glued = false)
 
         val anchor = overlapSize(leftTokens.dropLast(1), rightTokens)
-        if (anchor == 0) {
+        if (anchor == 0 || isWholeWordRepeatedAfterAnchor(leftTokens.last(), rightTokens, anchor)) {
             val approximate = approximateOverlapSize(leftTokens, rightTokens, contextDurationMs)
                 .takeIf { it > 0 }
                 ?: clippedOnsetOverlapSize(leftTokens, rightTokens, contextDurationMs)
@@ -61,6 +61,16 @@ object TranscriptOverlap {
             return Match((listOf(tail) + rest).joinToString(" "), glued = true)
         }
         return Match(rightTokens.drop(anchor).joinToString(" "), glued = false)
+    }
+
+    // Os degraus 2 e 3 supõem que a última palavra de `left` é pedaço de uma palavra partida no corte,
+    // inteira em `right[anchor]`. Se ela aparece inteira logo depois ("estava muito cansado." +
+    // "Muito, muito cansado mesmo."), não era pedaço: o usuário repetiu, e tirar a âncora comeria o
+    // primeiro "Muito" que ele disse (contraprova da P155).
+    private fun isWholeWordRepeatedAfterAnchor(fragment: String, right: List<String>, anchor: Int): Boolean {
+        val next = right.getOrNull(anchor + 1) ?: return false
+        val plain = normalize(fragment)
+        return plain.isNotEmpty() && plain == normalize(next)
     }
 
     private fun completes(fragment: String, whole: String): Boolean =

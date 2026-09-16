@@ -243,6 +243,24 @@ class TranscriptOverlapTest {
         assertEquals("Nova dose de dipirona às 18h.", match.text)
     }
 
+    // Contraprova P155 (não remover): a repetição que o usuário fez está dentro do trecho novo, e
+    // "Muito" não é erro explicável de "estava". Antes da P155 o degrau 3 já comia o primeiro "Muito,"
+    // — com ou sem contexto —, tomando "cansado." por pedaço de palavra partida no corte.
+    @Test
+    fun aRepetitionTheSpeakerMadeIsNotEatenByTheClippedOnsetRule() {
+        val match = TranscriptOverlap.match(
+            "estava muito cansado.",
+            "Muito, muito cansado mesmo.",
+            contextDurationMs = 1000
+        )
+
+        assertEquals("Muito, muito cansado mesmo.", match.text)
+        assertEquals(
+            "Muito, muito cansado mesmo.",
+            TranscriptOverlap.match("estava muito cansado.", "Muito, muito cansado mesmo.").text
+        )
+    }
+
     // Contraprova P155 — LIMITAÇÃO ACEITA, não distinção. "o SAMU" + "No SAMU ninguém atendeu." tem a
     // mesma forma do caso medido ("do STF" + "No STF, no começo"): palavra curta com o começo trocado e
     // a palavra seguinte idêntica. Pelo texto não há como saber se o usuário repetiu "no SAMU" ou se
