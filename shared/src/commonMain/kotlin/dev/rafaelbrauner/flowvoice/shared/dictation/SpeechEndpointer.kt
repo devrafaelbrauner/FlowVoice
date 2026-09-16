@@ -58,17 +58,26 @@ internal class SpeechEndpointer(private val config: SpeechEndpointing) {
     private fun scan(levels: List<Int>): Scan {
         val floor = noise.estimate()
         val pauseLevel = max(config.minPauseLevel, (floor * config.pauseFactor).toInt())
-        val speechLevel = max(config.minSpeechLevel, (floor * config.speechFactor).toInt())
         val quietRuns = runs(levels) { it <= pauseLevel }
-        // Só conta como fala um trecho de ao menos `minVoicedRunMs`: estalo de tecla ou toque na mesa
-        // dura um ou dois blocos e não libera o corte.
+        val counted = countedVoiced(levels)
+        val voicedPrefix = IntArray(levels.size + 1)
+        for (block in levels.indices) voicedPrefix[block + 1] = voicedPrefix[block] + if (counted[block]) 1 else 0
+        return Scan(quietRuns, voicedPrefix)
+    }
+
+    // Quantos blocos contam como fala, pela mesma regra do corte (P144). Usado para saber se a janela
+    // tem fala própria antes de gastar uma requisição com ela.
+    fun voicedBlocks(levels: List<Int>): Int = countedVoiced(levels).count { it }
+
+    // Só conta como fala um trecho de ao menos `minVoicedRunMs`: estalo de tecla ou toque na mesa
+    // dura um ou dois blocos e não libera o corte nem faz a janela parecer falada.
+    private fun countedVoiced(levels: List<Int>): BooleanArray {
+        val speechLevel = max(config.minSpeechLevel, (noise.estimate() * config.speechFactor).toInt())
         val counted = BooleanArray(levels.size)
         runs(levels) { it > speechLevel }
             .filter { it.size >= minVoicedRunBlocks }
             .forEach { run -> run.forEach { counted[it] = true } }
-        val voicedPrefix = IntArray(levels.size + 1)
-        for (block in levels.indices) voicedPrefix[block + 1] = voicedPrefix[block] + if (counted[block]) 1 else 0
-        return Scan(quietRuns, voicedPrefix)
+        return counted
     }
 
     private inline fun runs(levels: List<Int>, predicate: (Int) -> Boolean): List<IntRange> {

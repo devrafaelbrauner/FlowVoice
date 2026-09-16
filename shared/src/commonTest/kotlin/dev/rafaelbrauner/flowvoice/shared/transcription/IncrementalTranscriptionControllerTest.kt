@@ -1,5 +1,8 @@
 package dev.rafaelbrauner.flowvoice.shared.transcription
 
+import dev.rafaelbrauner.flowvoice.shared.dictation.AudioFormat
+import dev.rafaelbrauner.flowvoice.shared.dictation.DictationWindow
+import dev.rafaelbrauner.flowvoice.shared.dictation.WindowCut
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
@@ -40,6 +43,65 @@ class IncrementalTranscriptionControllerTest {
             listOf(TranscriptionSegment.Status.Ok, TranscriptionSegment.Status.Ok),
             controller.segments.value.map { it.status }
         )
+    }
+
+    // P144: janela sem fala própria só teria o contexto da P143 para transcrever, e o modelo devolve
+    // o contexto como texto novo. Ela é pulada pelo mesmo caminho do silêncio digital (P124).
+    @Test
+    fun windowWithoutItsOwnSpeechIsSkippedWithoutARequest() = runTest {
+        val client = FakeTranscriptionClient()
+        val controller = IncrementalTranscriptionController(
+            client = client,
+            config = OpenRouterConfig(),
+            scope = this,
+            apiKeyProvider = { "sk-or-v1-testkey123456" }
+        )
+
+        controller.submit(quietWindow(0, WindowCut.Leading))
+        advanceUntilIdle()
+
+        assertTrue(client.started.isEmpty(), "não pode gastar requisição")
+        val segment = controller.segments.value.single()
+        assertEquals(TranscriptionSegment.Status.Ok, segment.status)
+        assertEquals("", segment.text)
+        assertEquals("", controller.provisionalText.value)
+    }
+
+    // P107: a vaga do teto é ocupada na submissão, senão uma captura só de silêncio nunca terminaria.
+    @Test
+    fun theSkippedWindowStillTakesItsSlotInTheSessionBudget() = runTest {
+        val client = FakeTranscriptionClient()
+        val controller = IncrementalTranscriptionController(
+            client = client,
+            config = OpenRouterConfig(maxRequestsPerSession = 1),
+            scope = this,
+            apiKeyProvider = { "sk-or-v1-testkey123456" }
+        )
+
+        controller.submit(quietWindow(0, WindowCut.Leading))
+        controller.submit(testWindow(1))
+        advanceUntilIdle()
+
+        assertTrue(controller.budgetExhausted.value, "a janela pulada tem de contar no teto")
+        assertEquals(TranscriptionSegment.Status.Failed, controller.segments.value[1].status)
+    }
+
+    // Protege quem fala baixo: só `leading` e `flush` são pulados, porque são os cortes que, por
+    // construção, não esperam fala. Uma janela de teto sem fala medida ainda vai à API.
+    @Test
+    fun aWindowWithoutMeasuredSpeechButCutAtTheCeilingIsStillTranscribed() = runTest {
+        val client = FakeTranscriptionClient()
+        val controller = IncrementalTranscriptionController(
+            client = client,
+            config = OpenRouterConfig(),
+            scope = this,
+            apiKeyProvider = { "sk-or-v1-testkey123456" }
+        )
+
+        controller.submit(quietWindow(0, WindowCut.Ceiling))
+        advanceUntilIdle()
+
+        assertEquals(listOf(0), client.started)
     }
 
     @Test
@@ -262,6 +324,18 @@ class IncrementalTranscriptionControllerTest {
 
         assertEquals(2, reads)
     }
+
+    // Ruído de sala (pico 100, bem acima do silêncio digital da P124) e nenhuma fala medida: é a
+    // janela que só teria o contexto da P143 para transcrever.
+    private fun quietWindow(index: Int, cut: WindowCut) = DictationWindow(
+        index = index,
+        pcm = ByteArray(32_000) { if (it % 2 == 0) 100.toByte() else 0.toByte() },
+        format = AudioFormat.DEFAULT,
+        startedAtMs = index * 1_000L,
+        finishedAtMs = (index + 1) * 1_000L,
+        cut = cut,
+        voicedMs = 0L
+    )
 
     private class FakeTranscriptionClient(
         private val results: Map<Int, TranscriptionResult> = emptyMap(),

@@ -100,7 +100,13 @@ class IncrementalTranscriptionController(
     private suspend fun process(window: DictationWindow) {
         if (cancelled) return
         if (SilentWindow.detect(window)) {
-            skipSilent(window)
+            skipSilent(window, "digital")
+            return
+        }
+        // Janela sem fala própria só tem o contexto sobreposto da P143 para transcrever, e o modelo
+        // devolve o contexto como texto novo, que entra no campo (P144).
+        if (window.onlyContext) {
+            skipSilent(window, "sem_fala")
             return
         }
         upsert(
@@ -142,13 +148,15 @@ class IncrementalTranscriptionController(
 
     // A janela silenciosa já ocupou uma vaga do teto na submissão: sem isso, uma captura muda
     // nunca atingiria o teto e o microfone ficaria aberto (P107).
-    private suspend fun skipSilent(window: DictationWindow) {
+    private suspend fun skipSilent(window: DictationWindow, reason: String) {
         upsert(TranscriptionSegment(windowIndex = window.index, status = TranscriptionSegment.Status.Ok))
         eventLog.log(
             "transcription_silent_window",
             mapOf(
                 "window" to window.index.toString(),
-                "durationMs" to window.durationMs.toString()
+                "durationMs" to window.durationMs.toString(),
+                "reason" to reason,
+                "cut" to window.cut.name.lowercase()
             )
         )
     }

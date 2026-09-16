@@ -104,6 +104,8 @@ class DictationWindowAggregator(
     }
 
     private fun emit(cut: Int, reason: WindowCut, noiseFloor: Int? = null): DictationWindow {
+        val voicedMs = voicedMsOf(cut)
+        val hasSpeech = voicedMs == null || voicedMs > 0L
         val window = DictationWindow(
             index = nextWindowIndex,
             pcm = buffer.copyOfRange(0, cut),
@@ -112,7 +114,10 @@ class DictationWindowAggregator(
             finishedAtMs = msAt(consumedBytes + cut),
             cut = reason,
             noiseFloor = noiseFloor,
-            contextPcm = contextTail
+            // Janela sem fala própria não precisa levar contexto: sem ele, nem o que for enviado tem
+            // o que copiar do trecho anterior (P144).
+            contextPcm = if (hasSpeech) contextTail else ByteArray(0),
+            voicedMs = voicedMs
         )
 
         nextWindowIndex++
@@ -123,6 +128,16 @@ class DictationWindowAggregator(
         dropLevels(cut)
 
         return window
+    }
+
+    // Fala própria da janela, medida no áudio prestes a ser cortado — ainda no buffer e sem o
+    // contexto (P144). Só existe com endpointing, que é quem tem o piso de ruído da sessão.
+    private fun voicedMsOf(cut: Int): Long? {
+        val endpointer = endpointer ?: return null
+        val blocks = cut / levelBlockBytes
+        if (blocks == 0) return 0L
+        val levels = (0 until blocks).map { blockLevel(it * levelBlockBytes) }
+        return endpointer.voicedBlocks(levels) * SpeechEndpointing.BLOCK_MS
     }
 
     private fun rememberContext(emitted: ByteArray) {
