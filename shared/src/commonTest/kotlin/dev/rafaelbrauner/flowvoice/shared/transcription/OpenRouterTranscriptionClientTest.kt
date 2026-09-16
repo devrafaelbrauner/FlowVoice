@@ -11,15 +11,23 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.http.content.TextContent
 import io.ktor.http.headersOf
 import io.ktor.serialization.kotlinx.json.json
+import io.ktor.util.decodeBase64Bytes
 import io.ktor.utils.io.ByteReadChannel
+import dev.rafaelbrauner.flowvoice.shared.dictation.AudioFormat
+import dev.rafaelbrauner.flowvoice.shared.dictation.DictationWindow
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlin.test.Test
+import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
+
+private const val WAV_HEADER = 44
 
 class OpenRouterTranscriptionClientTest {
     @Test
@@ -47,6 +55,46 @@ class OpenRouterTranscriptionClientTest {
         assertTrue(log.events.any { it.event == "transcription_request" })
         assertEquals("2", log.events.first().metadata["window"])
         assertEquals("4000", log.events.first().metadata["durationMs"])
+    }
+
+    // P143: o áudio enviado é o contexto da janela anterior seguido do áudio da janela. O `durationMs`
+    // do log continua sendo o da janela; `contextMs` mede o áudio a mais.
+    @Test
+    fun sendsThePreviousWindowsTailBeforeTheWindowAudio() = runTest {
+        val log = RecordingLog()
+        val engine = MockEngine {
+            respond(
+                content = ByteReadChannel("""{"text":"diarreia"}"""),
+                status = HttpStatusCode.OK,
+                headers = jsonHeaders()
+            )
+        }
+        val context = ByteArray(3_200) { 7 }
+        val own = ByteArray(6_400) { 9 }
+        val window = DictationWindow(
+            index = 1,
+            pcm = own,
+            format = AudioFormat.DEFAULT,
+            startedAtMs = 1_000L,
+            finishedAtMs = 1_200L,
+            contextPcm = context
+        )
+        val client = OpenRouterTranscriptionClient(httpClient(engine), OpenRouterConfig(), log)
+
+        client.transcribe(window, SECRET_KEY)
+
+        val body = (engine.requestHistory.single().body as TextContent).text
+        val base64 = Json.parseToJsonElement(body)
+            .jsonObject.getValue("input_audio")
+            .jsonObject.getValue("data")
+            .jsonPrimitive.content
+        val wav = base64.decodeBase64Bytes()
+
+        assertEquals(WAV_HEADER + context.size + own.size, wav.size, "o WAV tem de levar contexto + janela")
+        assertContentEquals(context + own, wav.copyOfRange(WAV_HEADER, wav.size))
+        val request = log.events.first { it.event == "transcription_request" }
+        assertEquals("100", request.metadata["contextMs"])
+        assertEquals("200", request.metadata["durationMs"])
     }
 
     @Test

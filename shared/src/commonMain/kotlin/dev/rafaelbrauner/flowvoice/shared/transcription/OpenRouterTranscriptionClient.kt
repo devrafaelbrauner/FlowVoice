@@ -39,10 +39,12 @@ class OpenRouterTranscriptionClient(
             mapOf(
                 "window" to window.index.toString(),
                 "durationMs" to window.durationMs.toString(),
+                // Contexto sobreposto enviado junto (P143): mede o áudio a mais por pedido.
+                "contextMs" to window.contextDurationMs.toString(),
                 "model" to usedModel
             )
         )
-        val wav = WavEncoder.encode(window.pcm, window.format)
+        val wav = WavEncoder.encode(window.transmittedPcm, window.format)
         val requestBody = OpenRouterSttRequest(
             model = usedModel,
             language = config.language,

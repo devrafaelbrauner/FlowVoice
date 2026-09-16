@@ -9,12 +9,15 @@ class DictationWindowAggregator(
     val format: AudioFormat = AudioFormat.DEFAULT,
     val pauseSearchBeforeMs: Long = 0L,
     val pauseSearchAfterMs: Long = 0L,
-    val endpointing: SpeechEndpointing? = null
+    val endpointing: SpeechEndpointing? = null,
+    // Quanto do fim da janela anterior acompanha cada janela como contexto (P143).
+    val contextDurationMs: Long = 0L
 ) {
     init {
         require(targetDurationMs > 0) { "targetDurationMs must be positive" }
         require(pauseSearchBeforeMs in 0 until targetDurationMs) { "pauseSearchBeforeMs must be in [0, targetDurationMs)" }
         require(pauseSearchAfterMs >= 0) { "pauseSearchAfterMs must not be negative" }
+        require(contextDurationMs >= 0) { "contextDurationMs must not be negative" }
         if (endpointing != null) {
             require(format.bytesPerSample == 2) { "endpointing requires 16-bit PCM" }
             require(targetDurationMs > endpointing.minBufferedMs) { "targetDurationMs must exceed endpointing.minBufferedMs" }
@@ -29,6 +32,10 @@ class DictationWindowAggregator(
     private val endpointer = endpointing?.let(::SpeechEndpointer)
     private val levelBlockBytes = bytesFor(SpeechEndpointing.BLOCK_MS)
     private val blockLevels = mutableListOf<Int>()
+    private val contextBytes = bytesFor(contextDurationMs)
+    // Fim do áudio já consumido, para acompanhar a próxima janela (P143). Acompanha o fluxo, não a
+    // janela: uma janela mais curta que o contexto ainda leva o resto da anterior.
+    private var contextTail = ByteArray(0)
 
     // A linha do tempo vem dos bytes, não da soma de durações arredondadas dos frames: frames sem
     // milissegundos inteiros não fazem o corte nem o fim da sessão derivarem (P131).
@@ -63,6 +70,7 @@ class DictationWindowAggregator(
         consumedBytes = 0L
         nextWindowIndex = 0
         blockLevels.clear()
+        contextTail = ByteArray(0)
         endpointer?.clear()
     }
 
@@ -103,16 +111,28 @@ class DictationWindowAggregator(
             startedAtMs = msAt(consumedBytes),
             finishedAtMs = msAt(consumedBytes + cut),
             cut = reason,
-            noiseFloor = noiseFloor
+            noiseFloor = noiseFloor,
+            contextPcm = contextTail
         )
 
         nextWindowIndex++
         consumedBytes += cut
+        rememberContext(window.pcm)
         buffer.copyInto(buffer, destinationOffset = 0, startIndex = cut, endIndex = bufferedBytes)
         bufferedBytes -= cut
         dropLevels(cut)
 
         return window
+    }
+
+    private fun rememberContext(emitted: ByteArray) {
+        if (contextBytes == 0) return
+        val combined = if (contextTail.isEmpty()) emitted else contextTail + emitted
+        contextTail = if (combined.size <= contextBytes) {
+            combined
+        } else {
+            combined.copyOfRange(combined.size - contextBytes, combined.size)
+        }
     }
 
     // Os cortes do modo adaptativo caem em fronteira de bloco, então os níveis que sobram continuam
@@ -182,6 +202,10 @@ class DictationWindowAggregator(
         const val DEFAULT_TARGET_DURATION_MS = 4_000L
         const val SPEECH_PAUSE_SEARCH_BEFORE_MS = 900L
         const val SPEECH_PAUSE_SEARCH_AFTER_MS = 300L
+        // Contexto sobreposto de 1 s (P143): cabe uma a três palavras faladas, o bastante para o
+        // modelo emendar a palavra partida na fronteira e reconhecer termo difícil, sem encarecer
+        // demais a janela (ver o custo em TAREFAS_PENDENTES.md).
+        const val SPEECH_CONTEXT_MS = 1_000L
         private const val PAUSE_BLOCK_MS = 20L
         private const val PAUSE_RUN_BLOCKS = 6
     }

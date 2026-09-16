@@ -7,7 +7,11 @@ class DictationWindow(
     val startedAtMs: Long,
     val finishedAtMs: Long,
     val cut: WindowCut = WindowCut.Target,
-    val noiseFloor: Int? = null
+    val noiseFloor: Int? = null,
+    // Fim do áudio da janela anterior (P143), repetido só no que vai ao modelo. Fica fora do `pcm` de
+    // propósito: a linha do tempo, a soma dos bytes da sessão e o silêncio digital (P124) continuam
+    // olhando apenas o áudio próprio da janela.
+    val contextPcm: ByteArray = ByteArray(0)
 ) {
     init {
         require(index >= 0) { "index must be non-negative" }
@@ -17,8 +21,19 @@ class DictationWindow(
     val durationMs: Long
         get() = finishedAtMs - startedAtMs
 
+    val contextDurationMs: Long
+        get() = format.durationMs(contextPcm.size)
+
+    // O que é enviado à transcrição: contexto primeiro, depois o áudio da janela.
+    val transmittedPcm: ByteArray
+        get() = if (contextPcm.isEmpty()) pcm else contextPcm + pcm
+
+    val transmittedDurationMs: Long
+        get() = contextDurationMs + durationMs
+
     override fun toString(): String =
-        "DictationWindow(index=$index, pcmBytes=${pcm.size}, durationMs=$durationMs, cut=$cut)"
+        "DictationWindow(index=$index, pcmBytes=${pcm.size}, durationMs=$durationMs, cut=$cut, " +
+            "contextMs=$contextDurationMs)"
 }
 
 // Por que a janela terminou onde terminou; vai no log `dictation_window` para medir o corte (P140).

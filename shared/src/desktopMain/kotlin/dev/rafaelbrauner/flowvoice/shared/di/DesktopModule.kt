@@ -46,7 +46,8 @@ fun desktopModule(os: DesktopOs = DesktopOs.current()): Module = module {
             get(),
             windowPauseSearchBeforeMs = DictationWindowAggregator.SPEECH_PAUSE_SEARCH_BEFORE_MS,
             windowPauseSearchAfterMs = DictationWindowAggregator.SPEECH_PAUSE_SEARCH_AFTER_MS,
-            windowEndpointing = SpeechEndpointing()
+            windowEndpointing = SpeechEndpointing(),
+            windowContextDurationMs = DictationWindowAggregator.SPEECH_CONTEXT_MS
         )
     }
     single<SecretStore> { DesktopBindings.secretStore(os) }
