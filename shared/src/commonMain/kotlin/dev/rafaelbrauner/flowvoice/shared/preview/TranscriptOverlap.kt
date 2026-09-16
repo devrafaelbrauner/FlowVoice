@@ -130,6 +130,9 @@ object TranscriptOverlap {
     private fun kindOf(a: String, b: String): Kind = when {
         a == b -> Kind.Same
         a.isEmpty() || b.isEmpty() -> Kind.Other
+        // "ao" → "não" está a duas edições e passaria por palavra frouxa; apagar a negação inverte a
+        // frase ("já tomou remédio." + "Não tomou remédio." sumia inteiro).
+        a in NEGATIONS || b in NEGATIONS -> Kind.Other
         min(a.length, b.length) >= CLOSE_MIN_CHARS &&
             EditDistance.within(a, b, closeBudget(a, b)) -> Kind.Close
         EditDistance.within(a, b, LOOSE_MAX_EDITS) -> Kind.Loose
@@ -246,8 +249,6 @@ object TranscriptOverlap {
             a.dropLast(1) == b.dropLast(1) &&
             a.last() != b.last() && a.last() in PtBrSound.VOWELS && b.last() in PtBrSound.VOWELS
 
-    // Negação nunca é tolerada como palavra divergente: trocar "ao" por "não" inverte a frase, e o que
-    // é apagado aqui não volta.
     private fun isShortWord(token: String): Boolean =
         token.length in 1..SHORT_WORD_MAX_CHARS && isWord(token) && token !in NEGATIONS
 
@@ -289,6 +290,7 @@ object TranscriptOverlap {
     // "bonito"/"bonita"), e ali artigo + palavra repetida é fala real ("O bonito é que…").
     private const val ADDED_WORD_EVIDENCE_CHARS = 7
 
-    // Já sem acento, como sai de `normalize`.
+    // Negação nunca é tolerada como palavra divergente, nos degraus 4 e 5: trocar "ao" por "não"
+    // inverte a frase, e o que é apagado aqui não volta. Já sem acento, como sai de `normalize`.
     private val NEGATIONS = setOf("nao", "nem", "sem", "nunca", "jamais", "nada", "nenhum", "nenhuma")
 }

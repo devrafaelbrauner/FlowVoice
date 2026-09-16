@@ -293,6 +293,21 @@ class TranscriptOverlapTest {
         assertEquals("No a mesma coisa.", match.text)
     }
 
+    // Negação nunca é tolerada como palavra divergente, em degrau nenhum: "ao trabalho" + "Não trabalho
+    // mais lá" é fala real, e com o degrau 4 (P150) "já tomou remédio." + "Não tomou remédio." sumia
+    // inteiro — "já"/"não" cabia na palavra curta frouxa, apoiada em duas vizinhas idênticas.
+    @Test
+    fun aNegationIsNeverTakenAsADivergentWordAtTheBoundary() {
+        assertEquals(
+            "Não trabalho mais lá.",
+            TranscriptOverlap.match("voltou ao trabalho.", "Não trabalho mais lá.", contextDurationMs = 1000).text
+        )
+        assertEquals(
+            "Não tomou remédio.",
+            TranscriptOverlap.match("já tomou remédio.", "Não tomou remédio.", contextDurationMs = 1000).text
+        )
+    }
+
     // O final comum tem de ser maior que um sufixo de derivação: "rapidamente"/"lentamente" dividem
     // só "amente", e são palavras diferentes.
     @Test
