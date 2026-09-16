@@ -6,6 +6,29 @@ estão em [`docs/tasks/`](docs/tasks/README.md).
 
 ## [Unreleased]
 
+### Fixed
+
+- P145: **o vocabulário do usuário conserta termo raro que o modelo escreveu
+  errado.** No S26, "dispneia" saiu "de Espinéia" e "na praia" saiu "napraj" — uma
+  palavra virando duas e duas virando uma, que a troca de termo exato não
+  alcançava. Agora o termo é procurado pelo som, em janelas de uma a quatro
+  palavras, e a troca exige **o mesmo esqueleto de consoantes**, diferença
+  pequena e proporcional ao tamanho, e sinal de que houve erro (a fronteira mudou
+  ou o termo é longo). Por isso "hipertensão" nunca vira "hipotensão", "na praça"
+  nunca vira "na praia" e flexão não é corrigida. A correção entra antes de o
+  trecho ir ao campo, então a contagem do que foi escrito (P148) continua exata.
+  Log `dictation_vocabulary_applied`, sem o texto ditado.
+- P142: **o campo é conferido depois de cada trecho, e o que não entrou é
+  refeito.** O espaço da emenda sumia e o ponto que a P144 manda apagar às vezes
+  ficava — em dois ditados o campo tinha um caractere a mais do que o app
+  contava. Agora, antes de apagar, o app confirma no campo que o caractere está
+  mesmo lá; depois de escrever, relê e, se o fim do campo não for o que foi
+  pedido, refaz aquele pedaço pela rota atômica (`ACTION_SET_TEXT`), que troca o
+  texto num passo só. No Android, a composição do teclado é encerrada com um
+  `commitText` vazio antes do apagar, já que a conexão de acessibilidade não
+  expõe `finishComposingText`. Qualquer falha deixa o campo intacto, com
+  `dictation_write_mismatch acao=` dizendo o que houve.
+
 ## [0.5.0] - 2026-09-15
 
 Bolha arrastável e inserção direta com prévia (P138 e P139) e janela de áudio
