@@ -25,6 +25,24 @@ class DirectFieldWriteTest {
         assertEquals(DirectFieldWrite.REASON_STALE, verdict.reason)
     }
 
+    // O caso medido no S26 (2026-09-16 14:55), com o diagnóstico ligado:
+    // `direct_write_audit window=2 antes=O exame de sangue. depois=O exame de sangue`.
+    // O apagar da P144 já estava no campo, mas o texto escrito ainda não — a leitura pegou o editor
+    // no meio da escrita. Nada do nosso pedaço aparece no campo, e refazer dali escreveria o trecho
+    // duas vezes. O ditado terminou certo ("O exame de sangue mostrou leucocitose importante.").
+    @Test
+    fun aFieldWithoutAnyOfWhatWasJustWrittenIsAStaleReadAndNotARewrite() {
+        val verdict = DirectFieldWrite.verdict(
+            before = "O exame de sangue.",
+            after = "O exame de sangue",
+            erased = 1,
+            written = " mostrou leucocitose importante."
+        )
+
+        assertIs<DirectFieldWrite.Verdict.Unknown>(verdict)
+        assertEquals(DirectFieldWrite.REASON_STALE, verdict.reason)
+    }
+
     // Mesma leitura velha, agora com o apagar da P144 no meio: o campo volta idêntico ao de antes.
     @Test
     fun aFieldReadThatCameBackUnchangedAfterAnEraseIsNotRedoneEither() {

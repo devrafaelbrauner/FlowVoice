@@ -1708,6 +1708,36 @@ class DictationPipelineTest {
         assertEquals("Estava muito cansado, tá com dor.", inserter.field.toString())
     }
 
+    // Medido no S26 (2026-09-16 14:55): o app escreveu " mostrou leucocitose importante." com o
+    // espaço — `proofreading_input` traz o texto certo —, e o campo ficou "O exame de
+    // sanguemostrou leucocitose importante.". O editor comeu o espaço da emenda, e a conferência da
+    // hora não viu, porque a leitura de logo depois de escrever chega cedo demais (leitura velha).
+    // A revisão final lê o campo bem depois, quando ele já está estável: mesmo vindo igual ao ditado,
+    // ela tem de devolver ao campo o que foi ditado.
+    @Test
+    fun aFieldThatSwallowedTheSeparatorIsRestoredByTheFinalRevision() = runTest {
+        // Como no S26: o campo come o espaço da emenda **e** a leitura de logo depois de escrever
+        // chega velha, sem o que acabou de ser escrito — a conferência da hora não tem como ver o
+        // estrago, e quem conserta é a revisão final, que lê o campo já estável.
+        val inserter = DirectInserter().apply {
+            swallowsSeparator = true
+            staleReadAfterWrite = true
+        }
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = listOf(frame(100L), frame(50L)),
+            texts = mapOf(0 to "O exame de sangue.", 1 to "Mostrou leucocitose importante."),
+            preferences = AppPreferences(proofreadingEnabled = true),
+            textInserter = inserter,
+            proofreadingOutput = { it }
+        )
+
+        env.pipeline.start()
+        env.pipeline.finalize()
+
+        assertEquals("O exame de sangue. Mostrou leucocitose importante.", inserter.field.toString())
+    }
+
     // Rede pendurada no fim do ditado: sem teto próprio valeria o `requestTimeoutMs` do
     // `OpenRouterConfig` (30 s) com o usuário esperando de olho no campo. A revisão desiste rápido e o
     // ditado fica exatamente como foi digitado.
@@ -1835,6 +1865,12 @@ class DictationPipelineTest {
         // Campo que engole o espaço da emenda depois de um ponto (P143, "de Grandmont.Queda").
         var swallowsSeparator = false
 
+        // Leitura de logo depois de escrever que volta sem o que acabou de ser escrito, como no S26
+        // (2026-09-16 14:55): `direct_write_audit antes=O exame de sangue. depois=O exame de sangue`
+        // — o apagar já tinha entrado no campo, o texto ainda não. A leitura seguinte já vem certa.
+        var staleReadAfterWrite = false
+        private var staleRead: String? = null
+
         var atomicRoute = true
         val rewrites = mutableListOf<String>()
 
@@ -1861,11 +1897,19 @@ class DictationPipelineTest {
                 return TextInsertionResult(success = false, route = it.reason.route, message = it.message)
             }
             if (deleteBefore > 0 && !swallowsErase) field.setLength((field.length - deleteBefore).coerceAtLeast(0))
+            // O que a leitura velha devolve: o campo com o apagar já aplicado e sem o texto novo.
+            if (staleReadAfterWrite) staleRead = field.toString()
             val landed = if (swallowsSeparator && field.lastOrNull() == '.' && text.startsWith(" ")) text.drop(1) else text
             return written(landed)
         }
 
-        override fun readBeforeCursor(limit: Int): String? = field.toString().takeLast(limit)
+        override fun readBeforeCursor(limit: Int): String? {
+            staleRead?.let { stale ->
+                staleRead = null
+                return stale.takeLast(limit)
+            }
+            return field.toString().takeLast(limit)
+        }
 
         // Rota atômica (P142): troca o fim do campo num passo só, sem passar pelo apagar que o campo
         // com composição engole. `atomicRoute = false` faz o papel de quem não tem essa rota.

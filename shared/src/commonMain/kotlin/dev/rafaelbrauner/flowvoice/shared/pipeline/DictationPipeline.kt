@@ -609,9 +609,43 @@ class DictationPipeline(
         val merged = ProofreadingMerge.merge(text, revised) ?: revised
         if (merged != revised) transcriptTextLog.log("proofreading_merged", mapOf("text" to merged))
         when (val outcome = DictationProofread.outcome(text, merged)) {
-            is DictationProofread.Outcome.Skip -> skipProofread(outcome.reason)
+            is DictationProofread.Outcome.Skip ->
+                // Revisão igual ao ditado não quer dizer campo igual ao ditado: o editor pode ter
+                // comido o espaço da emenda (P142). Antes de desistir, confere o campo.
+                if (outcome.reason == DictationProofread.REASON_UNCHANGED) {
+                    restoreDictation(text)
+                } else {
+                    skipProofread(outcome.reason)
+                }
             is DictationProofread.Outcome.Replace -> replaceDictation(text, outcome)
         }
+    }
+
+    // A revisão veio igual ao ditado — mas o campo pode não estar igual ao que o app escreveu. No S26
+    // (2026-09-16 14:55) o editor comeu o espaço da emenda e o campo ficou "sanguemostrou", enquanto
+    // o app tinha escrito " mostrou" com o espaço. A conferência de logo depois de escrever não vê
+    // isso, porque a leitura de lá chega antes de o editor aplicar (P142, `leitura_velha`); esta, no
+    // fim do ditado, pega o campo já estável. Se o que está lá não é o que foi ditado, o ditado volta.
+    private fun restoreDictation(sent: String) {
+        val current = directState.value
+        if (current.typed != sent || current.pending.isNotBlank() || !directPlan.contiguous) {
+            return skipProofread(DictationProofread.REASON_UNCHANGED)
+        }
+        val before = inserter.readBeforeCursor(sent.length + DictationFieldTail.SLACK)
+            ?: return skipProofread(DictationProofread.REASON_UNCHANGED)
+        // O mesmo casamento por letras da P148: sem ele não se apaga nada.
+        val erase = DictationFieldTail.eraseLength(before, sent)
+            ?: return skipProofread(DictationProofread.REASON_FIELD_CHANGED)
+        if (before.takeLast(erase) == sent) return skipProofread(DictationProofread.REASON_UNCHANGED)
+        val insertion = inserter.insertWithoutTap(sent, erase)
+        if (!insertion.success) {
+            refusalMark = timeSource.markNow()
+            return skipProofread(DictationProofread.REASON_REFUSED)
+        }
+        log(
+            "dictation_field_restored",
+            mapOf("chars" to sent.length.toString(), "erased" to erase.toString())
+        )
     }
 
     // A troca só acontece se nada mexeu no campo enquanto a revisão ia e voltava (~1 s).

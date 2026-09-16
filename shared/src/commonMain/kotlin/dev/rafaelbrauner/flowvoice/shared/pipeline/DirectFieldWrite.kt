@@ -78,6 +78,11 @@ object DirectFieldWrite {
             val anchor = after.dropLast(k)
             if (!head.endsWith(anchor)) continue
             if (after.takeLast(k) == written) return Verdict.Ok
+            // Nada do que acabamos de escrever está no campo. Medido no S26 (2026-09-16 14:55):
+            // `antes=O exame de sangue. depois=O exame de sangue` — o apagar já tinha entrado, o
+            // texto ainda não, e o ditado terminou certo. É a leitura que chegou cedo demais, e
+            // refazer aqui escreveria o trecho duas vezes.
+            if (k == 0) return Verdict.Unknown(REASON_STALE)
             // Sem nenhuma âncora do texto que já estava no campo não dá para saber onde começa o
             // nosso pedaço, e apagar dali comeria o que pode não ser do FlowVoice.
             if (anchor.isEmpty()) return Verdict.Mismatch(REASON_UNANCHORED)

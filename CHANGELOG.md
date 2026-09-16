@@ -28,6 +28,17 @@ estão em [`docs/tasks/`](docs/tasks/README.md).
   `commitText` vazio antes do apagar, já que a conexão de acessibilidade não
   expõe `finishComposingText`. Qualquer falha deixa o campo intacto, com
   `dictation_write_mismatch acao=` dizendo o que houve.
+- P142: **o espaço que sumia volta no fim do ditado.** Medido no S26: o app
+  escreve " mostrou…" com o espaço e o campo fica "sanguemostrou" — o editor come
+  o espaço inicial quando ele vem logo depois de um apagar. A conferência feita na
+  hora não enxerga isso, porque a leitura chega antes de o editor aplicar a
+  escrita (foi medido um campo com o apagar já feito e o texto ainda não). Agora,
+  campo sem nada do que acabou de ser escrito é tratado como leitura velha e nada
+  é reescrito — antes, essa leitura podia fazer o app escrever o trecho duas
+  vezes. O conserto passou para o fim do ditado, onde o campo já está estável: se
+  a revisão vier igual ao ditado mas o campo não for o que foi ditado, o texto
+  ditado é reposto (`dictation_field_restored`), com a mesma comparação por letras
+  da P148.
 
 ## [0.5.0] - 2026-09-15
 
