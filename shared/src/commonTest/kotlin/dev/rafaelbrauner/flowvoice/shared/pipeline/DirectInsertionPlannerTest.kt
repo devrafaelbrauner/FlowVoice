@@ -98,6 +98,51 @@ class DirectInsertionPlannerTest {
         assertEquals(first.plan, second.plan)
     }
 
+    // P143: o trecho que emenda depois de ponto final entra com um espaço. No S26 (0.5.0) saiu
+    // "de Grandmont.Queda da pressão arterial." no campo.
+    @Test
+    fun aPieceAfterAFullStopIsSeparatedByASingleSpace() {
+        val step = DirectInsertionPlanner.advance(
+            DirectInsertionPlan(),
+            listOf(ok(0, "de Grandmont."), ok(1, "Queda da pressão arterial."))
+        )
+
+        assertEquals(
+            listOf(
+                DirectInsertionPiece(windowIndex = 0, separator = "", text = "de Grandmont."),
+                DirectInsertionPiece(windowIndex = 1, separator = " ", text = "Queda da pressão arterial.")
+            ),
+            step.pieces
+        )
+        assertEquals("de Grandmont. Queda da pressão arterial.", step.plan.transcript)
+    }
+
+    // Pontuação que pertence à frase anterior não pode entrar depois de um espaço.
+    @Test
+    fun aPieceStartingWithPunctuationIsGluedToTheTextAlreadyTyped() {
+        val step = DirectInsertionPlanner.advance(
+            DirectInsertionPlan(),
+            listOf(ok(0, "Paciente refere dor"), ok(1, ", sem febre."))
+        )
+
+        assertEquals(listOf("", ""), step.pieces.map { it.separator })
+        assertEquals("Paciente refere dor, sem febre.", step.plan.transcript)
+    }
+
+    @Test
+    fun aWordBrokenAtTheCutIsCompletedWithoutASeparator() {
+        val step = DirectInsertionPlanner.advance(
+            DirectInsertionPlan(),
+            listOf(ok(0, "com episódios de di"), ok(1, "de diarreia."))
+        )
+
+        assertEquals(
+            DirectInsertionPiece(windowIndex = 1, separator = "", text = "arreia."),
+            step.pieces[1]
+        )
+        assertEquals("com episódios de diarreia.", step.plan.transcript)
+    }
+
     private fun ok(index: Int, text: String) = TranscriptionSegment(index, TranscriptionSegment.Status.Ok, text)
 
     private fun failed(index: Int) =
