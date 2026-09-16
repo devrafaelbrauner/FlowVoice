@@ -106,6 +106,9 @@ class DictationPipeline(
                         put("model", config.model)
                         put("cut", window.cut.name.lowercase())
                         window.noiseFloor?.let { put("noiseFloor", it.toString()) }
+                        // Fala medida na janela (P151): é o número que diz, no aparelho, por que a
+                        // janela foi ou não à rede — e se a trava encostou em fala baixa.
+                        window.voicedMs?.let { put("voicedMs", it.toString()) }
                     }
                 )
             }
