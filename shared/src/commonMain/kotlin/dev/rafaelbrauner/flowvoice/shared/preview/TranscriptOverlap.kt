@@ -1,22 +1,26 @@
 package dev.rafaelbrauner.flowvoice.shared.preview
 
 import dev.rafaelbrauner.flowvoice.shared.text.EditDistance
+import dev.rafaelbrauner.flowvoice.shared.text.PtBrSound
 import kotlin.math.min
 
-// Deduplicação da emenda entre janelas (P127, endurecida pela P143 e pela P150).
+// Deduplicação da emenda entre janelas (P127, endurecida pela P143, pela P150 e pela P155).
 //
 // Com o contexto sobreposto em áudio (P143), o começo de cada janela repete o fim da anterior, e o
 // modelo não devolve essa repetição igual: muda o caixa, a pontuação e às vezes o acento. A
 // comparação é feita sem nada disso.
 //
-// Quatro degraus, do mais seguro ao mais arriscado:
+// Cinco degraus, do mais seguro ao mais arriscado:
 //  1. maior sufixo de `left` igual ao prefixo de `right`;
 //  2. o mesmo ignorando a última palavra de `left`, quando ela é um pedaço de palavra partida no
 //     corte e a palavra inteira abre `right`: o que falta é colado sem espaço (`glued`);
 //  3. o mesmo sem colar, quando o pedaço não casa com a palavra inteira — o pedaço sobra repetido,
 //     que é feio mas nunca troca a palavra;
 //  4. o casamento aproximado (P150), só onde os três primeiros desistiram e só quando a janela veio
-//     com contexto: o mesmo áudio pode voltar transcrito com outras palavras.
+//     com contexto: o mesmo áudio pode voltar transcrito com outras palavras;
+//  5. a primeira palavra com o começo cortado (P155), só onde o degrau 4 também desistiu e só com
+//     contexto: o contexto começa num ponto qualquer da fala e o modelo inventa o começo da primeira
+//     palavra, mas o resto tem de casar exato.
 //
 // Os degraus 2 e 3 exigem ao menos uma palavra de âncora antes do pedaço. É isso que torna a regra
 // segura: sem contexto sobreposto quase não há âncora, e nada é removido. Um pedaço de uma letra só
@@ -30,7 +34,7 @@ object TranscriptOverlap {
     )
 
     // `contextDurationMs`: quanto áudio da janela anterior foi repetido à frente desta (P143). Zero
-    // significa "esta janela não repetiu nada", e aí o degrau 4 nem é tentado.
+    // significa "esta janela não repetiu nada", e aí os degraus 4 e 5 nem são tentados.
     fun match(left: String, right: String, contextDurationMs: Long = 0L): Match {
         if (right.isBlank()) return Match("", glued = false)
         if (left.isBlank()) return Match(right.trim(), glued = false)
@@ -42,8 +46,10 @@ object TranscriptOverlap {
         if (exact > 0) return Match(rightTokens.drop(exact).joinToString(" "), glued = false)
 
         val anchor = overlapSize(leftTokens.dropLast(1), rightTokens)
-        if (anchor == 0) {
+        if (anchor == 0 || isWholeWordRepeatedAfterAnchor(leftTokens.last(), rightTokens, anchor)) {
             val approximate = approximateOverlapSize(leftTokens, rightTokens, contextDurationMs)
+                .takeIf { it > 0 }
+                ?: clippedOnsetOverlapSize(leftTokens, rightTokens, contextDurationMs)
             return Match(rightTokens.drop(approximate).joinToString(" "), glued = false)
         }
 
@@ -55,6 +61,16 @@ object TranscriptOverlap {
             return Match((listOf(tail) + rest).joinToString(" "), glued = true)
         }
         return Match(rightTokens.drop(anchor).joinToString(" "), glued = false)
+    }
+
+    // Os degraus 2 e 3 supõem que a última palavra de `left` é pedaço de uma palavra partida no corte,
+    // inteira em `right[anchor]`. Se ela aparece inteira logo depois ("estava muito cansado." +
+    // "Muito, muito cansado mesmo."), não era pedaço: o usuário repetiu, e tirar a âncora comeria o
+    // primeiro "Muito" que ele disse (contraprova da P155).
+    private fun isWholeWordRepeatedAfterAnchor(fragment: String, right: List<String>, anchor: Int): Boolean {
+        val next = right.getOrNull(anchor + 1) ?: return false
+        val plain = normalize(fragment)
+        return plain.isNotEmpty() && plain == normalize(next)
     }
 
     private fun completes(fragment: String, whole: String): Boolean =
@@ -124,6 +140,9 @@ object TranscriptOverlap {
     private fun kindOf(a: String, b: String): Kind = when {
         a == b -> Kind.Same
         a.isEmpty() || b.isEmpty() -> Kind.Other
+        // "ao" → "não" está a duas edições e passaria por palavra frouxa; apagar a negação inverte a
+        // frase ("já tomou remédio." + "Não tomou remédio." sumia inteiro).
+        a in NEGATIONS || b in NEGATIONS -> Kind.Other
         min(a.length, b.length) >= CLOSE_MIN_CHARS &&
             EditDistance.within(a, b, closeBudget(a, b)) -> Kind.Close
         EditDistance.within(a, b, LOOSE_MAX_EDITS) -> Kind.Loose
@@ -155,13 +174,141 @@ object TranscriptOverlap {
     private fun neighbours(kinds: List<Kind>, index: Int): List<Kind> =
         listOfNotNull(kinds.getOrNull(index - 1), kinds.getOrNull(index + 1))
 
-    private fun normalize(token: String): String = buildString {
-        token.forEach { char ->
-            val lower = char.lowercaseChar()
-            val plain = ACCENTS[lower] ?: lower
-            if (plain.isLetterOrDigit()) append(plain)
+    // Degrau 5 (P155). Medido no S26 em 2026-09-16 15:28 (ditado de ~2 min, 30 janelas, contexto de
+    // 1 s em todas): três emendas entraram dobradas, e nas três a PRIMEIRA palavra do trecho novo era
+    // a única diferente — "do STF," → "No STF,", "afirmações contundentes." → "informações
+    // contundentes" e "e julgada." → "Em julgado.". O segundo de contexto começa num ponto qualquer da
+    // fala, então o começo da primeira palavra chega cortado e o modelo completa com o que soa
+    // plausível; o fim dela e as palavras seguintes foram ouvidos inteiros.
+    //
+    // Por isso a tolerância vale só para essa primeira palavra, e só das formas que o corte explica
+    // (`isShortSwap`, `sharesClippedEnding`, `sharesClippedEndingBackedByEvidence` — final comum curto,
+    // só com evidência forte depois — e palavra curta acrescida em `explainsAddedShortWord`). Todas as
+    // palavras depois dela casam exatas e vão até o fim de `left`, e o trecho removido cabe no que o
+    // contexto comporta.
+    private fun clippedOnsetOverlapSize(
+        left: List<String>,
+        right: List<String>,
+        contextDurationMs: Long
+    ): Int {
+        if (contextDurationMs <= 0L) return 0
+        val removableChars = removableChars(contextDurationMs)
+        val leftPlain = left.map(::normalize)
+        val rightPlain = right.map(::normalize)
+        val max = minOf(right.size, left.size + 1, MAX_OVERLAP_TOKENS)
+        for (size in max downTo 2) {
+            if (right.take(size).joinToString(" ").length > removableChars) continue
+            if (explainsSwappedFirstWord(leftPlain, rightPlain, size)) return size
+            if (explainsAddedShortWord(leftPlain, rightPlain, size)) return size
         }
+        return 0
     }
+
+    // `right[0]` ocupa o lugar de uma palavra de `left`, e `right[1 until size]` repete exatamente o
+    // fim de `left`. A palavra seguinte precisa ter conteúdo: sem ela a primeira palavra é palpite.
+    private fun explainsSwappedFirstWord(left: List<String>, right: List<String>, size: Int): Boolean {
+        if (left.size < size) return false
+        val followers = right.subList(1, size)
+        if (followers != left.takeLast(size - 1) || !hasContentWord(followers)) return false
+        val aligned = left[left.size - size]
+        val first = right[0]
+        return isShortSwap(aligned, first) ||
+            sharesClippedEnding(aligned, first) ||
+            (hasStrongEvidence(followers) && sharesClippedEndingBackedByEvidence(aligned, first))
+    }
+
+    // `right[0]` é uma palavra curta a mais ("Em"), `right[1]` é a palavra de `left` — igual ou só com
+    // a última vogal trocada ("julgada" → "julgado") — e o resto repete o fim de `left` exatamente.
+    private fun explainsAddedShortWord(left: List<String>, right: List<String>, size: Int): Boolean {
+        if (left.size < size - 1) return false
+        val added = right[0]
+        if (!isShortWord(added)) return false
+        val followers = right.subList(2, size)
+        if (followers != left.takeLast(size - 2)) return false
+        val aligned = left[left.size - size + 1]
+        val word = right[1]
+        if (aligned in NEGATIONS || (word != aligned && !isFinalVowelInflection(aligned, word))) return false
+        return hasContentWord(followers) || aligned.length >= ADDED_WORD_EVIDENCE_CHARS
+    }
+
+    // Palavra curta com só o começo trocado: "do" → "no", "o" → "no". Artigo, preposição e contração
+    // têm 1 a 3 letras, e são átonas — é nelas que o corte cai sem o modelo ouvir. Só a primeira letra
+    // pode mudar (entrar, sair ou ser trocada); o resto é o que foi ouvido e tem de ser igual.
+    private fun isShortSwap(aligned: String, first: String): Boolean {
+        if (!isShortWord(aligned) || !isShortWord(first) || aligned == first) return false
+        val shared = commonSuffixLength(aligned, first)
+        return shared >= 1 && aligned.length - shared <= 1 && first.length - shared <= 1
+    }
+
+    // Palavra longa com o começo cortado: "afirmações" → "informações" dividem "rmacoes". O final
+    // comum tem de ser maior que um sufixo de derivação (os mais comuns — "acoes", "mente", "mento",
+    // "idade" — têm 5 letras; com 6, "amente" ainda casaria "rapidamente" e "lentamente", barrado
+    // pela metade da palavra e pelo começo de até 4 letras), cobrir ao menos metade da palavra maior e
+    // deixar no máximo 4 letras diferentes no começo de cada uma — uma sílaba e pouco, uns 250 ms de
+    // fala a 15 letras por segundo, que é o que um corte no meio da palavra consegue esconder.
+    private fun sharesClippedEnding(aligned: String, first: String): Boolean {
+        if (aligned == first || !isWord(aligned) || !isWord(first)) return false
+        if (aligned in NEGATIONS || first in NEGATIONS) return false
+        val shared = commonSuffixLength(aligned, first)
+        return shared >= CLIPPED_ENDING_MIN_CHARS &&
+            shared * 2 >= maxOf(aligned.length, first.length) &&
+            aligned.length - shared <= CLIPPED_ONSET_MAX_CHARS &&
+            first.length - shared <= CLIPPED_ONSET_MAX_CHARS
+    }
+
+    // Palavra longa com o começo cortado, quando o final comum é do tamanho de um sufixo (P155, segunda
+    // medição no S26, 2026-09-16 15:28 e 15:55): o mesmo "indicações dos ministros." voltou "Ações dos
+    // ministros" num ditado e "Declarações dos ministros" noutro. O modelo ouviu só "-ações" e escreveu
+    // a palavra inteira que conhecia — às vezes nenhum começo, às vezes um começo maior que o perdido.
+    //
+    // Cinco letras sozinhas não provam nada: "-ações", "-mente", "-mento", "-idade" são sufixos de
+    // derivação, e "aumento"/"tratamento" são palavras diferentes. Por isso esta forma só vale com
+    // `hasStrongEvidence` depois, e perde as travas de `sharesClippedEnding` que o corte explica mas o
+    // sufixo não: a metade da palavra maior ("ações" é metade de "declarações" menos uma letra) e as 4
+    // letras de começo ("indic" tem 5). No lugar delas, o começo escrito não passa do começo perdido mais
+    // uma letra: o modelo completa o som que perdeu, não acrescenta uma palavra maior que a dita. Nas
+    // três medições foi assim — "Ações" (0 por 5), "Declarações" (6 por 5), "informações" (3 por 2) —, e
+    // "Tratamento" (5 por 2) contra "aumento" fica de fora.
+    private fun sharesClippedEndingBackedByEvidence(aligned: String, first: String): Boolean {
+        if (aligned == first || !isWord(aligned) || !isWord(first)) return false
+        if (aligned in NEGATIONS || first in NEGATIONS) return false
+        val shared = commonSuffixLength(aligned, first)
+        return shared >= CLIPPED_SUFFIX_MIN_CHARS &&
+            first.length - shared <= aligned.length - shared + CLIPPED_ONSET_EXTRA_CHARS
+    }
+
+    // Evidência forte depois da primeira palavra: duas palavras repetidas exatas, uma delas de 8+ letras.
+    // Uma palavra longa repetida exata no mesmo lugar, com outra ao lado, é o que o contexto produz e a
+    // fala quase nunca. "das doses" (nenhuma longa) não basta; "dose de dipirona" basta, mas ali a
+    // primeira palavra ("Nova" por "a") não divide final nenhum.
+    private fun hasStrongEvidence(followers: List<String>): Boolean {
+        val words = followers.filter { it.isNotEmpty() }
+        return words.size >= STRONG_EVIDENCE_WORDS && words.any { it.length >= LONG_WORD_CHARS }
+    }
+
+    // Mesma palavra com a última vogal trocada: gênero e número do particípio ("julgada"/"julgado").
+    private fun isFinalVowelInflection(a: String, b: String): Boolean =
+        a.length == b.length && a.length >= 2 && isWord(a) &&
+            a.dropLast(1) == b.dropLast(1) &&
+            a.last() != b.last() && a.last() in PtBrSound.VOWELS && b.last() in PtBrSound.VOWELS
+
+    private fun isShortWord(token: String): Boolean =
+        token.length in 1..SHORT_WORD_MAX_CHARS && isWord(token) && token !in NEGATIONS
+
+    private fun isWord(token: String): Boolean = token.isNotEmpty() && token.all { it.isLetter() }
+
+    // Evidência de conteúdo: ao menos uma palavra de 3+ letras repetida exatamente. Três letras
+    // admitem sigla e nome curto ("STF", "UTI", "SUS"), que o modelo reescreve sempre igual; com uma ou
+    // duas seriam só "o", "de", "no", que casam por acaso.
+    private fun hasContentWord(tokens: List<String>): Boolean = tokens.any { it.length >= CONTENT_WORD_MIN_CHARS }
+
+    private fun commonSuffixLength(a: String, b: String): Int {
+        var size = 0
+        while (size < a.length && size < b.length && a[a.length - 1 - size] == b[b.length - 1 - size]) size++
+        return size
+    }
+
+    private fun normalize(token: String): String = PtBrSound.plain(token)
 
     private fun tokenize(text: String): List<String> =
         text.split(Regex("\\s+")).filter { it.isNotBlank() }
@@ -176,13 +323,20 @@ object TranscriptOverlap {
     private const val MIN_EVIDENCE_WORDS = 2
     private const val CHARS_PER_SECOND = 30L
     private const val MAX_REMOVABLE_CHARS = 120L
+    private const val SHORT_WORD_MAX_CHARS = 3
+    private const val CONTENT_WORD_MIN_CHARS = 3
+    private const val CLIPPED_ENDING_MIN_CHARS = 6
+    private const val CLIPPED_ONSET_MAX_CHARS = 4
+    private const val CLIPPED_SUFFIX_MIN_CHARS = 5
+    private const val CLIPPED_ONSET_EXTRA_CHARS = 1
+    private const val STRONG_EVIDENCE_WORDS = 2
 
-    private val ACCENTS: Map<Char, Char> = mapOf(
-        'á' to 'a', 'à' to 'a', 'â' to 'a', 'ã' to 'a', 'ä' to 'a',
-        'é' to 'e', 'è' to 'e', 'ê' to 'e', 'ë' to 'e',
-        'í' to 'i', 'ì' to 'i', 'î' to 'i', 'ï' to 'i',
-        'ó' to 'o', 'ò' to 'o', 'ô' to 'o', 'õ' to 'o', 'ö' to 'o',
-        'ú' to 'u', 'ù' to 'u', 'û' to 'u', 'ü' to 'u',
-        'ç' to 'c', 'ñ' to 'n'
-    )
+    // Sem palavra repetida depois, a palavra alinhada é a única prova e precisa de 7+ letras: as
+    // flexões mais frequentes da fala são curtas ("ele"/"ela", "todo"/"toda", "outro"/"outra",
+    // "bonito"/"bonita"), e ali artigo + palavra repetida é fala real ("O bonito é que…").
+    private const val ADDED_WORD_EVIDENCE_CHARS = 7
+
+    // Negação nunca é tolerada como palavra divergente, nos degraus 4 e 5: trocar "ao" por "não"
+    // inverte a frase, e o que é apagado aqui não volta. Já sem acento, como sai de `normalize`.
+    private val NEGATIONS = setOf("nao", "nem", "sem", "nunca", "jamais", "nada", "nenhum", "nenhuma")
 }

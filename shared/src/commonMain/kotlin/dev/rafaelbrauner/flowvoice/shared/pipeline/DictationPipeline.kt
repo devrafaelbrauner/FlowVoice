@@ -409,8 +409,18 @@ class DictationPipeline(
         // passa a ser texto do usuário, e apagá-lo seria apagar o que não é nosso (P144).
         var contiguous = true
         step.pieces.forEach { piece ->
-            val text = piece.separator + dictionary.apply(piece.text)
+            // Vocabulário do usuário (P145): o trecho é consertado aqui, antes de ir ao campo, e por
+            // isso a conta do que o app escreveu (P148) já nasce com a correção dentro. O log diz que
+            // houve troca e quanto ficou, nunca o texto.
+            val corrected = dictionary.apply(piece.text)
+            val text = piece.separator + corrected
             val window = (piece.windowIndex + 1).toString()
+            if (corrected != piece.text) {
+                log(
+                    "dictation_vocabulary_applied",
+                    mapOf("window" to window, "chars" to corrected.length.toString())
+                )
+            }
             next = if (next.paused) {
                 // O pendente ainda não está no campo: o ponto a tirar está nele mesmo. Com o pendente
                 // vazio, o ponto está no campo, de antes da pausa, e não se toca nele.
@@ -419,17 +429,29 @@ class DictationPipeline(
                 contiguous = false
                 next.copy(pending = head + text)
             } else {
-                val insertion = inserter.insertWithoutTap(text, piece.deleteBefore)
+                // O campo é a verdade antes e depois de escrever (P142): a composição do teclado pode
+                // comer o apagar da P144 ou o espaço da emenda, e nenhuma das duas coisas dá erro.
+                val limit = DirectFieldWrite.readLimit(piece.deleteBefore, text)
+                val before = inserter.readBeforeCursor(limit)
+                val erase = DirectFieldWrite.erase(before, next.typed, piece.deleteBefore)
+                if (erase < piece.deleteBefore) {
+                    log(
+                        "dictation_erase_skipped",
+                        mapOf("window" to window, "motivo" to DirectFieldWrite.REASON_UNCONFIRMED)
+                    )
+                }
+                val insertion = inserter.insertWithoutTap(text, erase)
                 if (insertion.success) {
                     log(
                         "dictation_direct_inserted",
                         buildMap {
                             put("window", window)
                             put("chars", text.length.toString())
-                            if (piece.deleteBefore > 0) put("erased", piece.deleteBefore.toString())
+                            if (erase > 0) put("erased", erase.toString())
                         }
                     )
-                    next.copy(typed = next.typed.dropLast(piece.deleteBefore) + text)
+                    auditDirectWrite(window, before, inserter.readBeforeCursor(limit), erase, text)
+                    next.copy(typed = next.typed.dropLast(erase) + text)
                 } else {
                     refusalMark = timeSource.markNow()
                     log("dictation_direct_paused", mapOf("window" to window, "route" to insertion.route))
@@ -442,6 +464,49 @@ class DictationPipeline(
         val warning = TranscriptionFailureSummary.from(segments, controller.emittedWindowCount)?.partialMessage
         next = next.copy(warning = warning)
         if (next != progress) directState.value = next
+    }
+
+    // Confere no campo o pedaço que acabou de ser escrito (P142). O que não saiu como pedido é refeito
+    // pela rota atômica — apagar e escrever num passo só, sem instante nenhum com o texto apagado —, e
+    // o que diverge além do que escrevemos fica como está: refazer dali apagaria texto que não é do
+    // FlowVoice. Sem leitura do campo não há o que conferir, e vale a conta do app, como antes.
+    private fun auditDirectWrite(window: String, before: String?, after: String?, erased: Int, written: String) {
+        when (val verdict = DirectFieldWrite.verdict(before, after, erased, written)) {
+            is DirectFieldWrite.Verdict.Ok, is DirectFieldWrite.Verdict.Unknown -> Unit
+            is DirectFieldWrite.Verdict.Mismatch -> {
+                log("dictation_write_mismatch", mapOf("window" to window, "acao" to verdict.reason))
+                logWriteAudit(window, before, after)
+            }
+            is DirectFieldWrite.Verdict.Repair -> {
+                val redone = inserter.rewriteTail(verdict.deleteBefore, verdict.text)
+                log(
+                    "dictation_write_mismatch",
+                    mapOf(
+                        "window" to window,
+                        // O que o campo tinha do nosso pedaço contra o que foi mandado: a diferença é o
+                        // caractere que sobrou (apagar engolido) ou que sumiu (espaço da emenda).
+                        "campo" to verdict.deleteBefore.toString(),
+                        "chars" to verdict.text.length.toString(),
+                        "acao" to when {
+                            redone == null -> "sem_rota"
+                            redone.success -> "refeito"
+                            else -> "falhou"
+                        }
+                    )
+                )
+                logWriteAudit(window, before, after)
+            }
+        }
+    }
+
+    // O que o campo tinha antes e depois de escrever, só quando houve divergência e só no log da P135
+    // (build debuggable + marcador do adb). É o que diz o que o editor fez com o pedaço — o espaço
+    // que sumiu, o ponto que ficou — e nunca vai para o log comum nem para o Diagnóstico.
+    private fun logWriteAudit(window: String, before: String?, after: String?) {
+        transcriptTextLog.log(
+            "direct_write_audit",
+            mapOf("window" to window, "antes" to (before ?: "—"), "depois" to (after ?: "—"))
+        )
     }
 
     private suspend fun finalizeDirect(): DictationPipelineStatus {
@@ -544,9 +609,43 @@ class DictationPipeline(
         val merged = ProofreadingMerge.merge(text, revised) ?: revised
         if (merged != revised) transcriptTextLog.log("proofreading_merged", mapOf("text" to merged))
         when (val outcome = DictationProofread.outcome(text, merged)) {
-            is DictationProofread.Outcome.Skip -> skipProofread(outcome.reason)
+            is DictationProofread.Outcome.Skip ->
+                // Revisão igual ao ditado não quer dizer campo igual ao ditado: o editor pode ter
+                // comido o espaço da emenda (P142). Antes de desistir, confere o campo.
+                if (outcome.reason == DictationProofread.REASON_UNCHANGED) {
+                    restoreDictation(text)
+                } else {
+                    skipProofread(outcome.reason)
+                }
             is DictationProofread.Outcome.Replace -> replaceDictation(text, outcome)
         }
+    }
+
+    // A revisão veio igual ao ditado — mas o campo pode não estar igual ao que o app escreveu. No S26
+    // (2026-09-16 14:55) o editor comeu o espaço da emenda e o campo ficou "sanguemostrou", enquanto
+    // o app tinha escrito " mostrou" com o espaço. A conferência de logo depois de escrever não vê
+    // isso, porque a leitura de lá chega antes de o editor aplicar (P142, `leitura_velha`); esta, no
+    // fim do ditado, pega o campo já estável. Se o que está lá não é o que foi ditado, o ditado volta.
+    private fun restoreDictation(sent: String) {
+        val current = directState.value
+        if (current.typed != sent || current.pending.isNotBlank() || !directPlan.contiguous) {
+            return skipProofread(DictationProofread.REASON_UNCHANGED)
+        }
+        val before = inserter.readBeforeCursor(sent.length + DictationFieldTail.SLACK)
+            ?: return skipProofread(DictationProofread.REASON_UNCHANGED)
+        // O mesmo casamento por letras da P148: sem ele não se apaga nada.
+        val erase = DictationFieldTail.eraseLength(before, sent)
+            ?: return skipProofread(DictationProofread.REASON_FIELD_CHANGED)
+        if (before.takeLast(erase) == sent) return skipProofread(DictationProofread.REASON_UNCHANGED)
+        val insertion = inserter.insertWithoutTap(sent, erase)
+        if (!insertion.success) {
+            refusalMark = timeSource.markNow()
+            return skipProofread(DictationProofread.REASON_REFUSED)
+        }
+        log(
+            "dictation_field_restored",
+            mapOf("chars" to sent.length.toString(), "erased" to erase.toString())
+        )
     }
 
     // A troca só acontece se nada mexeu no campo enquanto a revisão ia e voltava (~1 s).

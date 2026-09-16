@@ -237,6 +237,40 @@ class DirectInsertionPlannerTest {
         assertEquals("Hoje o dia está muito bonito por isso iremos para a praia pela manhã.", step.plan.transcript)
     }
 
+    // P155, medido no S26 (2026-09-16 15:28, 30 janelas, `contextMs=1000`): nas três emendas a primeira
+    // palavra do trecho novo foi escrita diferente e o trecho entrou inteiro, dobrando o campo. O
+    // `chars` de `dictation_direct_inserted` tem de ficar menor que o trecho transcrito.
+    @Test
+    fun theThreeMeasuredBoundariesWithADifferentFirstWordAreNotTypedTwice() {
+        val step = DirectInsertionPlanner.advance(
+            DirectInsertionPlan(),
+            listOf(
+                ok(0, "Desde o início da crise do STF,"),
+                ok(1, "No STF, no começo deste mês, Lula evitava fazer afirmações contundentes.", contextDurationMs = 1000),
+                ok(2, "informações contundentes sobre o caso.", contextDurationMs = 1000),
+                ok(3, "Ele pediu que a democracia seja defendida e julgada.", contextDurationMs = 1000),
+                ok(4, "Em julgado. Essa é a primeira vez.", contextDurationMs = 1000)
+            )
+        )
+
+        assertEquals(
+            listOf(
+                "Desde o início da crise do STF,",
+                "no começo deste mês, Lula evitava fazer afirmações contundentes.",
+                "sobre o caso.",
+                "Ele pediu que a democracia seja defendida e julgada.",
+                "Essa é a primeira vez."
+            ),
+            step.pieces.map { it.text }
+        )
+        assertEquals(
+            "Desde o início da crise do STF, no começo deste mês, Lula evitava fazer afirmações " +
+                "contundentes sobre o caso. Ele pediu que a democracia seja defendida e julgada. " +
+                "Essa é a primeira vez.",
+            step.plan.transcript
+        )
+    }
+
     // A mesma janela sem contexto não repetiu áudio nenhum: o texto entra inteiro.
     @Test
     fun aWindowWithoutContextIsTypedWhole() {

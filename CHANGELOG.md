@@ -6,6 +6,71 @@ estão em [`docs/tasks/`](docs/tasks/README.md).
 
 ## [Unreleased]
 
+### Fixed
+
+- P145: **o vocabulário do usuário conserta termo raro que o modelo escreveu
+  errado.** No S26, "dispneia" saiu "de Espinéia" e "na praia" saiu "napraj" — uma
+  palavra virando duas e duas virando uma, que a troca de termo exato não
+  alcançava. Agora o termo é procurado pelo som, em janelas de uma a quatro
+  palavras, e a troca exige **o mesmo esqueleto de consoantes**, diferença
+  pequena e proporcional ao tamanho, e sinal de que houve erro (a fronteira mudou
+  ou o termo é longo). Por isso "hipertensão" nunca vira "hipotensão", "na praça"
+  nunca vira "na praia" e flexão não é corrigida. A correção entra antes de o
+  trecho ir ao campo, então a contagem do que foi escrito (P148) continua exata.
+  Log `dictation_vocabulary_applied`, sem o texto ditado.
+- P142: **o campo é conferido depois de cada trecho, e o que não entrou é
+  refeito.** O espaço da emenda sumia e o ponto que a P144 manda apagar às vezes
+  ficava — em dois ditados o campo tinha um caractere a mais do que o app
+  contava. Agora, antes de apagar, o app confirma no campo que o caractere está
+  mesmo lá; depois de escrever, relê e, se o fim do campo não for o que foi
+  pedido, refaz aquele pedaço pela rota atômica (`ACTION_SET_TEXT`), que troca o
+  texto num passo só. No Android, a composição do teclado é encerrada com um
+  `commitText` vazio antes do apagar, já que a conexão de acessibilidade não
+  expõe `finishComposingText`. Qualquer falha deixa o campo intacto, com
+  `dictation_write_mismatch acao=` dizendo o que houve.
+- P142: **o espaço que sumia volta no fim do ditado.** Medido no S26: o app
+  escreve " mostrou…" com o espaço e o campo fica "sanguemostrou" — o editor come
+  o espaço inicial quando ele vem logo depois de um apagar. A conferência feita na
+  hora não enxerga isso, porque a leitura chega antes de o editor aplicar a
+  escrita (foi medido um campo com o apagar já feito e o texto ainda não). Agora,
+  campo sem nada do que acabou de ser escrito é tratado como leitura velha e nada
+  é reescrito — antes, essa leitura podia fazer o app escrever o trecho duas
+  vezes. O conserto passou para o fim do ditado, onde o campo já está estável: se
+  a revisão vier igual ao ditado mas o campo não for o que foi ditado, o texto
+  ditado é reposto (`dictation_field_restored`), com a mesma comparação por letras
+  da P148.
+- P155: **a emenda reconhece a repetição quando a primeira palavra saiu
+  diferente.** Num ditado de dois minutos, 3 de 30 emendas entraram dobradas —
+  "do STF, No STF", "afirmações contundentes, informações contundentes",
+  "julgada. Em julgado." — porque o segundo de contexto começa num ponto qualquer
+  da fala e o modelo completa a primeira palavra cortada com outra. Agora essa
+  primeira palavra pode divergir de três formas explicáveis (palavra curta
+  trocada, final comum longo, palavra curta acrescida), desde que tudo depois dela
+  case exato. Negação nunca é tolerada, e "a dose de dipirona" + "Nova dose de
+  dipirona" continua inteiro. De quebra, dois defeitos antigos: "muito, muito
+  cansado" perdia a repetição, e "já tomou remédio" + "Não tomou remédio" podia
+  sumir inteiro. Limitação aceita: "o SAMU." + "No SAMU ninguém atendeu." perde o
+  "No SAMU", porque tem a mesma forma do caso real.
+- P155: **o começo cortado de uma palavra longa também é reconhecido quando o que
+  vem depois prova a repetição.** "indicações dos ministros" dobrou duas vezes no
+  S26, como "Ações dos ministros" e "Declarações dos ministros". Com duas palavras
+  exatas depois, uma delas longa, um final comum de 5 letras passa a bastar, desde
+  que o começo escrito pelo modelo não seja maior que o começo perdido. "Tratamento
+  da pressão arterial" depois de "aumento da pressão arterial" continua inteiro.
+- P154: **uma leitura vazia do microfone não mata mais o ditado.** O erro
+  `audio capture read failed: code=0`, visto três vezes no S26, era **barulho de
+  desligamento** — o `stop()` destravando a leitura pendente quando o usuário
+  encerrava —, e não a causa de queda nenhuma: a ordem das linhas prova, porque o
+  caminho de falha teria limpado o áudio acumulado e escrito `dictation_failed`,
+  que não aparece em nenhum dos registros. Mas o caminho "uma leitura zero =
+  sessão morta" existia de verdade, dependendo de quem vencesse a corrida. Agora
+  leitura vazia é tolerada por 300 ms e, persistindo, o gravador é reaberto uma
+  vez antes de desistir; objeto morto vai direto para a reabertura, e parâmetro
+  inválido desiste na hora. Corrigida também uma corrida em que a thread de uma
+  captura anterior podia sobreviver e entregar áudio por cima do ditado novo. O
+  log passou a trazer o estado do gravador, as leituras vazias e as reaberturas —
+  números, nunca áudio nem texto.
+
 ## [0.5.0] - 2026-09-15
 
 Bolha arrastável e inserção direta com prévia (P138 e P139) e janela de áudio

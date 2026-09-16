@@ -58,6 +58,25 @@ object AccessibilityTextInserter : TextInserter {
     override fun readBeforeCursor(limit: Int): String? =
         FlowVoiceAccessibilityService.service?.textBeforeCursor(limit)
 
+    // Rota atômica para refazer o fim do campo (P142): o ACTION_SET_TEXT do `insertFallback` troca o
+    // texto do campo num passo só, sem instante nenhum com o texto apagado e sem depender da
+    // composição do teclado. As travas da inserção sem toque (P139) continuam valendo.
+    override fun rewriteTail(deleteBefore: Int, text: String): TextInsertionResult? {
+        val service = FlowVoiceAccessibilityService.service ?: return null
+        DirectInsertionGuard.refusal(
+            startPackage = startPackage,
+            currentPackage = service.focusedPackage(),
+            ownPackage = service.packageName,
+            pinnedInput = pinnedInput,
+            currentInput = service.currentInputGeneration()
+        )?.let { refusal ->
+            return TextInsertionResult(false, refusal.reason.route, refusal.message)
+        }
+        val result = service.insertFallback(text, deleteBefore, excludedPackage = service.packageName)
+        if (result.success) pinnedInput = service.currentInputGeneration()
+        return TextInsertionResult(result.success, result.route, result.message)
+    }
+
     private fun deliver(
         service: FlowVoiceAccessibilityService,
         text: String,

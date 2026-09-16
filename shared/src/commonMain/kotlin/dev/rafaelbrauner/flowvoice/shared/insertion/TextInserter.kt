@@ -17,6 +17,12 @@ interface TextInserter {
     // Texto que está de fato logo antes do cursor, até `limit` caracteres (P148). Quem não souber ler
     // o campo devolve null, e quem for apagar fica com a conta do próprio app.
     fun readBeforeCursor(limit: Int): String? = null
+
+    // Refaz o fim do campo num passo só (P142): apaga `deleteBefore` caracteres antes do cursor e
+    // escreve `text` sem nenhum instante com o texto apagado no meio do caminho — no Android é o
+    // ACTION_SET_TEXT, que troca o texto do campo inteiro de uma vez e não depende da composição do
+    // teclado. Quem não tiver essa rota devolve null, e nada é refeito.
+    fun rewriteTail(deleteBefore: Int, text: String): TextInsertionResult? = null
 }
 
 data class TextInsertionResult(
