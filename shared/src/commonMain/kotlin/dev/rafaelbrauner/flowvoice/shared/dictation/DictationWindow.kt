@@ -14,7 +14,10 @@ class DictationWindow(
     val contextPcm: ByteArray = ByteArray(0),
     // Tempo de fala própria, medido só no `pcm` e com o limiar de fala do endpointer (P144). Nulo =
     // não medido (sem endpointing): conta como tendo fala, para nunca pular por falta de medição.
-    val voicedMs: Long? = null
+    val voicedMs: Long? = null,
+    // Nível do bloco mais alto do áudio próprio, na mesma escala do piso de ruído (P153). É o que
+    // permite comparar esta janela com outra que já voltou vazia. Nulo = não medido.
+    val peakLevel: Int? = null
 ) {
     init {
         require(index >= 0) { "index must be non-negative" }

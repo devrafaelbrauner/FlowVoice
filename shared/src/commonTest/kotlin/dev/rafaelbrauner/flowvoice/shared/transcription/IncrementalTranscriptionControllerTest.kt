@@ -354,6 +354,61 @@ class IncrementalTranscriptionControllerTest {
 
     // Ruído de sala (pico 100, bem acima do silêncio digital da P124) e nenhuma fala medida: é a
     // janela que só teria o contexto da P143 para transcrever.
+    // P153: no S26 (2026-09-16 11:04), no ditado sussurrado, as janelas 1 e 2 tinham voz medida
+    // (`voicedMs=840` e `800`, bem acima do limiar da P151) e mesmo assim voltaram com `chars=0`:
+    // duas chamadas pagas sem uma palavra. A segunda não era mais alta que a primeira, que já havia
+    // provado não ter nada para transcrever.
+    @Test
+    fun aWindowNoLouderThanOneThatCameBackEmptyDoesNotCostARequest() = runTest {
+        val client = FakeTranscriptionClient(
+            results = mapOf(
+                0 to TranscriptionResult("", "fake"),
+                1 to TranscriptionResult("", "fake")
+            )
+        )
+        val controller = IncrementalTranscriptionController(
+            client = client,
+            config = OpenRouterConfig(),
+            scope = this,
+            apiKeyProvider = { "sk-or-v1-testkey123456" }
+        )
+
+        controller.submit(noiseWindow(0, WindowCut.Ceiling, durationMs = 3_280L, voicedMs = 840L, peakLevel = 400))
+        advanceUntilIdle()
+        controller.submit(noiseWindow(1, WindowCut.Pause, durationMs = 1_580L, voicedMs = 800L, peakLevel = 380))
+        advanceUntilIdle()
+
+        assertEquals(listOf(0), client.started, "o nível que já voltou vazio não se paga duas vezes")
+    }
+
+    // Quem fala baixo continua indo à rede: o nível que rendeu texto nesta sessão nunca é tomado por
+    // silêncio, mesmo depois de uma janela vazia mais alta.
+    @Test
+    fun aQuietVoiceThatAlreadyProducedTextIsStillTranscribed() = runTest {
+        val client = FakeTranscriptionClient(
+            results = mapOf(
+                0 to TranscriptionResult("Exame de sangue mostrou leucocitose.", "fake"),
+                1 to TranscriptionResult("", "fake"),
+                2 to TranscriptionResult("de manhã", "fake")
+            )
+        )
+        val controller = IncrementalTranscriptionController(
+            client = client,
+            config = OpenRouterConfig(),
+            scope = this,
+            apiKeyProvider = { "sk-or-v1-testkey123456" }
+        )
+
+        controller.submit(noiseWindow(0, WindowCut.Pause, durationMs = 3_940L, voicedMs = 960L, peakLevel = 300))
+        advanceUntilIdle()
+        controller.submit(noiseWindow(1, WindowCut.Ceiling, durationMs = 3_280L, voicedMs = 840L, peakLevel = 400))
+        advanceUntilIdle()
+        controller.submit(noiseWindow(2, WindowCut.Pause, durationMs = 1_580L, voicedMs = 800L, peakLevel = 300))
+        advanceUntilIdle()
+
+        assertEquals(listOf(0, 1, 2), client.started, "o nível que já rendeu texto não é silêncio")
+    }
+
     private fun quietWindow(index: Int, cut: WindowCut) = DictationWindow(
         index = index,
         pcm = ByteArray(32_000) { if (it % 2 == 0) 100.toByte() else 0.toByte() },
@@ -366,7 +421,13 @@ class IncrementalTranscriptionControllerTest {
 
     // Ruído de sala do fim do ditado (nível 200, bem acima do silêncio digital da P124) e nenhuma
     // fala medida pelo endpointer, com o piso de ruído alto medido no S26 (P151).
-    private fun noiseWindow(index: Int, cut: WindowCut, durationMs: Long, voicedMs: Long = 0L): DictationWindow {
+    private fun noiseWindow(
+        index: Int,
+        cut: WindowCut,
+        durationMs: Long,
+        voicedMs: Long = 0L,
+        peakLevel: Int? = null
+    ): DictationWindow {
         val frames = ((durationMs * AudioFormat.DEFAULT.sampleRate) / 1_000L).toInt()
         return DictationWindow(
             index = index,
@@ -378,7 +439,8 @@ class IncrementalTranscriptionControllerTest {
             finishedAtMs = (index + 1) * durationMs,
             cut = cut,
             noiseFloor = 87,
-            voicedMs = voicedMs
+            voicedMs = voicedMs,
+            peakLevel = peakLevel
         )
     }
 

@@ -28,6 +28,10 @@ object WindowSpeechGate {
     // economia da P151 aparecer separada no log do aparelho.
     const val REASON_NOT_ENOUGH_SPEECH = "fala_insuficiente"
 
+    // A janela não é mais alta que outra que já voltou vazia nesta sessão (P153): o modelo já disse,
+    // e já foi pago, que naquele nível não há palavra.
+    const val REASON_LEVEL_ALREADY_EMPTY = "nivel_ja_vazio"
+
     fun skipReason(window: DictationWindow): String? {
         val voicedMs = window.voicedMs ?: return null
         if (voicedMs >= MIN_VOICED_MS) return null

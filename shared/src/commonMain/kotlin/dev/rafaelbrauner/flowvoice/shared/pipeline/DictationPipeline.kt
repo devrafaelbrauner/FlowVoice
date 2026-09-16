@@ -109,6 +109,9 @@ class DictationPipeline(
                         // Fala medida na janela (P151): é o número que diz, no aparelho, por que a
                         // janela foi ou não à rede — e se a trava encostou em fala baixa.
                         window.voicedMs?.let { put("voicedMs", it.toString()) }
+                        // Bloco mais alto do áudio próprio (P153): é por ele que se compara esta
+                        // janela com outra que já voltou vazia.
+                        window.peakLevel?.let { put("peak", it.toString()) }
                     }
                 )
             }

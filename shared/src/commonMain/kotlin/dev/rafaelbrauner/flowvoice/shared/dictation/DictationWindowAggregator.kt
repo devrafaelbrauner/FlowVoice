@@ -117,7 +117,8 @@ class DictationWindowAggregator(
             // Janela sem fala própria não precisa levar contexto: sem ele, nem o que for enviado tem
             // o que copiar do trecho anterior (P144).
             contextPcm = if (hasSpeech) contextTail else ByteArray(0),
-            voicedMs = voicedMs
+            voicedMs = voicedMs,
+            peakLevel = peakLevelOf(cut)
         )
 
         nextWindowIndex++
@@ -138,6 +139,15 @@ class DictationWindowAggregator(
         if (blocks == 0) return 0L
         val levels = (0 until blocks).map { blockLevel(it * levelBlockBytes) }
         return endpointer.voicedBlocks(levels) * SpeechEndpointing.BLOCK_MS
+    }
+
+    // Bloco mais alto do áudio próprio da janela (P153), na mesma escala do piso de ruído. Só existe
+    // com endpointing, que é quem mede os blocos.
+    private fun peakLevelOf(cut: Int): Int? {
+        if (endpointer == null) return null
+        val blocks = cut / levelBlockBytes
+        if (blocks == 0) return 0
+        return (0 until blocks).maxOf { blockLevel(it * levelBlockBytes) }
     }
 
     private fun rememberContext(emitted: ByteArray) {

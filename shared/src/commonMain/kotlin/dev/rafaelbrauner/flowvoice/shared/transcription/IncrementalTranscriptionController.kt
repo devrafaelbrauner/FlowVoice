@@ -1,6 +1,7 @@
 package dev.rafaelbrauner.flowvoice.shared.transcription
 
 import dev.rafaelbrauner.flowvoice.shared.dictation.DictationWindow
+import dev.rafaelbrauner.flowvoice.shared.dictation.EmptyAudioMemory
 import dev.rafaelbrauner.flowvoice.shared.dictation.SilentWindow
 import dev.rafaelbrauner.flowvoice.shared.dictation.WindowSpeechGate
 import kotlinx.coroutines.CancellationException
@@ -28,6 +29,8 @@ class IncrementalTranscriptionController(
     private val jobs = mutableListOf<Job>()
     private var cancelled = false
     private var requestCount = 0
+    // O que já se provou vazio nesta sessão, para não pagar duas vezes pelo mesmo nível (P153).
+    private val emptyAudio = EmptyAudioMemory()
     private var sessionApiKey: String? = null
     private val budgetState = MutableStateFlow(false)
     private val fatalState = MutableStateFlow<TranscriptionError?>(null)
@@ -72,6 +75,7 @@ class IncrementalTranscriptionController(
         sessionApiKey = apiKey?.takeIf { it.isNotBlank() }
         budgetState.value = false
         fatalState.value = null
+        emptyAudio.clear()
         provisional.value = ""
         segmentState.value = emptyList()
     }
@@ -110,6 +114,12 @@ class IncrementalTranscriptionController(
             skipSilent(window, reason)
             return
         }
+        // Áudio que não é mais alto do que um que já voltou vazio nesta sessão não se paga de novo
+        // (P153). Quem fala baixo escapa da trava: o nível que já rendeu texto nunca é silêncio.
+        if (emptyAudio.skips(window.peakLevel)) {
+            skipSilent(window, WindowSpeechGate.REASON_LEVEL_ALREADY_EMPTY)
+            return
+        }
         upsert(
             TranscriptionSegment(
                 windowIndex = window.index,
@@ -135,6 +145,7 @@ class IncrementalTranscriptionController(
                     contextDurationMs = window.contextDurationMs
                 )
             )
+            emptyAudio.remember(window.peakLevel, result.text.isNotBlank())
             textLog.log("transcription_window_text", mapOf("window" to window.index.toString(), "text" to result.text))
             rebuildProvisionalText()
         } catch (error: CancellationException) {
