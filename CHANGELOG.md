@@ -194,6 +194,17 @@ cortada na pausa da fala (P140). Desenho e decisões da bolha em
   medição vai à API, porque falta de medição não é silêncio. A janela pulada
   continua ocupando a vaga do teto de requisições (P107), e o `dictation_window`
   passou a registrar `voicedMs=`.
+- P153: **o mesmo nível de áudio não é pago duas vezes.** No S26 (2026-09-16
+  11:04), num ditado sussurrado, duas janelas com voz medida bem acima do limiar
+  da P151 foram transcritas e voltaram vazias: o limiar de fala num quarto
+  silencioso fica em 250 (−42 dBFS), que respiração e ruído de sala cruzam. Em
+  vez de adivinhar um limiar novo — o jeito de quebrar quem fala baixo —, a
+  sessão aprende com a resposta que já foi paga: a janela é pulada quando não é
+  mais alta que alguma que já voltou vazia **e** é mais baixa que qualquer uma
+  que já rendeu texto (`transcription_silent_window reason=nivel_ja_vazio`).
+  Assim, o nível que já produziu texto nunca é tomado por silêncio. O
+  `dictation_window` passou a registrar `peak=`, o bloco mais alto do áudio
+  próprio da janela.
 
 ### Security
 
