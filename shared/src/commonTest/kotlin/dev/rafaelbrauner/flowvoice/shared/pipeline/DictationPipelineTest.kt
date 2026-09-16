@@ -1595,6 +1595,29 @@ class DictationPipelineTest {
         assertEquals("Estava muito cansado, tá com dor.", inserter.field.toString())
     }
 
+    // Rede pendurada no fim do ditado: sem teto próprio valeria o `requestTimeoutMs` do
+    // `OpenRouterConfig` (30 s) com o usuário esperando de olho no campo. A revisão desiste rápido e o
+    // ditado fica exatamente como foi digitado.
+    @Test
+    fun aFinalRevisionThatHangsGivesUpAndLeavesTheDictationAsTyped() = runTest {
+        val inserter = DirectInserter()
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = listOf(frame(100L)),
+            texts = mapOf(0 to "Estava muito cansado."),
+            preferences = AppPreferences(proofreadingEnabled = true),
+            textInserter = inserter,
+            proofreadingDelayMs = 30_000L,
+            proofreadingOutput = { "Estava muito cansado!" }
+        )
+
+        env.pipeline.start()
+        env.pipeline.finalize()
+
+        assertEquals("Estava muito cansado.", inserter.field.toString())
+        assertEquals(DictationProofread.REASON_TIMEOUT, proofreadSkipReason(env))
+    }
+
     // Trocada a palavra e nada mais, não sobra o que mudar: o campo não é tocado.
     @Test
     fun aFinalRevisionThatOnlyChangesAWordLeavesTheFieldUntouched() = runTest {
@@ -1811,6 +1834,7 @@ private class PipelineEnv(
     // Os testes antigos descrevem o fluxo com revisão; a sessão direta (P139) passa AppPreferences() explícito.
     preferences: AppPreferences = AppPreferences(reviewBeforeInsert = true),
     proofreadingFails: Boolean = false,
+    proofreadingDelayMs: Long = 0L,
     transcriptionDelayMs: Long = 0L,
     startError: Throwable? = null,
     failures: Map<Int, Throwable> = emptyMap(),
@@ -1828,7 +1852,7 @@ private class PipelineEnv(
     val engine = ScriptedAudioCaptureEngine(frames, startError)
     val dictionary = InMemoryPersonalDictionary()
     val inserter = RecordingInserter(inserterSucceeds)
-    val proofreader = FakeProofreader(proofreadingFails, proofreadingOutput)
+    val proofreader = FakeProofreader(proofreadingFails, proofreadingOutput, proofreadingDelayMs)
     val client = ScriptedTranscriptionClient(texts, transcriptionDelayMs, failures)
     val secrets = secretStore ?: InMemorySecretStore().apply { apiKey?.let { writeOpenRouterKey(it) } }
     val pipeline = DictationPipeline(
@@ -1940,12 +1964,14 @@ private class OnceReadableSecretStore(private val key: String) : SecretStore {
 
 private class FakeProofreader(
     private val fails: Boolean,
-    private val output: ((String) -> String)? = null
+    private val output: ((String) -> String)? = null,
+    private val delayMs: Long = 0L
 ) : ProofreadingClient {
     val received = mutableListOf<String>()
 
     override suspend fun proofread(text: String, apiKey: String, model: String): String {
         received += text
+        if (delayMs > 0L) delay(delayMs)
         if (fails) error("indisponível")
         return output?.invoke(text) ?: (text.replaceFirstChar { it.uppercase() } + ".")
     }

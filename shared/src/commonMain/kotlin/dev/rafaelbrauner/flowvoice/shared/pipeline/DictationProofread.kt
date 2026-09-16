@@ -16,6 +16,12 @@ object DictationProofread {
     // que esta revisão existe para consertar.
     const val MAX_CHARS = 4_000
 
+    // Teto de espera da revisão final (P152). Sem ele valeria o `requestTimeoutMs` do
+    // `OpenRouterConfig` (30 s), com o ditado já no campo e o usuário parado esperando o texto trocar.
+    // As duas chamadas medidas no S26 (2026-09-16, 09:29 e 10:42) levaram ~1,5 s: 5 s dão três vezes
+    // essa folga, e quem estourar fica com o ditado como foi digitado.
+    const val TIMEOUT_MS = 5_000L
+
     const val REASON_DISABLED = "desligado"
     const val REASON_EMPTY = "vazio"
     const val REASON_NOT_CONTIGUOUS = "nao_contiguo"
@@ -28,6 +34,8 @@ object DictationProofread {
     const val REASON_REFUSED = "recusado"
     // O texto que está no campo não confere com o ditado, nem descontando pontuação (P148).
     const val REASON_FIELD_CHANGED = "campo_diferente"
+    // A revisão não voltou dentro do teto de espera (P152).
+    const val REASON_TIMEOUT = "demorou"
 
     sealed interface Request {
         data class Send(val text: String) : Request

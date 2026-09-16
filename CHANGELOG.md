@@ -167,6 +167,11 @@ cortada na pausa da fala (P140). Desenho e decisões da bolha em
   espaços vêm sempre da revisão, e o resultado ainda passa pelo guard inteiro:
   aspas, dois-pontos, quebras de linha e marcas `<ditado>` continuam descartando
   a revisão. O texto misturado vai ao log da P135 (`proofreading_merged`).
+- P152: a revisão final **desiste em 5 s**. Sem teto próprio valia o das
+  transcrições (30 s), com o ditado já no campo e o usuário parado esperando o
+  texto trocar; as duas revisões medidas no S26 levaram ~1,5 s. Estourando o
+  teto, o ditado fica exatamente como foi digitado e o log registra
+  `dictation_proofread_skipped reason=demorou`.
 
 ### Security
 

@@ -31,6 +31,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.TimeMark
 import kotlin.time.TimeSource
@@ -518,7 +519,10 @@ class DictationPipeline(
             ?: return skipProofread(DictationProofread.REASON_ERROR)
         directState.value = before.copy(proofreading = true)
         val revised = try {
-            proofreading.proofread(text, apiKey, prefs.proofreadingModel)
+            // O ditado já está no campo: quem espera aqui é o usuário, de olho no texto (P152).
+            withTimeoutOrNull(DictationProofread.TIMEOUT_MS) {
+                proofreading.proofread(text, apiKey, prefs.proofreadingModel)
+            }
         } catch (error: CancellationException) {
             throw error
         } catch (_: Exception) {
@@ -526,6 +530,7 @@ class DictationPipeline(
             return skipProofread(DictationProofread.REASON_ERROR)
         }
         directState.value = directState.value.copy(proofreading = false)
+        if (revised == null) return skipProofread(DictationProofread.REASON_TIMEOUT)
         transcriptTextLog.log("proofreading_input", mapOf("text" to text))
         transcriptTextLog.log("proofreading_output", mapOf("text" to revised))
         // Uma palavra trocada não pode custar a pontuação do ditado inteiro (P149): onde a revisão
