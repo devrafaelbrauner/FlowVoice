@@ -86,6 +86,22 @@ cortada na pausa da fala (P140). Desenho e decisões da bolha em
 - P143: o áudio enviado por minuto de ditado sobe ~40 % (~US$ 0,0018 por
   minuto); o teto de 90 pedidos por sessão não mudou e agora cobre ~3,7 min de
   fala. `transcription_request` ganhou `contextMs`.
+- P144: **janela sem fala não é mais transcrita**. Depois da P143, uma janela
+  cortada antes da fala (ou o resto do fim) podia conter só silêncio mais o
+  contexto, e o modelo devolvia **o contexto** como texto novo, que entrava no
+  campo ("3Gs.", "Tô cansado."). Agora a fala de cada janela é medida só no áudio
+  dela, com o limiar que acompanha o ruído da sessão, e a janela sem fala vira
+  trecho vazio sem gastar requisição. Fala baixa continua indo à transcrição: só
+  os cortes que por construção não esperam fala são pulados.
+- P144: **o ponto não fica mais no meio da frase**. O modelo fecha cada trecho
+  com ponto; quando o trecho seguinte continuava a frase, saía "O exame de
+  sangue. mostrou leucocitose.". Agora esse ponto é apagado antes de escrever o
+  trecho novo. Só vale para ponto que o próprio FlowVoice escreveu e que ainda
+  está logo antes do cursor: depois de "Inserir aqui" ou de qualquer recusa, nada
+  é apagado. Trecho que começa com maiúscula é tratado como frase nova e mantém o
+  ponto.
+- P144: `transcription_silent_window` ganhou `reason` e `cut`;
+  `dictation_direct_inserted` ganhou `erased`.
 
 ### Security
 
