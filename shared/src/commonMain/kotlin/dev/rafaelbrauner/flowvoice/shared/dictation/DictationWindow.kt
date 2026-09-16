@@ -37,13 +37,6 @@ class DictationWindow(
     val hasOwnSpeech: Boolean
         get() = voicedMs?.let { it > 0L } ?: true
 
-    // Janela que só teria o contexto para transcrever (P144): o modelo devolve o contexto como texto
-    // novo e ele entra no campo. Vale só para os cortes que, por construção, não esperam fala —
-    // `leading` (cortado antes de a fala começar) e `flush` (resto do fim). `pause` e `ceiling`
-    // sempre vão à API, para quem fala baixo não perder o ditado inteiro.
-    val onlyContext: Boolean
-        get() = !hasOwnSpeech && (cut == WindowCut.Leading || cut == WindowCut.Flush)
-
     override fun toString(): String =
         "DictationWindow(index=$index, pcmBytes=${pcm.size}, durationMs=$durationMs, cut=$cut, " +
             "contextMs=$contextDurationMs)"

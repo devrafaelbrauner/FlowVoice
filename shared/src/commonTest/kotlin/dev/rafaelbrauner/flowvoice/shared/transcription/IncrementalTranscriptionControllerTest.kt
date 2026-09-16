@@ -86,10 +86,11 @@ class IncrementalTranscriptionControllerTest {
         assertEquals(TranscriptionSegment.Status.Failed, controller.segments.value[1].status)
     }
 
-    // Protege quem fala baixo: só `leading` e `flush` são pulados, porque são os cortes que, por
-    // construção, não esperam fala. Uma janela de teto sem fala medida ainda vai à API.
+    // Protege quem fala baixo: o que decide é a fala medida, não o corte. Uma janela de teto com
+    // 400 ms de voz numa janela de 4 s — cinco vezes o limiar de 80 ms — continua indo à API, com o
+    // mesmo ruído de sala das janelas que a P151 barra.
     @Test
-    fun aWindowWithoutMeasuredSpeechButCutAtTheCeilingIsStillTranscribed() = runTest {
+    fun aShortButRealUtteranceInACeilingWindowIsStillTranscribed() = runTest {
         val client = FakeTranscriptionClient()
         val controller = IncrementalTranscriptionController(
             client = client,
@@ -98,10 +99,36 @@ class IncrementalTranscriptionControllerTest {
             apiKeyProvider = { "sk-or-v1-testkey123456" }
         )
 
-        controller.submit(quietWindow(0, WindowCut.Ceiling))
+        controller.submit(noiseWindow(index = 0, cut = WindowCut.Ceiling, durationMs = 4_000L, voicedMs = 400L))
         advanceUntilIdle()
 
         assertEquals(listOf(0), client.started)
+    }
+
+    // P151: no S26 (2026-09-16 10:42), nos 28 s entre o fim da fala e o toque que encerrou, as
+    // janelas 6, 7 e 8 foram enviadas e voltaram vazias (`transcription_request durationMs=3180` →
+    // `transcription_success chars=0`), com o piso de ruído alto (`noiseFloor=87`). Elas saem como
+    // `ceiling`, o corte que a P144 mandava enviar sempre — e nenhuma tinha fala medida.
+    @Test
+    fun theCeilingWindowWithoutMeasuredSpeechDoesNotCostARequest() = runTest {
+        val eventLog = RecordingLog()
+        val client = FakeTranscriptionClient()
+        val controller = IncrementalTranscriptionController(
+            client = client,
+            config = OpenRouterConfig(),
+            scope = this,
+            apiKeyProvider = { "sk-or-v1-testkey123456" },
+            eventLog = eventLog
+        )
+
+        controller.submit(noiseWindow(index = 6, cut = WindowCut.Ceiling, durationMs = 3_180L))
+        advanceUntilIdle()
+
+        assertTrue(client.started.isEmpty(), "janela sem fala medida não pode gastar requisição")
+        val skipped = eventLog.events.single { it.event == "transcription_silent_window" }
+        assertEquals("fala_insuficiente", skipped.metadata["reason"])
+        assertEquals("ceiling", skipped.metadata["cut"])
+        assertEquals("0", skipped.metadata["voicedMs"])
     }
 
     @Test
@@ -336,6 +363,24 @@ class IncrementalTranscriptionControllerTest {
         cut = cut,
         voicedMs = 0L
     )
+
+    // Ruído de sala do fim do ditado (nível 200, bem acima do silêncio digital da P124) e nenhuma
+    // fala medida pelo endpointer, com o piso de ruído alto medido no S26 (P151).
+    private fun noiseWindow(index: Int, cut: WindowCut, durationMs: Long, voicedMs: Long = 0L): DictationWindow {
+        val frames = ((durationMs * AudioFormat.DEFAULT.sampleRate) / 1_000L).toInt()
+        return DictationWindow(
+            index = index,
+            pcm = ByteArray(frames * AudioFormat.DEFAULT.bytesPerFrame) {
+                if (it % 2 == 0) 200.toByte() else 0.toByte()
+            },
+            format = AudioFormat.DEFAULT,
+            startedAtMs = index * durationMs,
+            finishedAtMs = (index + 1) * durationMs,
+            cut = cut,
+            noiseFloor = 87,
+            voicedMs = voicedMs
+        )
+    }
 
     private class FakeTranscriptionClient(
         private val results: Map<Int, TranscriptionResult> = emptyMap(),

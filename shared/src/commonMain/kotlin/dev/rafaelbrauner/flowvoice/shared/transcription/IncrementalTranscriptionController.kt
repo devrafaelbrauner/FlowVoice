@@ -2,6 +2,7 @@ package dev.rafaelbrauner.flowvoice.shared.transcription
 
 import dev.rafaelbrauner.flowvoice.shared.dictation.DictationWindow
 import dev.rafaelbrauner.flowvoice.shared.dictation.SilentWindow
+import dev.rafaelbrauner.flowvoice.shared.dictation.WindowSpeechGate
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -103,10 +104,10 @@ class IncrementalTranscriptionController(
             skipSilent(window, "digital")
             return
         }
-        // Janela sem fala própria só tem o contexto sobreposto da P143 para transcrever, e o modelo
-        // devolve o contexto como texto novo, que entra no campo (P144).
-        if (window.onlyContext) {
-            skipSilent(window, "sem_fala")
+        // Sem fala medida bastante, a janela não vale uma requisição: com o piso de ruído alto o
+        // silêncio do fim do ditado chegava aqui como janela de teto e voltava vazia (P151).
+        WindowSpeechGate.skipReason(window)?.let { reason ->
+            skipSilent(window, reason)
             return
         }
         upsert(
@@ -153,12 +154,15 @@ class IncrementalTranscriptionController(
         upsert(TranscriptionSegment(windowIndex = window.index, status = TranscriptionSegment.Status.Ok))
         eventLog.log(
             "transcription_silent_window",
-            mapOf(
-                "window" to window.index.toString(),
-                "durationMs" to window.durationMs.toString(),
-                "reason" to reason,
-                "cut" to window.cut.name.lowercase()
-            )
+            buildMap {
+                put("window", window.index.toString())
+                put("durationMs", window.durationMs.toString())
+                put("reason", reason)
+                put("cut", window.cut.name.lowercase())
+                // Quanto de fala foi medido na janela barrada: é o número que diz, no aparelho, se o
+                // corte da P151 pegou silêncio mesmo ou se encostou em fala baixa.
+                window.voicedMs?.let { put("voicedMs", it.toString()) }
+            }
         )
     }
 
