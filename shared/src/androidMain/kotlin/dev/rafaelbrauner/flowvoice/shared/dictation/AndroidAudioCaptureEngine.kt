@@ -1,6 +1,7 @@
 package dev.rafaelbrauner.flowvoice.shared.dictation
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.pm.PackageManager
 import android.media.AudioFormat as PlatformAudioFormat
@@ -246,6 +247,9 @@ class AndroidAudioCaptureEngine(
             "emptyReads=${policy.consecutiveEmptyReads}, restarts=${policy.restartCount}, " +
             "captureActive=$stillActive, format=$format"
 
+    // A RECORD_AUDIO é conferida em `startCapture`, antes de qualquer captura começar, e a
+    // reabertura da P154 só acontece dentro de uma captura que já passou por lá.
+    @SuppressLint("MissingPermission")
     private fun openRecord(channelMask: Int, recordBufferBytes: Int): AudioRecord {
         @Suppress("DEPRECATION")
         val record = try {
