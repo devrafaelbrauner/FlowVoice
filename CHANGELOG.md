@@ -102,6 +102,23 @@ cortada na pausa da fala (P140). Desenho e decisões da bolha em
   ponto.
 - P144: `transcription_silent_window` ganhou `reason` e `cut`;
   `dictation_direct_inserted` ganhou `erased`.
+- P146: a repetição do contexto sobreposto passa a ser cortada **pelo tempo**, e
+  não por comparação de texto. Quando o modelo transcrevia o contexto de outro
+  jeito, a repetição não era reconhecida e o trecho entrava dobrado: no S26,
+  "Avaliado pelo doutor." seguido de "Segundo doutor Grandmont." deixou no campo
+  "Avaliado pelo doutor. Segundo doutor Grandmont.". Agora a janela que leva
+  contexto pede os tempos por palavra e tudo o que termina antes do fim do
+  contexto é descartado, mesmo com outras palavras.
+- P146: **o ditado não para se o provedor não der tempos**. Sem `words`, o corte
+  é por segmento; sem tempo nenhum, ou se o provedor recusar o formato, a janela
+  é refeita no formato de antes e vale a comparação por texto. A recusa fica
+  lembrada por modelo, então acontece uma vez, não a cada janela
+  (`transcription_verbose_unsupported`).
+- P146: o áudio enviado não muda e o custo por minuto de ditado continua o da
+  P143; só a resposta fica maior (os tempos de ~20 palavras por janela). A folga
+  do corte é de 120 ms e anda para trás: na dúvida a palavra fica, e a
+  deduplicação por texto a remove. `transcription_context_trimmed` traz quanto
+  foi cortado, sem o texto.
 
 ### Security
 
