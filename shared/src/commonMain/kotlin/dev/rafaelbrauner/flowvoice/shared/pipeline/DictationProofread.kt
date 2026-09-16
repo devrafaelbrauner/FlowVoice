@@ -42,13 +42,14 @@ object DictationProofread {
 
     fun request(typed: String, pending: String, contiguous: Boolean, enabled: Boolean): Request = when {
         !enabled -> Request.Skip(REASON_DISABLED)
+        // Com pendente, parte do ditado nem chegou ao campo: o que está lá não é o texto todo. Vem
+        // antes do texto vazio porque um ditado inteiro pendente não é um ditado vazio.
+        pending.isNotBlank() -> Request.Skip(REASON_PENDING)
         typed.isBlank() -> Request.Skip(REASON_EMPTY)
         // Sem contiguidade o que o FlowVoice escreveu não está mais logo antes do cursor (recusa,
         // "Inserir aqui" noutro campo, digitação do usuário no meio): apagar dali apagaria texto do
         // usuário. É a mesma trava da P144, e aqui pesa mais, porque o apagar é do ditado inteiro.
         !contiguous -> Request.Skip(REASON_NOT_CONTIGUOUS)
-        // Com pendente, parte do ditado nem chegou ao campo: o que está lá não é o texto todo.
-        pending.isNotBlank() -> Request.Skip(REASON_PENDING)
         typed.length > MAX_CHARS -> Request.Skip(REASON_TOO_LONG)
         else -> Request.Send(typed)
     }

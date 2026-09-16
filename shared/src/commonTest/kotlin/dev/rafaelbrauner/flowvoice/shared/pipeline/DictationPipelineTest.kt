@@ -1084,23 +1084,29 @@ class DictationPipelineTest {
         assertFalse(env.pipeline.status.value.isBusy)
     }
 
+    // P139 + P147: nada vai à revisão trecho a trecho — o texto já está no campo e faltaria o contexto
+    // da frase. A revisão acontece uma vez só, com o ditado inteiro, no fim.
     @Test
-    fun directSessionNeverSendsTheTextToProofreadingEvenWithTheToggleOn() = runTest {
+    fun directSessionProofreadsOnceAtTheEndAndNeverWindowByWindow() = runTest {
         val inserter = DirectInserter()
         val env = PipelineEnv(
             scope = backgroundScope,
-            frames = listOf(frame(50L)),
-            texts = mapOf(0 to "tomar dipirona"),
+            frames = listOf(frame(100L), frame(50L)),
+            texts = mapOf(0 to "tomar dipirona", 1 to "de manhã"),
             preferences = AppPreferences(proofreadingEnabled = true),
             textInserter = inserter
         )
 
         env.pipeline.start()
+        runCurrent()
+
+        assertTrue(env.proofreader.received.isEmpty())
+
         val completed = assertIs<DictationPipelineStatus.Completed>(env.pipeline.finalize())
 
-        assertEquals("tomar dipirona", completed.text)
-        assertTrue(env.proofreader.received.isEmpty())
-        assertEquals("tomar dipirona", inserter.field.toString())
+        assertEquals(listOf("tomar dipirona de manhã"), env.proofreader.received)
+        assertEquals("Tomar dipirona de manhã.", completed.text)
+        assertEquals("Tomar dipirona de manhã.", inserter.field.toString())
     }
 
     @Test
@@ -1492,6 +1498,116 @@ class DictationPipelineTest {
         assertEquals(emptyList(), inserter.calls)
         assertEquals("o médico pediu o exame", note.body())
     }
+
+    // P147: cada janela é pontuada isolada, e só no fim existe a frase inteira. Terminado o ditado, o
+    // texto todo vai à revisão e volta trocado no campo de uma vez. No S26 (2026-09-16 09:29) saiu
+    // "Hoje o dia está muito bonito." / "Por isso iremos para a praia.", duas frases onde havia uma.
+    @Test
+    fun theFinishedDirectDictationIsProofreadAndReplacedInTheField() = runTest {
+        val inserter = DirectInserter()
+        val typed = "Hoje o dia está muito bonito. Por isso iremos para a praia."
+        val revised = "Hoje o dia está muito bonito, por isso iremos para a praia."
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = listOf(frame(100L), frame(50L)),
+            texts = mapOf(0 to "Hoje o dia está muito bonito.", 1 to "Por isso iremos para a praia."),
+            preferences = AppPreferences(proofreadingEnabled = true),
+            textInserter = inserter,
+            proofreadingOutput = { revised }
+        )
+
+        env.pipeline.start()
+        val completed = assertIs<DictationPipelineStatus.Completed>(env.pipeline.finalize())
+
+        assertEquals(listOf(typed), env.proofreader.received)
+        assertEquals(revised, inserter.field.toString())
+        assertEquals(revised, completed.text)
+        val applied = env.log.events.single { it.event == "dictation_proofread_applied" }
+        assertEquals(typed.length.toString(), applied.metadata["erased"])
+        assertEquals(revised.length.toString(), applied.metadata["chars"])
+    }
+
+    // O guard da P132 barra troca de palavra; o campo fica com o ditado como foi digitado.
+    @Test
+    fun aFinalRevisionThatChangesAWordIsRefusedAndTheFieldKeepsTheDictation() = runTest {
+        val inserter = DirectInserter()
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = listOf(frame(100L)),
+            texts = mapOf(0 to "Paciente refere dor no joelho direito."),
+            preferences = AppPreferences(proofreadingEnabled = true),
+            textInserter = inserter,
+            proofreadingOutput = { it.replace("direito", "esquerdo") }
+        )
+
+        env.pipeline.start()
+        env.pipeline.finalize()
+
+        assertEquals("Paciente refere dor no joelho direito.", inserter.field.toString())
+        assertEquals(DictationProofread.REASON_GUARD, proofreadSkipReason(env))
+    }
+
+    // Revisão fora do ar: o ditado fica exatamente como foi digitado, nunca apagado pela metade.
+    @Test
+    fun aFinalRevisionThatFailsLeavesTheDictationExactlyAsItWasTyped() = runTest {
+        val inserter = DirectInserter()
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = listOf(frame(100L)),
+            texts = mapOf(0 to "Estava muito cansado."),
+            preferences = AppPreferences(proofreadingEnabled = true),
+            textInserter = inserter,
+            proofreadingFails = true
+        )
+
+        env.pipeline.start()
+        env.pipeline.finalize()
+
+        assertEquals("Estava muito cansado.", inserter.field.toString())
+        assertEquals(DictationProofread.REASON_ERROR, proofreadSkipReason(env))
+    }
+
+    @Test
+    fun withAiProofreadingOffTheDirectDictationNeverReachesTheModel() = runTest {
+        val inserter = DirectInserter()
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = listOf(frame(100L)),
+            texts = mapOf(0 to "Estava muito cansado."),
+            preferences = AppPreferences(),
+            textInserter = inserter
+        )
+
+        env.pipeline.start()
+        env.pipeline.finalize()
+
+        assertTrue(env.proofreader.received.isEmpty())
+        assertEquals("Estava muito cansado.", inserter.field.toString())
+        assertEquals(DictationProofread.REASON_DISABLED, proofreadSkipReason(env))
+    }
+
+    // Com trecho pendente, parte do ditado nunca chegou ao campo: não há o que trocar lá.
+    @Test
+    fun aDirectDictationWithTextStillPendingIsNotProofread() = runTest {
+        val inserter = DirectInserter()
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = listOf(frame(100L), frame(50L)),
+            texts = mapOf(0 to "primeiro trecho", 1 to "segundo trecho"),
+            preferences = AppPreferences(proofreadingEnabled = true),
+            textInserter = inserter
+        )
+
+        env.pipeline.start()
+        inserter.focused = WHATSAPP
+        assertIs<DictationPipelineStatus.Ready>(env.pipeline.finalize())
+
+        assertTrue(env.proofreader.received.isEmpty())
+        assertEquals(DictationProofread.REASON_PENDING, proofreadSkipReason(env))
+    }
+
+    private fun proofreadSkipReason(env: PipelineEnv): String? =
+        env.log.events.single { it.event == "dictation_proofread_skipped" }.metadata["reason"]
 
     // Dublê do AccessibilityTextInserter: mesma trava da produção (DirectInsertionGuard) nas inserções sem
     // toque; `input` faz o papel da geração de input do serviço de acessibilidade.

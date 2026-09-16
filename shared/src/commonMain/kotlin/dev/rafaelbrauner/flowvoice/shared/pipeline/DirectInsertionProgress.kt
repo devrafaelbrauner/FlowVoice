@@ -8,7 +8,9 @@ data class DirectInsertionProgress(
     val typed: String = "",
     val pending: String = "",
     val pausedReason: String? = null,
-    val warning: String? = null
+    val warning: String? = null,
+    // Revisão final do ditado em andamento (P147): a prévia mostra "revisando…" enquanto isso.
+    val proofreading: Boolean = false
 ) {
     val paused: Boolean
         get() = pausedReason != null

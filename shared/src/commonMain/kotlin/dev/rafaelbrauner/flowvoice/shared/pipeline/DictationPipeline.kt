@@ -449,7 +449,7 @@ class DictationPipeline(
             if (token != sessionToken) {
                 DictationPipelineStatus.Cancelled
             } else {
-                directOutcome(mark.elapsedNow().inWholeMilliseconds)
+                directOutcome(mark)
             }
         } catch (error: CancellationException) {
             throw error
@@ -463,8 +463,12 @@ class DictationPipeline(
         return outcome
     }
 
-    private fun directOutcome(latencyMs: Long): DictationPipelineStatus {
+    // A latência só é medida depois da revisão final (P147): o que interessa é o tempo entre o toque
+    // que encerra o ditado e o texto final estar no campo.
+    private suspend fun directOutcome(mark: TimeMark): DictationPipelineStatus {
         advanceDirect()
+        proofreadDictation()
+        val latencyMs = mark.elapsedNow().inWholeMilliseconds
         val progress = directState.value
         val failures = TranscriptionFailureSummary.from(transcription.segments.value, controller.emittedWindowCount)
         val dictated = progress.typed + progress.pending
@@ -490,6 +494,65 @@ class DictationPipeline(
                 failedWindows = failures?.failedCount ?: 0
             )
         }
+    }
+
+    // Revisão final do ditado direto (P147). Cada janela foi pontuada isolada; no fim o texto inteiro
+    // vai ao modelo de revisão, que só pode mexer em pontuação, maiúsculas, acentos e ortografia
+    // (P132). Qualquer falha — guard, rede, campo trocado — deixa o campo exatamente como está:
+    // nunca se apaga sem escrever de volta.
+    private suspend fun proofreadDictation() {
+        val prefs = preferences.read()
+        val before = directState.value
+        val request = DictationProofread.request(
+            typed = before.typed,
+            pending = before.pending,
+            contiguous = directPlan.contiguous,
+            enabled = prefs.proofreadingEnabled
+        )
+        val text = when (request) {
+            is DictationProofread.Request.Skip -> return skipProofread(request.reason)
+            is DictationProofread.Request.Send -> request.text
+        }
+        val apiKey = sessionApiKey.takeIf { transcription.fatalError.value == null }
+            ?: return skipProofread(DictationProofread.REASON_ERROR)
+        directState.value = before.copy(proofreading = true)
+        val revised = try {
+            proofreading.proofread(text, apiKey, prefs.proofreadingModel)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Exception) {
+            directState.value = directState.value.copy(proofreading = false)
+            return skipProofread(DictationProofread.REASON_ERROR)
+        }
+        directState.value = directState.value.copy(proofreading = false)
+        transcriptTextLog.log("proofreading_input", mapOf("text" to text))
+        transcriptTextLog.log("proofreading_output", mapOf("text" to revised))
+        when (val outcome = DictationProofread.outcome(text, revised)) {
+            is DictationProofread.Outcome.Skip -> skipProofread(outcome.reason)
+            is DictationProofread.Outcome.Replace -> replaceDictation(text, outcome)
+        }
+    }
+
+    // A troca só acontece se nada mexeu no campo enquanto a revisão ia e voltava (~1 s).
+    private fun replaceDictation(sent: String, outcome: DictationProofread.Outcome.Replace) {
+        val current = directState.value
+        if (current.typed != sent || current.pending.isNotBlank() || !directPlan.contiguous) {
+            return skipProofread(DictationProofread.REASON_NOT_CONTIGUOUS)
+        }
+        val insertion = inserter.insertWithoutTap(outcome.text, outcome.deleteBefore)
+        if (!insertion.success) {
+            refusalMark = timeSource.markNow()
+            return skipProofread(DictationProofread.REASON_REFUSED)
+        }
+        directState.value = current.copy(typed = outcome.text)
+        log(
+            "dictation_proofread_applied",
+            mapOf("chars" to outcome.text.length.toString(), "erased" to outcome.deleteBefore.toString())
+        )
+    }
+
+    private fun skipProofread(reason: String) {
+        log("dictation_proofread_skipped", mapOf("reason" to reason))
     }
 
     private fun directDelivery(typed: String): TextInsertionResult =
