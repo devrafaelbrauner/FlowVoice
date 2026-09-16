@@ -25,6 +25,11 @@ App de ditado **voz → texto** em nuvem (**OpenRouter**), com:
      `currentInputConnection` for nulo ou em Android < 13 (API 33, onde
      `getInputMethod()` foi introduzido).
    - **Área de transferência é opcional**, não obrigatória.
+   - **Inserção incremental (0.5.0, P139)**: por padrão, a bolha digita cada
+     janela transcrita assim que fica pronta, sem revisão por IA, só no app e no
+     campo de origem (`DirectInsertionGuard`). "Revisar antes de inserir" mantém
+     a inserção única no fim. Detalhes em
+     [`docs/tasks/P138-P139.md`](tasks/P138-P139.md).
 2. **Texto durante a fala** (limitação real):
    - A documentação da OpenRouter **não** comprova entrada contínua de
      microfone com transcrição parcial (streaming de áudio).
@@ -45,9 +50,14 @@ App de ditado **voz → texto** em nuvem (**OpenRouter**), com:
      aprovado e preferências.
    - A **chave OpenRouter fica local e cifrada**; **nunca** sincronizada.
 5. **Política de captura / janelas / silêncio** (F03):
-   - Captura: `16 kHz`, `PCM 16-bit mono`.
-   - Janela alvo fixa: `DEFAULT_TARGET_DURATION_MS = 4_000L` (`~4 s`); a última
-     janela pode ser parcial.
+   - Captura: `16 kHz`, `PCM 16-bit mono`, em frames de `100 ms`
+     (`CaptureFrames`, P140).
+   - Janela cortada na pausa natural da fala (`SpeechEndpointing`, P140): sai
+     com `≥ 1,2 s` acumulados, `≥ 400 ms` de fala e `300 ms` de pausa, cortada no
+     meio da pausa, com limiares relativos ao piso de ruído da sessão. Sem pausa,
+     vale o teto de `DEFAULT_TARGET_DURATION_MS = 4_000L` + `300 ms`, com o corte
+     no trecho mais silencioso (P131). A última janela pode ser parcial.
+   - Teto de `90` pedidos por sessão, contado na submissão (P107, P140).
    - **Sem sobreposição de contexto** nesta versão.
    - Silêncio: `RMS < 300f` por `800 ms`; finalização automática
      (`autoFinalizeOnSilence`) vem **desativada** por padrão em

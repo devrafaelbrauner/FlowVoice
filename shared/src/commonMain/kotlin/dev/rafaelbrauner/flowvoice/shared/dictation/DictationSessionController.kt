@@ -18,14 +18,16 @@ class DictationSessionController(
     private val silenceThreshold: Float = DEFAULT_SILENCE_THRESHOLD,
     private val silenceTimeoutMs: Long = DEFAULT_SILENCE_TIMEOUT_MS,
     windowPauseSearchBeforeMs: Long = 0L,
-    windowPauseSearchAfterMs: Long = 0L
+    windowPauseSearchAfterMs: Long = 0L,
+    val windowEndpointing: SpeechEndpointing? = null
 ) {
     private val session = DictationSession()
     private val windowAggregator = DictationWindowAggregator(
         windowTargetDurationMs,
         engine.format,
         windowPauseSearchBeforeMs,
-        windowPauseSearchAfterMs
+        windowPauseSearchAfterMs,
+        windowEndpointing
     )
     private val sessionMutex = Mutex()
     private val observedState = MutableStateFlow(session.state)

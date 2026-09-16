@@ -4,7 +4,9 @@ import dev.rafaelbrauner.flowvoice.shared.pipeline.DictationPipelineStatus
 import dev.rafaelbrauner.flowvoice.shared.pipeline.DictationTarget
 import dev.rafaelbrauner.flowvoice.shared.preview.LivePreview
 
-enum class OverlayMode { Bubble, Bar }
+// Bubble: só a bolha. Preview: bolha com a prévia da sessão direta (P139). Bar: barra acima do teclado
+// (revisar antes de inserir e ditado de nota).
+enum class OverlayMode { Bubble, Preview, Bar }
 
 enum class BarPhase { Starting, Recording, Transcribing, Ready }
 

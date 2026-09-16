@@ -116,8 +116,7 @@ class JavaSoundAudioCaptureEngine(
         failure?.let { runBlocking { onError(it) } }
     }
 
-    private fun readBufferBytes(): Int =
-        (format.sampleRate * format.bytesPerFrame / READS_PER_SECOND).coerceAtLeast(format.bytesPerFrame)
+    private fun readBufferBytes(): Int = CaptureFrames.readBytes(format)
 
     private fun wrapStartFailure(error: Throwable): AudioCaptureException = when (error) {
         is AudioCaptureException -> error
@@ -130,7 +129,6 @@ class JavaSoundAudioCaptureEngine(
         const val DEFAULT_STALLED_READ_TIMEOUT_MS = 2_000L
         private const val TAG = "FlowVoiceDictation"
         private const val THREAD_NAME = "flowvoice-audio-capture"
-        private const val READS_PER_SECOND = 10
         private const val LINE_BUFFER_MULTIPLIER = 4
         private const val STOP_JOIN_TIMEOUT_MS = 1_000L
         private const val STALLED_READ_PAUSE_MS = 20L

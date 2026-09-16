@@ -35,6 +35,15 @@ object LivePreviewAssembler {
         return mergedTokens.joinToString(" ")
     }
 
+    // O que de `right` falta depois de `left`, com a mesma deduplicação de mergeAdjacent (P127).
+    // Na inserção direta (P139) `left` já está no campo e não se apaga: a sobreposição sai de `right`.
+    fun continuation(left: String, right: String): String {
+        if (right.isBlank()) return ""
+        if (left.isBlank()) return right.trim()
+        val rightTokens = tokenize(right)
+        return rightTokens.drop(overlapSize(tokenize(left), rightTokens)).joinToString(" ")
+    }
+
     private fun overlapSize(left: List<String>, right: List<String>): Int {
         val max = minOf(left.size, right.size)
         for (size in max downTo 1) {

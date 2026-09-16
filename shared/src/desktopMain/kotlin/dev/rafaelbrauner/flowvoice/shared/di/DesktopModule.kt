@@ -4,6 +4,7 @@ import dev.rafaelbrauner.flowvoice.shared.dictation.AudioCaptureEngine
 import dev.rafaelbrauner.flowvoice.shared.dictation.DictationSessionController
 import dev.rafaelbrauner.flowvoice.shared.dictation.DictationWindowAggregator
 import dev.rafaelbrauner.flowvoice.shared.dictation.JavaSoundAudioCaptureEngine
+import dev.rafaelbrauner.flowvoice.shared.dictation.SpeechEndpointing
 import dev.rafaelbrauner.flowvoice.shared.insertion.TextInserter
 import dev.rafaelbrauner.flowvoice.shared.insertion.UnsupportedTextInserter
 import dev.rafaelbrauner.flowvoice.shared.insertion.WindowsSendInputTextInserter
@@ -44,7 +45,8 @@ fun desktopModule(os: DesktopOs = DesktopOs.current()): Module = module {
         DictationSessionController(
             get(),
             windowPauseSearchBeforeMs = DictationWindowAggregator.SPEECH_PAUSE_SEARCH_BEFORE_MS,
-            windowPauseSearchAfterMs = DictationWindowAggregator.SPEECH_PAUSE_SEARCH_AFTER_MS
+            windowPauseSearchAfterMs = DictationWindowAggregator.SPEECH_PAUSE_SEARCH_AFTER_MS,
+            windowEndpointing = SpeechEndpointing()
         )
     }
     single<SecretStore> { DesktopBindings.secretStore(os) }
