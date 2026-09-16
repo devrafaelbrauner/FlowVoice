@@ -183,6 +183,17 @@ cortada na pausa da fala (P140). Desenho e decisões da bolha em
   precisa de evidência: duas palavras casando ou uma longa, com a palavra curta
   divergente valendo só encostada em vizinhas idênticas. Na dúvida, o texto fica
   como veio: um "tá" repetido é melhor do que fala comida.
+- P151: **silêncio não custa mais requisição.** No S26 (2026-09-16 10:42), os 28 s
+  entre o fim da fala e o toque que encerrou gastaram três chamadas que voltaram
+  vazias (~14 s de áudio enviado à toa). A barreira que faltava era o corte: a
+  regra da P144 só pulava janela `leading` e `flush`, e com ruído de sala parado
+  a janela sai no teto e ia sempre à API. Agora a janela com menos de 80 ms de
+  fala medida não é enviada (`transcription_silent_window
+  reason=fala_insuficiente`), em qualquer corte. O limiar é o menor acima de zero
+  que a medição permite, e fala real curta dá cinco vezes isso; janela sem
+  medição vai à API, porque falta de medição não é silêncio. A janela pulada
+  continua ocupando a vaga do teto de requisições (P107), e o `dictation_window`
+  passou a registrar `voicedMs=`.
 
 ### Security
 
