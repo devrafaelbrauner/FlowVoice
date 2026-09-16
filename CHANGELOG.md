@@ -172,6 +172,17 @@ cortada na pausa da fala (P140). Desenho e decisões da bolha em
   texto trocar; as duas revisões medidas no S26 levaram ~1,5 s. Estourando o
   teto, o ditado fica exatamente como foi digitado e o log registra
   `dictation_proofread_skipped reason=demorou`.
+- P150: **a emenda reconhece o contexto transcrito com outras palavras.** O 1 s de
+  áudio sobreposto da P143 pode voltar escrito diferente: no S26 (2026-09-16
+  10:42) a janela anterior tinha "está muito bonito" e a nova veio "Tá muito
+  bonito", a comparação por letras não reconheceu e "muito bonito" entrou duas
+  vezes no campo. Agora, **só onde a comparação atual desiste**, o fim do texto já
+  escrito é comparado com o começo do trecho novo deixando as palavras divergirem
+  um pouco. A remoção exige contexto na janela, cabe no tempo dele (30 caracteres
+  por segundo, no máximo 120), vale só na emenda — nunca no meio da fala — e
+  precisa de evidência: duas palavras casando ou uma longa, com a palavra curta
+  divergente valendo só encostada em vizinhas idênticas. Na dúvida, o texto fica
+  como veio: um "tá" repetido é melhor do que fala comida.
 
 ### Security
 
