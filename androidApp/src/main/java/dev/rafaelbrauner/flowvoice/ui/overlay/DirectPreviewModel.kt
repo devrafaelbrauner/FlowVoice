@@ -31,6 +31,7 @@ object DirectPreviewModel {
     const val STATUS_LISTENING = "ouvindo · toque na bolha para encerrar"
     const val STATUS_PAUSED = "pausado · nada mais é digitado sozinho"
     const val STATUS_FINISHING = "finalizando"
+    const val STATUS_PROOFREADING = "revisando…"
     const val STATUS_NOT_TYPED = "não digitado"
     const val TRANSCRIBING = "transcrevendo…"
     const val TYPED_LABEL = "no campo"
@@ -64,7 +65,13 @@ object DirectPreviewModel {
                 progress,
                 transcribing
             )
-            DictationPipelineStatus.Transcribing -> live(DirectPhase.Finishing, clock, STATUS_FINISHING, progress, transcribing)
+            DictationPipelineStatus.Transcribing -> live(
+                DirectPhase.Finishing,
+                clock,
+                if (progress.proofreading) STATUS_PROOFREADING else STATUS_FINISHING,
+                progress,
+                transcribing
+            )
             is DictationPipelineStatus.Ready -> live(
                 DirectPhase.Ready,
                 clock,

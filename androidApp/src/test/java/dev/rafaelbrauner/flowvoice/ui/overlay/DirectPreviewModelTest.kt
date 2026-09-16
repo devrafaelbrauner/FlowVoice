@@ -76,6 +76,18 @@ class DirectPreviewModelTest {
         assertFalse(live.canInsertHere)
     }
 
+    // P147: a revisão final leva ~1 s no fim do ditado, e a prévia diz o que está acontecendo.
+    @Test
+    fun theFinalProofreadingIsAnnouncedWhileItRuns() {
+        val live = assertIs<DirectPreviewState.Live>(
+            state(DictationPipelineStatus.Transcribing, progress = typing.copy(proofreading = true))
+        )
+
+        assertEquals(DirectPhase.Finishing, live.phase)
+        assertEquals(DirectPreviewModel.STATUS_PROOFREADING, live.status)
+        assertEquals("Bom dia, Marina.", live.typedTail)
+    }
+
     @Test
     fun readyWithLeftoverTextOffersInsertHereAndDiscard() {
         val ready = DictationPipelineStatus.Ready(
