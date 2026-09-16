@@ -34,7 +34,7 @@ object TranscriptOverlap {
     )
 
     // `contextDurationMs`: quanto áudio da janela anterior foi repetido à frente desta (P143). Zero
-    // significa "esta janela não repetiu nada", e aí o degrau 4 nem é tentado.
+    // significa "esta janela não repetiu nada", e aí os degraus 4 e 5 nem são tentados.
     fun match(left: String, right: String, contextDurationMs: Long = 0L): Match {
         if (right.isBlank()) return Match("", glued = false)
         if (left.isBlank()) return Match(right.trim(), glued = false)
