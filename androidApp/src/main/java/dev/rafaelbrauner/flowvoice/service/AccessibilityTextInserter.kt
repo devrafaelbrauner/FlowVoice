@@ -55,6 +55,9 @@ object AccessibilityTextInserter : TextInserter {
         return deliver(service, text, deleteBefore)
     }
 
+    override fun readBeforeCursor(limit: Int): String? =
+        FlowVoiceAccessibilityService.service?.textBeforeCursor(limit)
+
     private fun deliver(
         service: FlowVoiceAccessibilityService,
         text: String,

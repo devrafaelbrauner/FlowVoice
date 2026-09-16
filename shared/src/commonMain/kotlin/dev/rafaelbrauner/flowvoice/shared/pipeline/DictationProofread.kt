@@ -26,6 +26,8 @@ object DictationProofread {
     const val REASON_ERROR = "erro"
     // A trava de destino (P139) recusou a troca na hora de escrever: o campo já não é o mesmo.
     const val REASON_REFUSED = "recusado"
+    // O texto que está no campo não confere com o ditado, nem descontando pontuação (P148).
+    const val REASON_FIELD_CHANGED = "campo_diferente"
 
     sealed interface Request {
         data class Send(val text: String) : Request

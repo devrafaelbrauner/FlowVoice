@@ -539,7 +539,17 @@ class DictationPipeline(
         if (current.typed != sent || current.pending.isNotBlank() || !directPlan.contiguous) {
             return skipProofread(DictationProofread.REASON_NOT_CONTIGUOUS)
         }
-        val insertion = inserter.insertWithoutTap(outcome.text, outcome.deleteBefore)
+        // O campo é a verdade, não a conta do app (P148): no S26 a conta saiu um caractere menor que o
+        // campo, a troca apagou de menos e sobrou a primeira letra do ditado ("HHoje o dia..."). Quem
+        // não souber ler o que está antes do cursor continua com a conta do app.
+        val before = inserter.readBeforeCursor(sent.length + DictationFieldTail.SLACK)
+        val erase = if (before == null) {
+            outcome.deleteBefore
+        } else {
+            DictationFieldTail.eraseLength(before, sent)
+                ?: return skipProofread(DictationProofread.REASON_FIELD_CHANGED)
+        }
+        val insertion = inserter.insertWithoutTap(outcome.text, erase)
         if (!insertion.success) {
             refusalMark = timeSource.markNow()
             return skipProofread(DictationProofread.REASON_REFUSED)
@@ -547,7 +557,13 @@ class DictationPipeline(
         directState.value = current.copy(typed = outcome.text)
         log(
             "dictation_proofread_applied",
-            mapOf("chars" to outcome.text.length.toString(), "erased" to outcome.deleteBefore.toString())
+            mapOf(
+                "chars" to outcome.text.length.toString(),
+                "erased" to erase.toString(),
+                // Quanto o campo divergiu da conta do app: zero é o esperado, e o que não for zero diz
+                // que algum apagar ou escrever anterior não saiu como o app anotou.
+                "drift" to (erase - outcome.deleteBefore).toString()
+            )
         )
     }
 

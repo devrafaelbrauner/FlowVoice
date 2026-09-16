@@ -260,6 +260,19 @@ class FlowVoiceAccessibilityService : AccessibilityService() {
         return InsertResult(true, "commitText", "commitText(...) executado")
     }
 
+    // Texto que está de fato logo antes do cursor (P148). `getSurroundingText` existe na
+    // AccessibilityInputConnection (API 33+) e devolve o trecho junto com a posição da seleção dentro
+    // dele; sem conexão, sem editor ou fora da API, quem chamou fica com a conta do próprio app.
+    fun textBeforeCursor(limit: Int): String? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return null
+        if (limit <= 0) return null
+        val connection = inputMethod?.currentInputConnection ?: return null
+        val surrounding = runCatching { connection.getSurroundingText(limit, 0, 0) }.getOrNull() ?: return null
+        val text = surrounding.text?.toString() ?: return null
+        val cursor = surrounding.selectionStart.coerceIn(0, text.length)
+        return text.substring(0, cursor)
+    }
+
     fun insertFallback(text: String, deleteBefore: Int = 0, excludedPackage: String? = null): InsertResult {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
             return InsertResult(false, "ACTION_SET_TEXT", "requer Android 8+ para inserir sem apagar o texto do campo")

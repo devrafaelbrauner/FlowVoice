@@ -1527,6 +1527,53 @@ class DictationPipelineTest {
         assertEquals(revised.length.toString(), applied.metadata["chars"])
     }
 
+    // P148: no S26 (2026-09-16 10:29) o campo tinha um caractere a mais do que o app contabilizou; a
+    // troca apagou os 151 da conta, o campo tinha 152, e sobrou a primeira letra — "HHoje o dia...".
+    // O que manda é o texto do campo, não a conta do app.
+    @Test
+    fun theFinalRevisionErasesWhatIsInTheFieldEvenWhenItDivergesFromTheAppCount() = runTest {
+        val inserter = DirectInserter().apply { driftAfterFirstWrite = "." }
+        val revised = "Hoje o dia está muito bonito, por isso iremos para a praia."
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = listOf(frame(100L), frame(50L)),
+            texts = mapOf(0 to "Hoje o dia está muito bonito.", 1 to "Por isso iremos para a praia."),
+            preferences = AppPreferences(proofreadingEnabled = true),
+            textInserter = inserter,
+            proofreadingOutput = { revised }
+        )
+
+        env.pipeline.start()
+        env.pipeline.finalize()
+
+        assertEquals(revised, inserter.field.toString())
+        val applied = env.log.events.single { it.event == "dictation_proofread_applied" }
+        assertEquals("1", applied.metadata["drift"])
+    }
+
+    // Texto do usuário digitado no meio do ditado: as letras não conferem, e nada é apagado.
+    @Test
+    fun aFieldWhoseTextNoLongerMatchesTheDictationKeepsEverything() = runTest {
+        val inserter = DirectInserter().apply { driftAfterFirstWrite = " anotação minha" }
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = listOf(frame(100L), frame(50L)),
+            texts = mapOf(0 to "Hoje o dia está muito bonito.", 1 to "Por isso iremos para a praia."),
+            preferences = AppPreferences(proofreadingEnabled = true),
+            textInserter = inserter,
+            proofreadingOutput = { "Hoje o dia está muito bonito, por isso iremos para a praia." }
+        )
+
+        env.pipeline.start()
+        env.pipeline.finalize()
+
+        assertEquals(
+            "Hoje o dia está muito bonito. anotação minha Por isso iremos para a praia.",
+            inserter.field.toString()
+        )
+        assertEquals(DictationProofread.REASON_FIELD_CHANGED, proofreadSkipReason(env))
+    }
+
     // O guard da P132 barra troca de palavra; o campo fica com o ditado como foi digitado.
     @Test
     fun aFinalRevisionThatChangesAWordIsRefusedAndTheFieldKeepsTheDictation() = runTest {
@@ -1620,6 +1667,11 @@ class DictationPipelineTest {
         val automatic = mutableListOf<String>()
         val tapped = mutableListOf<String>()
 
+        // Caractere que o campo ganha sem o app saber, logo depois da primeira escrita: é o que
+        // aconteceu no S26 (P148), onde a conta do app ficou um caractere menor que o campo.
+        var driftAfterFirstWrite: String? = null
+        private var writes = 0
+
         override val isAvailable: Boolean = true
 
         override fun captureTarget() {
@@ -1646,8 +1698,12 @@ class DictationPipelineTest {
             return written(text)
         }
 
+        override fun readBeforeCursor(limit: Int): String? = field.toString().takeLast(limit)
+
         private fun written(text: String): TextInsertionResult {
             field.append(text)
+            writes++
+            if (writes == 1) driftAfterFirstWrite?.let(field::append)
             pinnedInput = input
             return TextInsertionResult(success = true, route = "teste", message = "ok")
         }
