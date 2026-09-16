@@ -130,7 +130,8 @@ class IncrementalTranscriptionController(
                 TranscriptionSegment(
                     windowIndex = window.index,
                     status = TranscriptionSegment.Status.Ok,
-                    text = result.text
+                    text = result.text,
+                    contextDurationMs = window.contextDurationMs
                 )
             )
             textLog.log("transcription_window_text", mapOf("window" to window.index.toString(), "text" to result.text))

@@ -220,6 +220,37 @@ class DirectInsertionPlannerTest {
         assertEquals("O exame de sangue. mostrou leucocitose.", step.plan.transcript)
     }
 
+    // P150, medido no S26 em 2026-09-16 (`openai/gpt-transcribe`): a janela 1 foi à API com 1 s de
+    // contexto e devolveu "Tá muito bonito" pelo mesmo áudio que a janela 0 transcreveu como "está
+    // muito bonito". Sem reconhecer a repetição, o campo ficou com "muito bonito" duas vezes.
+    @Test
+    fun theContextTranscribedWithOtherWordsIsNotTypedTwice() {
+        val step = DirectInsertionPlanner.advance(
+            DirectInsertionPlan(),
+            listOf(
+                ok(0, "Hoje o dia está muito bonito."),
+                ok(1, "Tá muito bonito, por isso iremos para a praia pela manhã.", contextDurationMs = 1000)
+            )
+        )
+
+        assertEquals("por isso iremos para a praia pela manhã.", step.pieces[1].text)
+        assertEquals("Hoje o dia está muito bonito por isso iremos para a praia pela manhã.", step.plan.transcript)
+    }
+
+    // A mesma janela sem contexto não repetiu áudio nenhum: o texto entra inteiro.
+    @Test
+    fun aWindowWithoutContextIsTypedWhole() {
+        val step = DirectInsertionPlanner.advance(
+            DirectInsertionPlan(),
+            listOf(
+                ok(0, "Hoje o dia está muito bonito."),
+                ok(1, "Tá muito bonito, por isso iremos para a praia pela manhã.")
+            )
+        )
+
+        assertEquals("Tá muito bonito, por isso iremos para a praia pela manhã.", step.pieces[1].text)
+    }
+
     // Dentro do mesmo lote, o pedaço seguinte vem logo depois do que acabamos de digitar.
     @Test
     fun afterTheFirstPieceOfABatchTheNextOnesAreContiguousAgain() {
@@ -232,7 +263,13 @@ class DirectInsertionPlannerTest {
         assertEquals(1, step.pieces[1].deleteBefore)
     }
 
-    private fun ok(index: Int, text: String) = TranscriptionSegment(index, TranscriptionSegment.Status.Ok, text)
+    private fun ok(index: Int, text: String, contextDurationMs: Long = 0L) =
+        TranscriptionSegment(
+            windowIndex = index,
+            status = TranscriptionSegment.Status.Ok,
+            text = text,
+            contextDurationMs = contextDurationMs
+        )
 
     private fun failed(index: Int) =
         TranscriptionSegment(index, TranscriptionSegment.Status.Failed, errorKind = "timeout")
