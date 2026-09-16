@@ -35,7 +35,7 @@ object DirectInsertionPlanner {
             val segment = byWindow[next] ?: break
             if (segment.status == TranscriptionSegment.Status.Transcribing) break
             if (segment.status == TranscriptionSegment.Status.Ok) {
-                val match = TranscriptOverlap.match(transcript, segment.text)
+                val match = TranscriptOverlap.match(transcript, segment.text, segment.contextDurationMs)
                 if (match.text.isNotEmpty()) {
                     val deleteBefore = if (contiguous) trailingStopToErase(transcript, match) else 0
                     val kept = transcript.dropLast(deleteBefore)
