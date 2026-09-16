@@ -391,7 +391,7 @@ internal fun SettingsContent(
                 FvDivider()
                 SettingsRow(
                     label = "Revisão por IA",
-                    hint = "Pontuação e ortografia; só ao revisar antes de inserir e nas notas"
+                    hint = "Pontuação e ortografia: no fim do ditado pela bolha, ao revisar antes de inserir e nas notas"
                 ) {
                     FvToggle(
                         checked = state.proofreadingEnabled,
