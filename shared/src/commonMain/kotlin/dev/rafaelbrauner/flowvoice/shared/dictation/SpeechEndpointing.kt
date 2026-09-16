@@ -34,8 +34,11 @@ data class SpeechEndpointing(
 
     companion object {
         const val BLOCK_MS = 20L
-        const val MIN_BUFFERED_MS = 1_200L
-        const val MIN_PAUSE_MS = 300L
+        // Janela mínima de 2 s e pausa mínima de 450 ms (P143). Com 1,2 s e 300 ms, medidos no S26
+        // (0.5.0), uma hesitação no meio da frase partia a frase e sobravam janelas de 1,4 s, curtas
+        // demais para o modelo acertar termo difícil. Custam ~150 ms a mais depois de cada frase.
+        const val MIN_BUFFERED_MS = 2_000L
+        const val MIN_PAUSE_MS = 450L
         const val MIN_VOICED_MS = 400L
         const val MIN_VOICED_RUN_MS = 80L
         const val LEADING_PAD_MS = 200L

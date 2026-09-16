@@ -83,14 +83,17 @@ class DictationWindowEndpointingTest {
         val emitted = feed(aggregator(), silence(300L) + speech(1_000L) + silence(800L))
 
         val first = emitted.single()
-        assertEquals(1_600L, first.atMs, "a janela sai no frame em que a pausa chega a 300 ms")
+        // A pausa começa em 1300 ms, mas a janela só sai ao acumular os 2 s mínimos (P143).
+        assertEquals(2_000L, first.atMs, "a janela sai no frame em que o mínimo acumulado é atingido")
         assertEquals(WindowCut.Pause, first.window.cut)
-        assertTrue(first.window.finishedAtMs in 1_300L..1_600L, "corte em ${first.window.finishedAtMs} ms, fora da pausa")
+        assertTrue(first.window.finishedAtMs in 1_300L..2_000L, "corte em ${first.window.finishedAtMs} ms, fora da pausa")
     }
 
+    // 300 ms era o mínimo antes da P143 e cortava aqui; agora uma hesitação desse tamanho no meio da
+    // frase não parte mais a frase.
     @Test
     fun pauseShorterThanTheMinimumDoesNotCut() {
-        val emitted = feed(aggregator(), speech(1_500L) + silence(200L) + speech(1_500L))
+        val emitted = feed(aggregator(), speech(1_500L) + silence(300L) + speech(1_500L))
 
         assertTrue(emitted.isEmpty(), "cortou em ${emitted.map { it.window.finishedAtMs }}")
     }
@@ -122,9 +125,9 @@ class DictationWindowEndpointingTest {
         val emitted = feed(aggregator(), noise(500L) + speech(1_500L) + noise(500L) + speech(1_000L))
 
         val first = emitted.single()
-        assertEquals(2_300L, first.atMs)
+        assertEquals(2_500L, first.atMs)
         assertEquals(WindowCut.Pause, first.window.cut)
-        assertTrue(first.window.finishedAtMs in 2_000L..2_300L, "corte em ${first.window.finishedAtMs} ms, fora da pausa")
+        assertTrue(first.window.finishedAtMs in 2_000L..2_500L, "corte em ${first.window.finishedAtMs} ms, fora da pausa")
         assertNotNull(first.window.noiseFloor)
         assertTrue(first.window.noiseFloor!! in 200..400, "piso de ruído ${first.window.noiseFloor}")
     }
@@ -136,7 +139,7 @@ class DictationWindowEndpointingTest {
         val first = emitted.single()
         assertEquals(SpeechEndpointing.MIN_BUFFERED_MS, first.atMs)
         assertEquals(WindowCut.Pause, first.window.cut)
-        assertTrue(first.window.finishedAtMs in 500L..1_200L, "corte em ${first.window.finishedAtMs} ms, fora da pausa")
+        assertTrue(first.window.finishedAtMs in 500L..2_000L, "corte em ${first.window.finishedAtMs} ms, fora da pausa")
     }
 
     @Test
@@ -198,23 +201,23 @@ class DictationWindowEndpointingTest {
         val emitted = feed(aggregator(), silence(300L) + speech(1_000L) + silence(800L), FRAME_256_MS_BYTES)
 
         val first = emitted.single()
-        assertEquals(1_792L, first.atMs, "primeiro frame de 256 ms que termina depois de 300 ms de pausa")
+        assertEquals(2_048L, first.atMs, "primeiro frame de 256 ms que termina depois do mínimo acumulado")
         assertEquals(WindowCut.Pause, first.window.cut)
-        assertTrue(first.window.finishedAtMs in 1_300L..1_600L, "corte em ${first.window.finishedAtMs} ms, fora da pausa")
+        assertTrue(first.window.finishedAtMs in 1_300L..2_048L, "corte em ${first.window.finishedAtMs} ms, fora da pausa")
     }
 
     @Test
     fun flushEmitsTheRemainderAtTheEnd() {
         val aggregator = aggregator()
 
-        val cut = feed(aggregator, speech(1_000L) + silence(400L) + speech(700L)).single().window
+        val cut = feed(aggregator, speech(1_000L) + silence(500L) + speech(700L)).single().window
         val tail = aggregator.flush()
 
         assertNotNull(tail)
         assertEquals(WindowCut.Flush, tail.cut)
         assertEquals(1, tail.index)
         assertEquals(cut.finishedAtMs, tail.startedAtMs)
-        assertEquals(2_100L, tail.finishedAtMs)
+        assertEquals(2_200L, tail.finishedAtMs)
         assertNull(aggregator.flush())
     }
 
@@ -227,7 +230,7 @@ class DictationWindowEndpointingTest {
 
         val first = feed(aggregator, silence(300L) + speech(1_000L) + silence(800L)).single()
 
-        assertEquals(1_600L, first.atMs)
+        assertEquals(2_000L, first.atMs)
         assertEquals(0, first.window.index)
         assertEquals(WindowCut.Pause, first.window.cut)
     }

@@ -107,7 +107,8 @@ class DictationSessionControllerTest {
 
     @Test
     fun endpointingEmitsTheWindowAtThePauseBeforeFinalize() = runTest {
-        val frames = listOf(0, 4_000, 4_000, 4_000, 4_000, 4_000, 4_000, 4_000, 4_000, 4_000, 4_000, 0, 0, 0, 0)
+        // 100 ms de silêncio, 1 s de fala e 900 ms de pausa: 2 s, o mínimo acumulado da P143.
+        val frames = (listOf(0) + List(10) { 4_000 } + List(9) { 0 })
             .map { pcmFrame(100L, amplitude = it) }
         val controller = DictationSessionController(
             FakeAudioCaptureEngine(frames),
@@ -124,12 +125,12 @@ class DictationSessionControllerTest {
 
         val window = windows.single()
         assertEquals(WindowCut.Pause, window.cut)
-        assertTrue(window.finishedAtMs in 1_100L..1_500L, "corte em ${window.finishedAtMs} ms")
+        assertTrue(window.finishedAtMs in 1_100L..2_000L, "corte em ${window.finishedAtMs} ms")
 
         controller.finalize()
         runCurrent()
         assertEquals(listOf(WindowCut.Pause, WindowCut.Flush), windows.map { it.cut })
-        assertEquals(1_500L, windows.last().finishedAtMs)
+        assertEquals(2_000L, windows.last().finishedAtMs)
         collector.cancel()
         runCurrent()
     }
