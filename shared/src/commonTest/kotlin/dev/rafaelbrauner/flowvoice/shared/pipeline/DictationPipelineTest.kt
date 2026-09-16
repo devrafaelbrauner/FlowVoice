@@ -1164,6 +1164,33 @@ class DictationPipelineTest {
         assertEquals("tomar Dipirona", inserter.field.toString())
     }
 
+    // P145 no modo direto: o termo do usuário é consertado ANTES de o trecho ir para o campo, inclusive
+    // quando o modelo partiu a palavra em duas ("de Espinéia" por "dispneia"). Por isso a conta do que
+    // o app escreveu (P148) continua sendo exatamente o que o campo recebeu.
+    @Test
+    fun directSessionFixesTheUserTermBeforeTypingAndCountsWhatItTyped() = runTest {
+        val inserter = DirectInserter()
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = listOf(frame(100L), frame(100L)),
+            texts = mapOf(0 to "Paciente com", 1 to "de Espinéia aos esforços"),
+            preferences = AppPreferences(),
+            textInserter = inserter
+        )
+        env.dictionary.approve("dispneia")
+
+        env.pipeline.start()
+        runCurrent()
+
+        assertEquals("Paciente com dispneia aos esforços", inserter.field.toString())
+        assertEquals(inserter.field.toString(), env.pipeline.directInsertion.value.typed)
+        val applied = env.log.events.single { it.event == "dictation_vocabulary_applied" }
+        assertEquals("2", applied.metadata["window"])
+        assertEquals("21", applied.metadata["chars"])
+        // O log diz que houve troca e quanto ficou; o texto ditado continua fora dele.
+        assertTrue(env.log.events.none { event -> event.metadata.values.any { it.contains("dispneia") } })
+    }
+
     @Test
     fun failedWindowInDirectSessionIsSkippedAndTheWarningShowsWhileRecording() = runTest {
         val inserter = DirectInserter()

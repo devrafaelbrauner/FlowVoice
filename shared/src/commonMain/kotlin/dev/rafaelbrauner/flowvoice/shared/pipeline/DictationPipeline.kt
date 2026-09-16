@@ -409,8 +409,18 @@ class DictationPipeline(
         // passa a ser texto do usuário, e apagá-lo seria apagar o que não é nosso (P144).
         var contiguous = true
         step.pieces.forEach { piece ->
-            val text = piece.separator + dictionary.apply(piece.text)
+            // Vocabulário do usuário (P145): o trecho é consertado aqui, antes de ir ao campo, e por
+            // isso a conta do que o app escreveu (P148) já nasce com a correção dentro. O log diz que
+            // houve troca e quanto ficou, nunca o texto.
+            val corrected = dictionary.apply(piece.text)
+            val text = piece.separator + corrected
             val window = (piece.windowIndex + 1).toString()
+            if (corrected != piece.text) {
+                log(
+                    "dictation_vocabulary_applied",
+                    mapOf("window" to window, "chars" to corrected.length.toString())
+                )
+            }
             next = if (next.paused) {
                 // O pendente ainda não está no campo: o ponto a tirar está nele mesmo. Com o pendente
                 // vazio, o ponto está no campo, de antes da pausa, e não se toca nele.
