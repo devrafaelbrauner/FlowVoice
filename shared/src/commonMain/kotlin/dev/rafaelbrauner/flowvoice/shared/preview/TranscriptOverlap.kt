@@ -1,6 +1,7 @@
 package dev.rafaelbrauner.flowvoice.shared.preview
 
 import dev.rafaelbrauner.flowvoice.shared.text.EditDistance
+import dev.rafaelbrauner.flowvoice.shared.text.PtBrSound
 import kotlin.math.min
 
 // Deduplicação da emenda entre janelas (P127, endurecida pela P143 e pela P150).
@@ -155,13 +156,7 @@ object TranscriptOverlap {
     private fun neighbours(kinds: List<Kind>, index: Int): List<Kind> =
         listOfNotNull(kinds.getOrNull(index - 1), kinds.getOrNull(index + 1))
 
-    private fun normalize(token: String): String = buildString {
-        token.forEach { char ->
-            val lower = char.lowercaseChar()
-            val plain = ACCENTS[lower] ?: lower
-            if (plain.isLetterOrDigit()) append(plain)
-        }
-    }
+    private fun normalize(token: String): String = PtBrSound.plain(token)
 
     private fun tokenize(text: String): List<String> =
         text.split(Regex("\\s+")).filter { it.isNotBlank() }
@@ -176,13 +171,4 @@ object TranscriptOverlap {
     private const val MIN_EVIDENCE_WORDS = 2
     private const val CHARS_PER_SECOND = 30L
     private const val MAX_REMOVABLE_CHARS = 120L
-
-    private val ACCENTS: Map<Char, Char> = mapOf(
-        'á' to 'a', 'à' to 'a', 'â' to 'a', 'ã' to 'a', 'ä' to 'a',
-        'é' to 'e', 'è' to 'e', 'ê' to 'e', 'ë' to 'e',
-        'í' to 'i', 'ì' to 'i', 'î' to 'i', 'ï' to 'i',
-        'ó' to 'o', 'ò' to 'o', 'ô' to 'o', 'õ' to 'o', 'ö' to 'o',
-        'ú' to 'u', 'ù' to 'u', 'û' to 'u', 'ü' to 'u',
-        'ç' to 'c', 'ñ' to 'n'
-    )
 }
