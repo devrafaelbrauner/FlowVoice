@@ -48,9 +48,11 @@ cortada na pausa da fala (P140). Desenho e decisões da bolha em
 
 ### Changed
 
-- P139: a revisão por IA não roda na digitação direta: o texto já está no campo, e
-  revisar trecho a trecho dobraria custo e latência sem o contexto da frase. Ela
-  continua ao revisar antes de inserir e nas notas.
+- P147: a revisão por IA passa a valer também na digitação direta, **uma vez só,
+  no fim do ditado** (a P139 a dispensava por completo aqui). Revisar trecho a
+  trecho dobraria custo e latência sem o contexto da frase; no fim, a frase
+  inteira existe e é ela que vai ao modelo. Ela continua ao revisar antes de
+  inserir e nas notas.
 - P139: o microfone do Início também digita direto, só no app que ele reabre
   (P130).
 - P140: a janela de áudio é **cortada na pausa natural da fala**, e não mais a
@@ -119,6 +121,31 @@ cortada na pausa da fala (P140). Desenho e decisões da bolha em
   do corte é de 120 ms e anda para trás: na dúvida a palavra fica, e a
   deduplicação por texto a remove. `transcription_context_trimmed` traz quanto
   foi cortado, sem o texto.
+- P147: **a pontuação do ditado direto é revista no fim.** O modelo de
+  transcrição só vê uma janela de 2 a 4 s por vez e pontua cada uma como se fosse
+  a frase inteira: no S26 (2026-09-16 09:29) saíram "Hoje o dia está muito
+  bonito.", "Por isso iremos para a praia." e "Para a praia pela manhã.", com
+  ponto final cedo demais e sem vírgula. Terminado o ditado (toque na bolha ou
+  teto), o texto inteiro que o FlowVoice escreveu vai ao modelo de revisão
+  (`openai/gpt-4o-mini`), que só pode mexer em pontuação, maiúsculas, acentos e
+  ortografia, e volta trocado no campo de uma vez: apaga exatamente os caracteres
+  que o app inseriu e escreve a versão revisada.
+- P147: **qualquer falha deixa o campo como está.** Guard recusando a resposta,
+  rede fora do ar, chave inválida, trecho ainda pendente, campo trocado no meio
+  ou ditado acima de 4000 caracteres: nada é apagado. A troca só acontece com o
+  que o app escreveu ainda imediatamente antes do cursor, no mesmo campo (as
+  travas da P139 e da P144), e a contiguidade é conferida **de novo depois da
+  resposta**, porque o campo pode ter mudado no ~1 s da chamada. Revisão idêntica
+  ao ditado não apaga nem escreve nada.
+- P147: a prévia mostra **"revisando…"** enquanto isso, e o resultado depois. O
+  custo é de uma chamada a mais por ditado (~US$ 0,0001 num ditado de 300
+  caracteres com o `gpt-4o-mini`) e o fim do ditado atrasa ~1 s; o `latencyMs` do
+  `dictation_finalized` passa a incluir essa espera.
+- P147: log `dictation_proofread_applied chars= erased=` e
+  `dictation_proofread_skipped reason=` (`desligado`, `pendente`, `vazio`,
+  `nao_contiguo`, `muito_longo`, `guard`, `sem_mudanca`, `erro`, `recusado`), sem
+  texto; o texto continua só no log da P135 (`proofreading_input` e
+  `proofreading_output`).
 
 ### Security
 

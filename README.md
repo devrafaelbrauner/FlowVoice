@@ -72,7 +72,7 @@ adb install -r androidApp/build/outputs/apk/debug/androidApp-debug.apk
 3. **Ajustes:** ligue o botão flutuante (pede microfone, notificações e "sobrepor a
    outros apps") e, se quiser, o Google Web Client ID. "Revisar antes de inserir"
    (desligado por padrão) troca a digitação direta pela barra com Inserir; a revisão
-   por IA só vale nesse modo e nas notas.
+   por IA vale no fim do ditado pela bolha, nesse modo e nas notas.
 
 ## Ditando
 
@@ -80,7 +80,11 @@ adb install -r androidApp/build/outputs/apk/debug/androidApp-debug.apk
   vai até uma pausa natural da fala (300 ms de pausa depois de ao menos ~1 s de
   áudio) ou, falando sem pausa, até ~4 s. Ele é **digitado no campo** assim que é
   transcrito, em ordem e com espaço entre os trechos. Toque na bolha de novo para encerrar: o último trecho
-  entra em seguida. Nesse modo não há revisão por IA.
+  entra em seguida. Com a **revisão por IA** ligada (Ajustes), o ditado inteiro é
+  revisto de uma vez no fim — só pontuação, maiúsculas e acentos, sem trocar palavra —
+  e substitui no campo o que o FlowVoice tinha escrito; a prévia mostra "revisando…"
+  durante o ~1 s da chamada. Se a revisão falhar, se o texto não estiver mais logo
+  antes do cursor ou se o ditado passar de 4000 caracteres, fica como foi digitado.
 - **Prévia:** um cartão junto à bolha mostra o cronômetro e o estado. Ele abre acima
   ou abaixo da linha do cursor, **nunca sobre ela** nem sobre o teclado; se o cursor
   anda, o cartão muda de lado. Com pouco espaço, encolhe e os textos rolam; sem
