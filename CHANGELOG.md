@@ -141,11 +141,21 @@ cortada na pausa da fala (P140). Desenho e decisões da bolha em
   custo é de uma chamada a mais por ditado (~US$ 0,0001 num ditado de 300
   caracteres com o `gpt-4o-mini`) e o fim do ditado atrasa ~1 s; o `latencyMs` do
   `dictation_finalized` passa a incluir essa espera.
-- P147: log `dictation_proofread_applied chars= erased=` e
+- P147: log `dictation_proofread_applied chars= erased= drift=` e
   `dictation_proofread_skipped reason=` (`desligado`, `pendente`, `vazio`,
-  `nao_contiguo`, `muito_longo`, `guard`, `sem_mudanca`, `erro`, `recusado`), sem
-  texto; o texto continua só no log da P135 (`proofreading_input` e
-  `proofreading_output`).
+  `nao_contiguo`, `muito_longo`, `guard`, `sem_mudanca`, `erro`, `recusado`,
+  `campo_diferente`), sem texto; o texto continua só no log da P135
+  (`proofreading_input` e `proofreading_output`).
+- P148: **a troca apaga o que está no campo, não o que o app anotou.** No S26
+  (2026-09-16 10:29) a pontuação saiu certa, mas sobrou a primeira letra do
+  ditado — "HHoje o dia..." —, porque o campo tinha um caractere a mais do que a
+  conta do app. Agora a revisão lê o texto que está de fato antes do cursor
+  (`getSurroundingText`, API 33+) e o casa com o ditado letra a letra, ignorando
+  espaços e pontuação, que é justamente o que diverge; os sinais que sobram no
+  meio entram no que será apagado. Letra diferente no meio (alguém digitou junto)
+  ou diferença acima de 16 caracteres para mais ou para menos **não apagam nada**
+  (`reason=campo_diferente`), e quem não souber ler o campo continua com a conta
+  do app. O `drift=` do log mede essa diferença: `drift=0` é o esperado.
 
 ### Security
 
