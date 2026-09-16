@@ -23,6 +23,15 @@ object ProofreadingGuard {
         return source.indices.all { wordAccepted(source[it], target[it]) }
     }
 
+    // A mesma regra para uma palavra só (P149), para misturar a revisão palavra a palavra em vez de
+    // descartá-la inteira por causa de uma. Recebe as palavras como estão no texto.
+    fun acceptsWord(original: String, revised: String): Boolean =
+        wordAccepted(normalize(original), normalize(revised))
+
+    private fun normalize(word: String): String = buildString {
+        word.lowercase().forEach { char -> append(ACCENTS[char] ?: char) }
+    }
+
     private fun wordAccepted(original: String, revised: String): Boolean = when {
         original == revised -> true
         original.any { it.isDigit() } || revised.any { it.isDigit() } -> false

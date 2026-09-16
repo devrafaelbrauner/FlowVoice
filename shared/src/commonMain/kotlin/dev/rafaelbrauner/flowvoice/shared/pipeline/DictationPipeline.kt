@@ -11,6 +11,7 @@ import dev.rafaelbrauner.flowvoice.shared.preview.LivePreview
 import dev.rafaelbrauner.flowvoice.shared.preview.LivePreviewAssembler
 import dev.rafaelbrauner.flowvoice.shared.proofreading.ProofreadingClient
 import dev.rafaelbrauner.flowvoice.shared.proofreading.ProofreadingGuard
+import dev.rafaelbrauner.flowvoice.shared.proofreading.ProofreadingMerge
 import dev.rafaelbrauner.flowvoice.shared.transcription.IncrementalTranscriptionController
 import dev.rafaelbrauner.flowvoice.shared.transcription.OpenRouterConfig
 import dev.rafaelbrauner.flowvoice.shared.transcription.SecretStore
@@ -527,7 +528,12 @@ class DictationPipeline(
         directState.value = directState.value.copy(proofreading = false)
         transcriptTextLog.log("proofreading_input", mapOf("text" to text))
         transcriptTextLog.log("proofreading_output", mapOf("text" to revised))
-        when (val outcome = DictationProofread.outcome(text, revised)) {
+        // Uma palavra trocada não pode custar a pontuação do ditado inteiro (P149): onde a revisão
+        // mexeu no que não podia, fica a palavra do ditado; a pontuação dela entra do mesmo jeito, e o
+        // guard ainda confere o resultado.
+        val merged = ProofreadingMerge.merge(text, revised) ?: revised
+        if (merged != revised) transcriptTextLog.log("proofreading_merged", mapOf("text" to merged))
+        when (val outcome = DictationProofread.outcome(text, merged)) {
             is DictationProofread.Outcome.Skip -> skipProofread(outcome.reason)
             is DictationProofread.Outcome.Replace -> replaceDictation(text, outcome)
         }

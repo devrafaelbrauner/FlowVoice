@@ -1574,9 +1574,30 @@ class DictationPipelineTest {
         assertEquals(DictationProofread.REASON_FIELD_CHANGED, proofreadSkipReason(env))
     }
 
-    // O guard da P132 barra troca de palavra; o campo fica com o ditado como foi digitado.
+    // P149: a troca de palavra não custa mais a pontuação do ditado. No S26 (2026-09-16 10:42) a
+    // revisão trocou "Tá" por "Está" e o guard descartou tudo, junto com a vírgula que estava certa.
+    // Agora a palavra do ditado fica — sem a maiúscula, que a vírgula tirou — e a pontuação entra.
     @Test
-    fun aFinalRevisionThatChangesAWordIsRefusedAndTheFieldKeepsTheDictation() = runTest {
+    fun aFinalRevisionThatChangesAWordStillBringsItsPunctuation() = runTest {
+        val inserter = DirectInserter()
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = listOf(frame(100L), frame(50L)),
+            texts = mapOf(0 to "Estava muito cansado.", 1 to "Tá com dor."),
+            preferences = AppPreferences(proofreadingEnabled = true),
+            textInserter = inserter,
+            proofreadingOutput = { "Estava muito cansado, está com dor." }
+        )
+
+        env.pipeline.start()
+        env.pipeline.finalize()
+
+        assertEquals("Estava muito cansado, tá com dor.", inserter.field.toString())
+    }
+
+    // Trocada a palavra e nada mais, não sobra o que mudar: o campo não é tocado.
+    @Test
+    fun aFinalRevisionThatOnlyChangesAWordLeavesTheFieldUntouched() = runTest {
         val inserter = DirectInserter()
         val env = PipelineEnv(
             scope = backgroundScope,
@@ -1591,7 +1612,7 @@ class DictationPipelineTest {
         env.pipeline.finalize()
 
         assertEquals("Paciente refere dor no joelho direito.", inserter.field.toString())
-        assertEquals(DictationProofread.REASON_GUARD, proofreadSkipReason(env))
+        assertEquals(DictationProofread.REASON_UNCHANGED, proofreadSkipReason(env))
     }
 
     // Revisão fora do ar: o ditado fica exatamente como foi digitado, nunca apagado pela metade.
