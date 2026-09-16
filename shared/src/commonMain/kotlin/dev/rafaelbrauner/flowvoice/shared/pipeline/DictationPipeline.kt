@@ -370,6 +370,8 @@ class DictationPipeline(
         log("dictation_direct_resumed", mapOf("chars" to progress.pending.length.toString()))
         val resumed = progress.copy(typed = progress.typed + progress.pending, pending = "", pausedReason = null)
         directState.value = resumed
+        // "Inserir aqui" pode ter escrito noutro campo: o próximo pedaço não apaga nada (P144).
+        directPlan = directPlan.copy(contiguous = false)
         if (status is DictationPipelineStatus.Ready) {
             val outcome = completed(resumed.typed, directDelivery(resumed.typed), status.warning, status.latencyMs, failedWindows = null)
             publish(outcome)
@@ -395,25 +397,41 @@ class DictationPipeline(
         }
         val segments = transcription.segments.value
         val step = DirectInsertionPlanner.advance(directPlan, segments)
-        directPlan = step.plan
         var next = progress
+        // Deixa de valer assim que um pedaço não entra direto no campo: o que está antes do cursor
+        // passa a ser texto do usuário, e apagá-lo seria apagar o que não é nosso (P144).
+        var contiguous = true
         step.pieces.forEach { piece ->
             val text = piece.separator + dictionary.apply(piece.text)
             val window = (piece.windowIndex + 1).toString()
             next = if (next.paused) {
-                next.copy(pending = next.pending + text)
+                // O pendente ainda não está no campo: o ponto a tirar está nele mesmo. Com o pendente
+                // vazio, o ponto está no campo, de antes da pausa, e não se toca nele.
+                val erasable = piece.deleteBefore > 0 && next.pending.length >= piece.deleteBefore
+                val head = if (erasable) next.pending.dropLast(piece.deleteBefore) else next.pending
+                contiguous = false
+                next.copy(pending = head + text)
             } else {
-                val insertion = inserter.insertWithoutTap(text)
+                val insertion = inserter.insertWithoutTap(text, piece.deleteBefore)
                 if (insertion.success) {
-                    log("dictation_direct_inserted", mapOf("window" to window, "chars" to text.length.toString()))
-                    next.copy(typed = next.typed + text)
+                    log(
+                        "dictation_direct_inserted",
+                        buildMap {
+                            put("window", window)
+                            put("chars", text.length.toString())
+                            if (piece.deleteBefore > 0) put("erased", piece.deleteBefore.toString())
+                        }
+                    )
+                    next.copy(typed = next.typed.dropLast(piece.deleteBefore) + text)
                 } else {
                     refusalMark = timeSource.markNow()
                     log("dictation_direct_paused", mapOf("window" to window, "route" to insertion.route))
+                    contiguous = false
                     next.copy(pending = next.pending + text, pausedReason = insertion.message)
                 }
             }
         }
+        directPlan = step.plan.copy(contiguous = step.plan.contiguous && contiguous)
         val warning = TranscriptionFailureSummary.from(segments, controller.emittedWindowCount)?.partialMessage
         next = next.copy(warning = warning)
         if (next != progress) directState.value = next

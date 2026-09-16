@@ -10,7 +10,9 @@ interface TextInserter {
     fun insert(text: String): TextInsertionResult
 
     // Inserção sem toque do usuário (modo direto, P139). No Android passa pelo DirectInsertionGuard.
-    fun insertWithoutTap(text: String): TextInsertionResult = insert(text)
+    // `deleteBefore` apaga caracteres logo antes do cursor antes de escrever (P144): só o ponto que o
+    // próprio FlowVoice inseriu. Quem não souber apagar ignora, e o ponto sobra.
+    fun insertWithoutTap(text: String, deleteBefore: Int = 0): TextInsertionResult = insert(text)
 }
 
 data class TextInsertionResult(

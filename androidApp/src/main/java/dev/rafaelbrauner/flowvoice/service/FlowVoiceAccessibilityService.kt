@@ -226,7 +226,7 @@ class FlowVoiceAccessibilityService : AccessibilityService() {
         }
     }
 
-    fun insertDirect(text: String, excludedPackage: String? = null): InsertResult {
+    fun insertDirect(text: String, deleteBefore: Int = 0, excludedPackage: String? = null): InsertResult {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
             return InsertResult(false, "commitText", "requer Android 13+ (API 33)")
         }
@@ -245,6 +245,9 @@ class FlowVoiceAccessibilityService : AccessibilityService() {
         }
 
         try {
+            // Apaga o ponto que o próprio FlowVoice inseriu ao fechar o trecho anterior (P144). Roda
+            // depois das travas de destino e de senha, nunca antes.
+            if (deleteBefore > 0) connection.deleteSurroundingText(deleteBefore, 0)
             // Com palavra em composição no teclado, commitText a substitui e o texto sai truncado (P142).
             // A AccessibilityInputConnection não expõe finishComposingText, então não há como encerrá-la aqui.
             connection.commitText(text, 1, null)
@@ -257,7 +260,7 @@ class FlowVoiceAccessibilityService : AccessibilityService() {
         return InsertResult(true, "commitText", "commitText(...) executado")
     }
 
-    fun insertFallback(text: String, excludedPackage: String? = null): InsertResult {
+    fun insertFallback(text: String, deleteBefore: Int = 0, excludedPackage: String? = null): InsertResult {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
             return InsertResult(false, "ACTION_SET_TEXT", "requer Android 8+ para inserir sem apagar o texto do campo")
         }
@@ -282,7 +285,8 @@ class FlowVoiceAccessibilityService : AccessibilityService() {
                 showingHint = node.isShowingHintText,
                 selectionStart = node.textSelectionStart,
                 selectionEnd = node.textSelectionEnd,
-                insert = text
+                insert = text,
+                deleteBefore = deleteBefore
             )
             val textArgs = Bundle().apply {
                 putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, plan.text)

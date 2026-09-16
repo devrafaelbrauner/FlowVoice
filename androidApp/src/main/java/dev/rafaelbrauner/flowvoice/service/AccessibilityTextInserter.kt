@@ -41,7 +41,7 @@ object AccessibilityTextInserter : TextInserter {
         return deliver(service, text)
     }
 
-    override fun insertWithoutTap(text: String): TextInsertionResult {
+    override fun insertWithoutTap(text: String, deleteBefore: Int): TextInsertionResult {
         val service = FlowVoiceAccessibilityService.service ?: return SERVICE_INACTIVE
         DirectInsertionGuard.refusal(
             startPackage = startPackage,
@@ -52,16 +52,20 @@ object AccessibilityTextInserter : TextInserter {
         )?.let { refusal ->
             return TextInsertionResult(false, refusal.reason.route, refusal.message)
         }
-        return deliver(service, text)
+        return deliver(service, text, deleteBefore)
     }
 
-    private fun deliver(service: FlowVoiceAccessibilityService, text: String): TextInsertionResult {
+    private fun deliver(
+        service: FlowVoiceAccessibilityService,
+        text: String,
+        deleteBefore: Int = 0
+    ): TextInsertionResult {
         val ownPackage = service.packageName
-        val direct = service.insertDirect(text, excludedPackage = ownPackage)
+        val direct = service.insertDirect(text, deleteBefore, excludedPackage = ownPackage)
         val result = if (direct.success || direct.blocked) {
             direct
         } else {
-            service.insertFallback(text, excludedPackage = ownPackage)
+            service.insertFallback(text, deleteBefore, excludedPackage = ownPackage)
         }
         if (result.success) pinnedInput = service.currentInputGeneration()
         return TextInsertionResult(result.success, result.route, result.message)

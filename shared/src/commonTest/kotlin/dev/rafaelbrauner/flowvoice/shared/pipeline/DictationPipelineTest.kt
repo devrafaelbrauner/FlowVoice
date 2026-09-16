@@ -1521,11 +1521,12 @@ class DictationPipelineTest {
             return written(text)
         }
 
-        override fun insertWithoutTap(text: String): TextInsertionResult {
+        override fun insertWithoutTap(text: String, deleteBefore: Int): TextInsertionResult {
             automatic += text
             DirectInsertionGuard.refusal(target, focused, OWN, pinnedInput, input)?.let {
                 return TextInsertionResult(success = false, route = it.reason.route, message = it.message)
             }
+            if (deleteBefore > 0) field.setLength((field.length - deleteBefore).coerceAtLeast(0))
             return written(text)
         }
 
@@ -1686,7 +1687,7 @@ private class CallRecordingInserter : TextInserter {
         calls += "captureTargetIfUnknown"
     }
 
-    override fun insertWithoutTap(text: String): TextInsertionResult {
+    override fun insertWithoutTap(text: String, deleteBefore: Int): TextInsertionResult {
         calls += "insertWithoutTap:$text"
         return TextInsertionResult(success = true, route = "teste", message = "ok")
     }

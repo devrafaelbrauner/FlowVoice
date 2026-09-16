@@ -143,6 +143,95 @@ class DirectInsertionPlannerTest {
         assertEquals("com episódios de diarreia.", step.plan.transcript)
     }
 
+    // P144: o modelo fecha cada trecho com ponto. Quando o trecho seguinte continua a frase, sobra um
+    // ponto no meio dela — no S26 (2026-09-16) saiu "O exame de sangue. mostrou leucocitose.". O ponto
+    // já está no campo, então o pedaço novo pede para apagá-lo antes de entrar.
+    @Test
+    fun aPieceThatContinuesTheSentenceErasesTheFullStopAlreadyTyped() {
+        val step = DirectInsertionPlanner.advance(
+            DirectInsertionPlan(),
+            listOf(ok(0, "O exame de sangue."), ok(1, "mostrou leucocitose."))
+        )
+
+        assertEquals(
+            DirectInsertionPiece(windowIndex = 1, separator = " ", text = "mostrou leucocitose.", deleteBefore = 1),
+            step.pieces[1]
+        )
+        assertEquals("O exame de sangue mostrou leucocitose.", step.plan.transcript)
+    }
+
+    // Maiúscula é o sinal de que o próprio modelo considerou a frase encerrada: nada é apagado, e a
+    // inicial não é rebaixada (seria corromper nome próprio).
+    @Test
+    fun aPieceThatStartsANewSentenceKeepsTheFullStop() {
+        val step = DirectInsertionPlanner.advance(
+            DirectInsertionPlan(),
+            listOf(ok(0, "O exame de sangue."), ok(1, "Mostrou leucocitose."))
+        )
+
+        assertEquals(0, step.pieces[1].deleteBefore)
+        assertEquals("O exame de sangue. Mostrou leucocitose.", step.plan.transcript)
+    }
+
+    // "Dr." não é fim de frase. A palavra antes do ponto precisa ser toda minúscula para o ponto ser
+    // apagado; abreviação e nome próprio carregam maiúscula.
+    @Test
+    fun anAbbreviationBeforeTheFullStopIsNotUndone() {
+        val step = DirectInsertionPlanner.advance(
+            DirectInsertionPlan(),
+            listOf(ok(0, "Avaliado pelo Dr."), ok(1, "grandmont, sem febre."))
+        )
+
+        assertEquals(0, step.pieces[1].deleteBefore)
+        assertEquals("Avaliado pelo Dr. grandmont, sem febre.", step.plan.transcript)
+    }
+
+    @Test
+    fun aPieceStartingWithPunctuationErasesTheFullStopAndGluesItself() {
+        val step = DirectInsertionPlanner.advance(
+            DirectInsertionPlan(),
+            listOf(ok(0, "Paciente estável."), ok(1, ", sem febre."))
+        )
+
+        assertEquals(
+            DirectInsertionPiece(windowIndex = 1, separator = "", text = ", sem febre.", deleteBefore = 1),
+            step.pieces[1]
+        )
+        assertEquals("Paciente estável, sem febre.", step.plan.transcript)
+    }
+
+    @Test
+    fun theFirstPieceOfTheSessionNeverErasesAnything() {
+        val step = DirectInsertionPlanner.advance(DirectInsertionPlan(), listOf(ok(0, "mostrou leucocitose.")))
+
+        assertEquals(0, step.pieces.single().deleteBefore)
+    }
+
+    // Depois de "Inserir aqui" noutro campo, ou de uma recusa, o que o FlowVoice digitou já não está
+    // logo antes do cursor: nada pode ser apagado, porque o caractere de lá é do usuário.
+    @Test
+    fun nothingIsErasedWhenWhatWeTypedIsNoLongerRightBeforeTheCursor() {
+        val step = DirectInsertionPlanner.advance(
+            DirectInsertionPlan(nextWindow = 1, transcript = "O exame de sangue.", contiguous = false),
+            listOf(ok(1, "mostrou leucocitose."))
+        )
+
+        assertEquals(0, step.pieces.single().deleteBefore)
+        assertEquals("O exame de sangue. mostrou leucocitose.", step.plan.transcript)
+    }
+
+    // Dentro do mesmo lote, o pedaço seguinte vem logo depois do que acabamos de digitar.
+    @Test
+    fun afterTheFirstPieceOfABatchTheNextOnesAreContiguousAgain() {
+        val step = DirectInsertionPlanner.advance(
+            DirectInsertionPlan(contiguous = false),
+            listOf(ok(0, "O exame de sangue."), ok(1, "mostrou leucocitose."))
+        )
+
+        assertEquals(0, step.pieces[0].deleteBefore)
+        assertEquals(1, step.pieces[1].deleteBefore)
+    }
+
     private fun ok(index: Int, text: String) = TranscriptionSegment(index, TranscriptionSegment.Status.Ok, text)
 
     private fun failed(index: Int) =

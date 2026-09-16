@@ -12,12 +12,16 @@ object CursorInsertion {
         showingHint: Boolean,
         selectionStart: Int,
         selectionEnd: Int,
-        insert: String
+        insert: String,
+        // Caracteres logo antes do cursor a apagar antes de inserir (P144): o ponto que fechava a
+        // frase anterior. Nunca passa do começo do campo.
+        deleteBefore: Int = 0
     ): Plan {
         val base = if (showingHint) "" else current.orEmpty()
         val (start, end) = normalizeSelection(base, selectionStart, selectionEnd)
-        val text = base.substring(0, start) + insert + base.substring(end)
-        return Plan(text = text, cursor = start + insert.length)
+        val erased = deleteBefore.coerceIn(0, start)
+        val text = base.substring(0, start - erased) + insert + base.substring(end)
+        return Plan(text = text, cursor = start - erased + insert.length)
     }
 
     private fun normalizeSelection(base: String, selectionStart: Int, selectionEnd: Int): Pair<Int, Int> {
