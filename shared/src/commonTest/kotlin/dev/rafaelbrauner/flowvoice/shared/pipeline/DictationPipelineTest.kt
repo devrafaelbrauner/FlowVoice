@@ -1578,6 +1578,92 @@ class DictationPipelineTest {
         assertEquals("1", applied.metadata["drift"])
     }
 
+    // P142: com uma palavra em composição, o apagar da P144 não chega ao campo. É o que explica o
+    // drift=1 medido no S26 (2026-09-16 10:29 e 11:05): o ponto do meio da frase fica lá, e o campo
+    // passa a ter um caractere a mais do que o app acha ter escrito. O campo é conferido depois de
+    // escrever e o que sobrou é refeito pela rota atômica.
+    @Test
+    fun aFieldThatSwallowsTheEraseIsRewrittenAsTheAppAskedFor() = runTest {
+        val inserter = DirectInserter().apply { swallowsErase = true }
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = listOf(frame(100L), frame(50L)),
+            texts = mapOf(0 to "O exame de sangue.", 1 to "mostrou leucocitose."),
+            preferences = AppPreferences(),
+            textInserter = inserter
+        )
+
+        env.pipeline.start()
+        env.pipeline.finalize()
+
+        assertEquals("O exame de sangue mostrou leucocitose.", inserter.field.toString())
+    }
+
+    // P142/P143: o espaço da emenda some depois do ponto ("de Grandmont.Queda"), embora o app o tenha
+    // mandado — o log mostrava `chars` = tamanho do trecho + 1. A conferência devolve o espaço.
+    @Test
+    fun aFieldThatSwallowsTheSeparatorSpaceGetsItBack() = runTest {
+        val inserter = DirectInserter().apply { swallowsSeparator = true }
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = listOf(frame(100L), frame(50L)),
+            texts = mapOf(0 to "Avaliado pelo doutor Grandmont.", 1 to "Queda da pressão arterial."),
+            preferences = AppPreferences(),
+            textInserter = inserter
+        )
+
+        env.pipeline.start()
+        env.pipeline.finalize()
+
+        assertEquals("Avaliado pelo doutor Grandmont. Queda da pressão arterial.", inserter.field.toString())
+    }
+
+    // Sem a rota atômica não se refaz nada: o campo fica como está e o log diz que a rota faltou.
+    @Test
+    fun aFieldThatSwallowsTheEraseWithoutTheAtomicRouteIsLeftAlone() = runTest {
+        val inserter = DirectInserter().apply {
+            swallowsErase = true
+            atomicRoute = false
+        }
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = listOf(frame(100L), frame(50L)),
+            texts = mapOf(0 to "O exame de sangue.", 1 to "mostrou leucocitose."),
+            preferences = AppPreferences(),
+            textInserter = inserter
+        )
+
+        env.pipeline.start()
+        env.pipeline.finalize()
+
+        assertEquals("O exame de sangue. mostrou leucocitose.", inserter.field.toString())
+        assertEquals("sem_rota", env.log.events.single { it.event == "dictation_write_mismatch" }.metadata["acao"])
+    }
+
+    // O campo ganhou texto do usuário depois do pedaço anterior: o ponto que o app quer tirar já não
+    // está no fim do campo, e apagar dali comeria texto que não é do FlowVoice.
+    @Test
+    fun aFieldWithUserTextAfterTheDictationErasesNothing() = runTest {
+        val inserter = DirectInserter().apply { driftAfterFirstWrite = " anotação minha" }
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = listOf(frame(100L), frame(50L)),
+            texts = mapOf(0 to "O exame de sangue.", 1 to "mostrou leucocitose."),
+            preferences = AppPreferences(),
+            textInserter = inserter
+        )
+
+        env.pipeline.start()
+        env.pipeline.finalize()
+
+        assertEquals("O exame de sangue. anotação minha mostrou leucocitose.", inserter.field.toString())
+        assertTrue(inserter.rewrites.isEmpty())
+        assertEquals(
+            DirectFieldWrite.REASON_UNCONFIRMED,
+            env.log.events.single { it.event == "dictation_erase_skipped" }.metadata["motivo"]
+        )
+    }
+
     // Texto do usuário digitado no meio do ditado: as letras não conferem, e nada é apagado.
     @Test
     fun aFieldWhoseTextNoLongerMatchesTheDictationKeepsEverything() = runTest {
@@ -1743,6 +1829,15 @@ class DictationPipelineTest {
         var driftAfterFirstWrite: String? = null
         private var writes = 0
 
+        // Campo que ignora o apagar, como o editor com uma palavra em composição no teclado (P142).
+        var swallowsErase = false
+
+        // Campo que engole o espaço da emenda depois de um ponto (P143, "de Grandmont.Queda").
+        var swallowsSeparator = false
+
+        var atomicRoute = true
+        val rewrites = mutableListOf<String>()
+
         override val isAvailable: Boolean = true
 
         override fun captureTarget() {
@@ -1765,11 +1860,26 @@ class DictationPipelineTest {
             DirectInsertionGuard.refusal(target, focused, OWN, pinnedInput, input)?.let {
                 return TextInsertionResult(success = false, route = it.reason.route, message = it.message)
             }
-            if (deleteBefore > 0) field.setLength((field.length - deleteBefore).coerceAtLeast(0))
-            return written(text)
+            if (deleteBefore > 0 && !swallowsErase) field.setLength((field.length - deleteBefore).coerceAtLeast(0))
+            val landed = if (swallowsSeparator && field.lastOrNull() == '.' && text.startsWith(" ")) text.drop(1) else text
+            return written(landed)
         }
 
         override fun readBeforeCursor(limit: Int): String? = field.toString().takeLast(limit)
+
+        // Rota atômica (P142): troca o fim do campo num passo só, sem passar pelo apagar que o campo
+        // com composição engole. `atomicRoute = false` faz o papel de quem não tem essa rota.
+        override fun rewriteTail(deleteBefore: Int, text: String): TextInsertionResult? {
+            if (!atomicRoute) return null
+            rewrites += text
+            DirectInsertionGuard.refusal(target, focused, OWN, pinnedInput, input)?.let {
+                return TextInsertionResult(success = false, route = it.reason.route, message = it.message)
+            }
+            field.setLength((field.length - deleteBefore).coerceAtLeast(0))
+            field.append(text)
+            pinnedInput = input
+            return TextInsertionResult(success = true, route = "teste_atomico", message = "ok")
+        }
 
         private fun written(text: String): TextInsertionResult {
             field.append(text)
