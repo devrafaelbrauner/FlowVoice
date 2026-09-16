@@ -419,17 +419,29 @@ class DictationPipeline(
                 contiguous = false
                 next.copy(pending = head + text)
             } else {
-                val insertion = inserter.insertWithoutTap(text, piece.deleteBefore)
+                // O campo é a verdade antes e depois de escrever (P142): a composição do teclado pode
+                // comer o apagar da P144 ou o espaço da emenda, e nenhuma das duas coisas dá erro.
+                val limit = DirectFieldWrite.readLimit(piece.deleteBefore, text)
+                val before = inserter.readBeforeCursor(limit)
+                val erase = DirectFieldWrite.erase(before, next.typed, piece.deleteBefore)
+                if (erase < piece.deleteBefore) {
+                    log(
+                        "dictation_erase_skipped",
+                        mapOf("window" to window, "motivo" to DirectFieldWrite.REASON_UNCONFIRMED)
+                    )
+                }
+                val insertion = inserter.insertWithoutTap(text, erase)
                 if (insertion.success) {
                     log(
                         "dictation_direct_inserted",
                         buildMap {
                             put("window", window)
                             put("chars", text.length.toString())
-                            if (piece.deleteBefore > 0) put("erased", piece.deleteBefore.toString())
+                            if (erase > 0) put("erased", erase.toString())
                         }
                     )
-                    next.copy(typed = next.typed.dropLast(piece.deleteBefore) + text)
+                    auditDirectWrite(window, before, inserter.readBeforeCursor(limit), erase, text)
+                    next.copy(typed = next.typed.dropLast(erase) + text)
                 } else {
                     refusalMark = timeSource.markNow()
                     log("dictation_direct_paused", mapOf("window" to window, "route" to insertion.route))
@@ -442,6 +454,36 @@ class DictationPipeline(
         val warning = TranscriptionFailureSummary.from(segments, controller.emittedWindowCount)?.partialMessage
         next = next.copy(warning = warning)
         if (next != progress) directState.value = next
+    }
+
+    // Confere no campo o pedaço que acabou de ser escrito (P142). O que não saiu como pedido é refeito
+    // pela rota atômica — apagar e escrever num passo só, sem instante nenhum com o texto apagado —, e
+    // o que diverge além do que escrevemos fica como está: refazer dali apagaria texto que não é do
+    // FlowVoice. Sem leitura do campo não há o que conferir, e vale a conta do app, como antes.
+    private fun auditDirectWrite(window: String, before: String?, after: String?, erased: Int, written: String) {
+        when (val verdict = DirectFieldWrite.verdict(before, after, erased, written)) {
+            is DirectFieldWrite.Verdict.Ok, is DirectFieldWrite.Verdict.Unknown -> Unit
+            is DirectFieldWrite.Verdict.Mismatch ->
+                log("dictation_write_mismatch", mapOf("window" to window, "acao" to verdict.reason))
+            is DirectFieldWrite.Verdict.Repair -> {
+                val redone = inserter.rewriteTail(verdict.deleteBefore, verdict.text)
+                log(
+                    "dictation_write_mismatch",
+                    mapOf(
+                        "window" to window,
+                        // O que o campo tinha do nosso pedaço contra o que foi mandado: a diferença é o
+                        // caractere que sobrou (apagar engolido) ou que sumiu (espaço da emenda).
+                        "campo" to verdict.deleteBefore.toString(),
+                        "chars" to verdict.text.length.toString(),
+                        "acao" to when {
+                            redone == null -> "sem_rota"
+                            redone.success -> "refeito"
+                            else -> "falhou"
+                        }
+                    )
+                )
+            }
+        }
     }
 
     private suspend fun finalizeDirect(): DictationPipelineStatus {
