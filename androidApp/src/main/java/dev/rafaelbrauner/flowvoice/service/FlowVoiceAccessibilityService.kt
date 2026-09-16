@@ -245,11 +245,19 @@ class FlowVoiceAccessibilityService : AccessibilityService() {
         }
 
         try {
-            // Apaga o ponto que o próprio FlowVoice inseriu ao fechar o trecho anterior (P144). Roda
-            // depois das travas de destino e de senha, nunca antes.
-            if (deleteBefore > 0) connection.deleteSurroundingText(deleteBefore, 0)
-            // Com palavra em composição no teclado, commitText a substitui e o texto sai truncado (P142).
-            // A AccessibilityInputConnection não expõe finishComposingText, então não há como encerrá-la aqui.
+            if (deleteBefore > 0) {
+                // A AccessibilityInputConnection não expõe finishComposingText, mas commitText encerra
+                // a composição por contrato, e um commit vazio a encerra sem escrever nada (P142). Sem
+                // isso o deleteSurroundingText logo abaixo disputa com a composição do teclado — a
+                // suspeita para o `drift=1` medido no S26 (2026-09-16 10:29 e 11:05), um caractere a
+                // mais no campo do que o app achava ter escrito. O que a composição levar é o mesmo que
+                // o commitText do texto levaria de qualquer jeito, e quem confere o resultado é o
+                // DirectFieldWrite, que refaz o fim do campo pela rota atômica quando não bate.
+                connection.commitText("", 1, null)
+                // Apaga o ponto que o próprio FlowVoice inseriu ao fechar o trecho anterior (P144).
+                // Roda depois das travas de destino e de senha, nunca antes.
+                connection.deleteSurroundingText(deleteBefore, 0)
+            }
             connection.commitText(text, 1, null)
         } catch (error: Throwable) {
             Log.e(TAG, "commitText falhou", error)
