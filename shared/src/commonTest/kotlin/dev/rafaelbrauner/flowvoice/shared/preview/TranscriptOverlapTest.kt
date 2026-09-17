@@ -465,33 +465,80 @@ class TranscriptOverlapTest {
         assertEquals("Pedro Moraes, Cássio e outros.", match.text)
     }
 
-    // LIMITAÇÃO CONHECIDA (P156), anterior à P155 e não piorada por ela: "exportações"/"importações"
-    // ficam a 2 edições com o mesmo esqueleto, e o degrau 4 (P150) já as toma pela mesma palavra longa —
-    // o contraste some. Este teste existe para que a correção da P156 o inverta de propósito.
+    // P156: par da TAREFAS, sem cauda idêntica — senão o degrau 5 (P155) ainda comeria o contraste.
+    // "exportações"/"importações" ficam a 2 edições, mas a diferença está no prefixo.
     @Test
-    fun knownLimitationAPrefixContrastBetweenLongWordsIsRemovedByTheApproximateRule() {
+    fun aPrefixContrastBetweenLongWordsIsKept() {
         val match = TranscriptOverlap.match(
-            "aumentaram as exportações do Brasil.",
-            "Importações do Brasil caíram.",
+            "cresceram as exportações.",
+            "importações caíram.",
             contextDurationMs = 1000
         )
 
-        assertEquals("caíram.", match.text)
+        assertEquals("importações caíram.", match.text)
     }
 
-    // LIMITAÇÃO CONHECIDA (família da P156), anterior à P155 e não piorada por ela: "redução"/"indução"
-    // ficam a 2 edições, e o degrau 4 (P150) aceita a primeira como palavra frouxa porque "das doses"
-    // casa idêntico dos dois lados — o contraste some antes de o degrau 5 ser consultado. A trava do
-    // degrau 5 para este final ("ducao", evidência fraca) está provada no caso de "Condução" acima.
+    // P156: "redução"/"indução" cabiam na palavra frouxa (2 edições) com "das doses" idêntico.
+    // Frouxa agora é só encurtamento da fala (tá/está, tava/estava).
     @Test
-    fun knownLimitationAPrefixContrastBetweenMidLengthWordsIsRemovedAsALooseWord() {
+    fun aPrefixContrastBetweenMidLengthWordsIsKept() {
         val match = TranscriptOverlap.match(
             "houve redução das doses.",
             "Indução das doses foi mantida.",
             contextDurationMs = 1000
         )
 
-        assertEquals("foi mantida.", match.text)
+        assertEquals("Indução das doses foi mantida.", match.text)
+    }
+
+    // Canário clínico da P156: "hiper"/"hipo" no começo, sem cauda que dispare o degrau 5.
+    @Test
+    fun aPrefixContrastBetweenHypertensionAndHypotensionIsKept() {
+        val match = TranscriptOverlap.match(
+            "paciente com hipertensão.",
+            "Hipotensão arterial.",
+            contextDurationMs = 1000
+        )
+
+        assertEquals("Hipotensão arterial.", match.text)
+    }
+
+    // Mesmo canário com "arterial" repetido: o degrau 4 vê Other+Same; o degrau 5 não aceita o
+    // prefixo hiper/hipo (onset de 5 letras) nem tem evidência forte depois de uma palavra só.
+    @Test
+    fun aPrefixContrastWithAMatchingClinicalTailIsKept() {
+        val match = TranscriptOverlap.match(
+            "paciente com hipertensão arterial.",
+            "Hipotensão arterial sistêmica.",
+            contextDurationMs = 1000
+        )
+
+        assertEquals("Hipotensão arterial sistêmica.", match.text)
+    }
+
+    // P150 continua: "tava"/"estava" é o encurtamento permitido, com vizinhas iguais.
+    @Test
+    fun aSpokenPastShorteningWithMatchingNeighboursIsStillARepetition() {
+        val match = TranscriptOverlap.match(
+            "ele estava muito cansado.",
+            "tava muito cansado mesmo.",
+            contextDurationMs = 1000
+        )
+
+        assertEquals("mesmo.", match.text)
+        assertFalse(match.glued)
+    }
+
+    // Miolo, não prefixo: "leucocitose"/"leucositose" (índice 5) continua a mesma palavra longa.
+    @Test
+    fun aLongWordWithAMiddleTypoIsStillClose() {
+        val match = TranscriptOverlap.match(
+            "exame mostrou leucocitose.",
+            "leucositose no sangue.",
+            contextDurationMs = 1000
+        )
+
+        assertEquals("no sangue.", match.text)
     }
 
     // Um trecho só de pontuação casaria com qualquer outro, então não conta como repetição: o traço

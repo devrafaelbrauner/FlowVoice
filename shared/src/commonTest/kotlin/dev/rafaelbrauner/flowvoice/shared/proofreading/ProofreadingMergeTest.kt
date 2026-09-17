@@ -48,12 +48,38 @@ class ProofreadingMergeTest {
         assertNull(ProofreadingMerge.merge("vamos à praia", "vamos à praia amanhã"))
     }
 
-    // Aspas e dois-pontos que o ditado não tinha continuam barrados pelo guard depois da mistura.
+    // Aspas e dois-pontos que o ditado não tinha saem do vão; a vírgula/ponto da revisão (ou do
+    // ditado, se o vão tinha sinal novo) ficam, e o guard aceita.
     @Test
-    fun theMergedTextStillHasToPassTheGuard() {
+    fun aNewColonDoesNotDropThePunctuationFix() {
+        val dictated = "Hoje o dia está muito bonito. por isso iremos para a praia pela manhã. Praia Palmeiras."
+        val revised = "Hoje o dia está muito bonito, por isso iremos para a praia pela manhã: Praia Palmeiras."
+        val merged = ProofreadingMerge.merge(dictated, revised)
+
+        assertEquals(
+            "Hoje o dia está muito bonito, por isso iremos para a praia pela manhã. Praia Palmeiras.",
+            merged
+        )
+        assertEquals(true, ProofreadingGuard.accepts(dictated, merged!!))
+    }
+
+    @Test
+    fun quotesTheRevisionAddedAreStrippedAndThePeriodRemains() {
         val dictated = "o paciente disse que estava bem"
         val revised = "O paciente disse que: \"estava bem\"."
+        val merged = ProofreadingMerge.merge(dictated, revised)
 
-        assertEquals(false, ProofreadingGuard.accepts(dictated, ProofreadingMerge.merge(dictated, revised)!!))
+        assertEquals("O paciente disse que estava bem.", merged)
+        assertEquals(true, ProofreadingGuard.accepts(dictated, merged!!))
+    }
+
+    @Test
+    fun theMergedTextStillHasToPassTheGuardForAChangedWord() {
+        val dictated = "Terceiro ditado pela bolha"
+        val revised = "Terceiro colocado pela bolha."
+        val merged = ProofreadingMerge.merge(dictated, revised)!!
+
+        assertEquals("Terceiro ditado pela bolha.", merged)
+        assertEquals(true, ProofreadingGuard.accepts(dictated, merged))
     }
 }

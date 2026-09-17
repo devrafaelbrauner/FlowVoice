@@ -127,10 +127,11 @@ object TranscriptOverlap {
         // A mesma palavra, sem acento, sem pontuação e sem caixa (ou dois trechos só de pontuação).
         Same,
 
-        // Palavra longa o bastante para que uma ou duas letras de diferença ainda sejam ortografia.
+        // Palavra longa o bastante para que uma ou duas letras no miolo ainda sejam ortografia.
+        // Diferença no começo de palavra de 8+ letras é outra palavra (P156), não Close.
         Close,
 
-        // Curta e diferente ("tá" por "está"): plausível, mas sozinha não prova nada.
+        // Encurtamento da fala ("tá"/"está", "tava"/"estava"): plausível, mas sozinha não prova nada.
         Loose,
 
         // Outra palavra.
@@ -143,10 +144,27 @@ object TranscriptOverlap {
         // "ao" → "não" está a duas edições e passaria por palavra frouxa; apagar a negação inverte a
         // frase ("já tomou remédio." + "Não tomou remédio." sumia inteiro).
         a in NEGATIONS || b in NEGATIONS -> Kind.Other
+        isSpokenShortening(a, b) -> Kind.Loose
         min(a.length, b.length) >= CLOSE_MIN_CHARS &&
-            EditDistance.within(a, b, closeBudget(a, b)) -> Kind.Close
-        EditDistance.within(a, b, LOOSE_MAX_EDITS) -> Kind.Loose
+            EditDistance.within(a, b, closeBudget(a, b)) &&
+            !hasOnsetContrast(a, b) -> Kind.Close
         else -> Kind.Other
+    }
+
+    // P156: em palavra de 8+ letras, diferença nas primeiras 4 é prefixo (ex-/im-, hiper-/hipo-),
+    // não ortografia. "leucocitose"/"leucositose" (miolo) continua Close.
+    private fun hasOnsetContrast(a: String, b: String): Boolean {
+        if (maxOf(a.length, b.length) < LONG_WORD_CHARS) return false
+        val n = min(ONSET_CONTRAST_CHARS, min(a.length, b.length))
+        for (i in 0 until n) {
+            if (a[i] != b[i]) return true
+        }
+        return false
+    }
+
+    private fun isSpokenShortening(a: String, b: String): Boolean {
+        val pair = if (a <= b) a to b else b to a
+        return pair in SPOKEN_SHORTENINGS
     }
 
     // Proporcional ao tamanho: duas edições em "diarreia" ainda são a mesma palavra; em "casa" já
@@ -319,7 +337,7 @@ object TranscriptOverlap {
     private const val MIN_FRAGMENT_CHARS = 2
     private const val CLOSE_MIN_CHARS = 4
     private const val LONG_WORD_CHARS = 8
-    private const val LOOSE_MAX_EDITS = 2
+    private const val ONSET_CONTRAST_CHARS = 4
     private const val MIN_EVIDENCE_WORDS = 2
     private const val CHARS_PER_SECOND = 30L
     private const val MAX_REMOVABLE_CHARS = 120L
@@ -339,4 +357,8 @@ object TranscriptOverlap {
     // Negação nunca é tolerada como palavra divergente, nos degraus 4 e 5: trocar "ao" por "não"
     // inverte a frase, e o que é apagado aqui não volta. Já sem acento, como sai de `normalize`.
     private val NEGATIONS = setOf("nao", "nem", "sem", "nunca", "jamais", "nada", "nenhum", "nenhuma")
+
+    // Depois de `normalize`: "tá"/"está", "tava"/"estava". Qualquer outro par a 1–2 edições
+    // ("redução"/"indução") é outra palavra.
+    private val SPOKEN_SHORTENINGS = setOf("esta" to "ta", "estava" to "tava")
 }

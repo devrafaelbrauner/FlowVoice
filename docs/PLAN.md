@@ -30,6 +30,8 @@ App de ditado **voz → texto** em nuvem (**OpenRouter**), com:
      campo de origem (`DirectInsertionGuard`). "Revisar antes de inserir" mantém
      a inserção única no fim. Detalhes em
      [`docs/tasks/P138-P139.md`](tasks/P138-P139.md).
+     A pontuação de janela e o default da revisão (ainda desligado) estão no
+     roteiro [`docs/tasks/H1-pontuacao-pausas.md`](tasks/H1-pontuacao-pausas.md).
 2. **Texto durante a fala** (limitação real):
    - A documentação da OpenRouter **não** comprova entrada contínua de
      microfone com transcrição parcial (streaming de áudio).

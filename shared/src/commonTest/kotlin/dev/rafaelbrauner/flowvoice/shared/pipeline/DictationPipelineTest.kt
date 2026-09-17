@@ -1708,6 +1708,34 @@ class DictationPipelineTest {
         assertEquals("Estava muito cansado, tá com dor.", inserter.field.toString())
     }
 
+    // S26 (2026-09-17 12:46): a revisão pôs dois-pontos e o guard descartou tudo, inclusive a vírgula.
+    // O dois-pontos sai; a vírgula entra.
+    @Test
+    fun aFinalRevisionThatAddsAColonStillBringsTheComma() = runTest {
+        val inserter = DirectInserter()
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = listOf(frame(100L), frame(50L)),
+            texts = mapOf(
+                0 to "Hoje o dia está muito bonito.",
+                1 to "por isso iremos para a praia pela manhã."
+            ),
+            preferences = AppPreferences(proofreadingEnabled = true),
+            textInserter = inserter,
+            proofreadingOutput = { "Hoje o dia está muito bonito, por isso iremos para a praia pela manhã:" }
+        )
+
+        env.pipeline.start()
+        env.pipeline.finalize()
+
+        assertEquals(
+            "Hoje o dia está muito bonito, por isso iremos para a praia pela manhã.",
+            inserter.field.toString()
+        )
+        assertTrue(env.log.events.any { it.event == "dictation_proofread_applied" })
+        assertTrue(env.log.events.none { it.event == "dictation_proofread_skipped" })
+    }
+
     // Medido no S26 (2026-09-16 14:55): o app escreveu " mostrou leucocitose importante." com o
     // espaço — `proofreading_input` traz o texto certo —, e o campo ficou "O exame de
     // sanguemostrou leucocitose importante.". O editor comeu o espaço da emenda, e a conferência da
