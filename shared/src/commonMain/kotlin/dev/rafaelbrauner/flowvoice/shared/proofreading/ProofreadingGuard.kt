@@ -16,7 +16,7 @@ object ProofreadingGuard {
 
     fun accepts(original: String, revised: String): Boolean {
         if (revised.contains("<ditado", ignoreCase = true) || revised.contains("</ditado", ignoreCase = true)) return false
-        if (NEW_SIGNALS.any { it in revised && it !in original }) return false
+        if (hasForbiddenNewSignal(revised, original)) return false
         val source = words(original)
         val target = words(revised)
         if (source.size != target.size) return false
@@ -27,6 +27,18 @@ object ProofreadingGuard {
     // descartá-la inteira por causa de uma. Recebe as palavras como estão no texto.
     fun acceptsWord(original: String, revised: String): Boolean =
         wordAccepted(normalize(original), normalize(revised))
+
+    // S26 (2026-09-17 12:46): a revisão pôs "manhã:" e o guard derrubou o texto inteiro, inclusive a
+    // vírgula que estava certa. A mistura tira só o sinal novo; o guard continua recusando o texto cru.
+    fun stripForbiddenNewSignals(text: String, original: String): String = buildString {
+        text.forEach { char ->
+            if (char in NEW_SIGNALS && char !in original) return@forEach
+            append(char)
+        }
+    }
+
+    fun hasForbiddenNewSignal(text: String, original: String): Boolean =
+        NEW_SIGNALS.any { it in text && it !in original }
 
     private fun normalize(word: String): String = buildString {
         word.lowercase().forEach { char -> append(ACCENTS[char] ?: char) }

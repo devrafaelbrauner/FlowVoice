@@ -8,6 +8,20 @@ estão em [`docs/tasks/`](docs/tasks/README.md).
 
 ### Fixed
 
+- P149: **dois-pontos ou aspas na revisão não descartam mais a pontuação.** No S26
+  (2026-09-17 12:46) a revisão pôs "manhã:" e o guard derrubou o texto inteiro
+  (`dictation_proofread_skipped reason=guard`), deixando o ponto cedo no campo.
+  O vão com sinal novo volta à pontuação do ditado; a vírgula da revisão entra.
+
+- P156: **a emenda não apaga mais contraste no prefixo.** "exportações" e
+  "importações", "hipertensão" e "hipotensão", "redução" e "indução" ficavam
+  a 1–2 edições e o degrau 4 as tomava pela mesma palavra (ou pela palavra
+  frouxa). Agora diferença nas primeiras 4 letras de uma palavra de 8+ é
+  outra palavra, e a palavra frouxa só vale para encurtamento da fala
+  ("tá"/"está", "tava"/"estava"). "leucocitose"/"leucositose" (miolo) e o
+  caso medido da P150 ("está"/"Tá muito bonito") continuam emendando.
+  Falta o canário hiper/hipo com fala no S26.
+
 - P145: **o vocabulário do usuário conserta termo raro que o modelo escreveu
   errado.** No S26, "dispneia" saiu "de Espinéia" e "na praia" saiu "napraj" — uma
   palavra virando duas e duas virando uma, que a troca de termo exato não
