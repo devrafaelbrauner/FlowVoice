@@ -265,7 +265,7 @@ class DictationPipeline(
         publish(DictationPipelineStatus.Transcribing)
         val outcome = try {
             val final = transcribeFinalText()
-            if (token != sessionToken) {
+            if (token != sessionToken || statusState.value == DictationPipelineStatus.Cancelled) {
                 DictationPipelineStatus.Cancelled
             } else if (final.text.isBlank() && final.failures != null) {
                 noTextFailure(final.failures)
@@ -288,14 +288,19 @@ class DictationPipeline(
             log("dictation_failed", mapOf("stage" to "finalize"))
             DictationPipelineStatus.Failed(error.message ?: "erro desconhecido")
         }
-        if (token == sessionToken) {
+        if (token == sessionToken && statusState.value != DictationPipelineStatus.Cancelled) {
             publish(outcome)
         }
-        return outcome
+        return if (statusState.value == DictationPipelineStatus.Cancelled) {
+            DictationPipelineStatus.Cancelled
+        } else {
+            outcome
+        }
     }
 
     fun insertReady(): DictationPipelineStatus {
         if (isDirectSession()) return insertPending()
+        if (statusState.value == DictationPipelineStatus.Cancelled) return statusState.value
         val ready = statusState.value as? DictationPipelineStatus.Ready ?: return statusState.value
         if (ready.refusal != null && refusalMark?.let { it.elapsedNow() < RETRY_GUARD } == true) {
             log("dictation_insert_retry_ignored", emptyMap())
@@ -542,6 +547,9 @@ class DictationPipeline(
     private suspend fun directOutcome(mark: TimeMark): DictationPipelineStatus {
         advanceDirect()
         proofreadDictation()
+        if (statusState.value == DictationPipelineStatus.Cancelled) {
+            return DictationPipelineStatus.Cancelled
+        }
         val latencyMs = mark.elapsedNow().inWholeMilliseconds
         val progress = directState.value
         val failures = TranscriptionFailureSummary.from(transcription.segments.value, controller.emittedWindowCount)
@@ -573,8 +581,12 @@ class DictationPipeline(
     // Revisão final do ditado direto (P147). Cada janela foi pontuada isolada; no fim o texto inteiro
     // vai ao modelo de revisão, que só pode mexer em pontuação, maiúsculas, acentos e ortografia
     // (P132). Qualquer falha — guard, rede, campo trocado — deixa o campo exatamente como está:
-    // nunca se apaga sem escrever de volta.
+    // nunca se apaga sem escrever de volta. Um cancelamento no meio (P38) também desiste: o texto
+    // final não vai à OpenRouter depois de cancelado.
     private suspend fun proofreadDictation() {
+        if (statusState.value == DictationPipelineStatus.Cancelled) {
+            return skipProofread(DictationProofread.REASON_CANCELLED)
+        }
         val prefs = preferences.read()
         val before = directState.value
         val request = DictationProofread.request(
@@ -587,9 +599,13 @@ class DictationPipeline(
             is DictationProofread.Request.Skip -> return skipProofread(request.reason)
             is DictationProofread.Request.Send -> request.text
         }
+        if (statusState.value == DictationPipelineStatus.Cancelled) {
+            return skipProofread(DictationProofread.REASON_CANCELLED)
+        }
         val apiKey = sessionApiKey.takeIf { transcription.fatalError.value == null }
             ?: return skipProofread(DictationProofread.REASON_ERROR)
         directState.value = before.copy(proofreading = true)
+        val token = sessionToken
         val revised = try {
             // O ditado já está no campo: quem espera aqui é o usuário, de olho no texto (P152).
             withTimeoutOrNull(DictationProofread.TIMEOUT_MS) {
@@ -600,6 +616,10 @@ class DictationPipeline(
         } catch (_: Exception) {
             directState.value = directState.value.copy(proofreading = false)
             return skipProofread(DictationProofread.REASON_ERROR)
+        }
+        if (token != sessionToken || statusState.value == DictationPipelineStatus.Cancelled) {
+            directState.value = directState.value.copy(proofreading = false)
+            return skipProofread(DictationProofread.REASON_CANCELLED)
         }
         directState.value = directState.value.copy(proofreading = false)
         if (revised == null) return skipProofread(DictationProofread.REASON_TIMEOUT)
@@ -770,6 +790,7 @@ class DictationPipeline(
         val revised = dictionary.apply(assembled.finalized)
         val prefs = preferences.read()
         if (!prefs.proofreadingEnabled || revised.isBlank() || transcription.fatalError.value != null) return revised
+        if (statusState.value == DictationPipelineStatus.Cancelled) return revised
         val apiKey = sessionApiKey ?: return revised
         return try {
             val proofread = proofreading.proofread(revised, apiKey, prefs.proofreadingModel)
