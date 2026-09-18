@@ -138,6 +138,14 @@ App de ditado **voz → texto** em nuvem (**OpenRouter**), com:
 
 > A selection final deve refletir o **trade-off latência × precisão pt-BR ×
 > custo** medido no aparelho real, e ser registrada aqui com os números.
+>
+> **F05 rodada 1 (2026-09-17, curtos 11/set, 150 itens, 5,9 min):**
+> `mai-transcribe-2` 19,3% > `gpt-transcribe` 19,8% > `turbo` 23,0% >
+> `voxtral` 28,8% > `parakeet`/`gpt-4o-transcribe` 35,4% >
+> `gpt-4o-mini` 42,4% > `nova-3` 52,3%.
+> **Padrão: `microsoft/mai-transcribe-2`; fallback:
+> `openai/whisper-large-v3-turbo`.** Detalhe em
+> [`docs/benchmarks/F05-rodada1.md`](benchmarks/F05-rodada1.md).
 
 ## Critérios de aceite (globais)
 

@@ -12,7 +12,7 @@ de arquitetura e de UX. Isso deve ser mantido para qualquer referência futura.
 | Projeto | Commit avaliado | Licença | Uso no FlowVoice |
 | --- | --- | --- | --- |
 | `Open-Less/openless` | `ef78a091a949` | AGPL-3.0 | Padrões de serviço de Acessibilidade, botão flutuante/sobreposição e inserção de texto em Android. Somente referência — **nada copiado**. |
-| `cjpais/handy` | `2bdf9ac05724` | MIT | Abordagem de digitação por voz. Referência de UX. |
+| `cjpais/handy` | `2bdf9ac05724` | MIT | Abordagem de digitação por voz. Referência de UX. Arquivos avaliados para F03/F04 (padrões portados, nada copiado): `src-tauri/src/managers/transcription.rs` (StreamRouter, committed/tentative, worker único, returnEngine), `src-tauri/src/audio_toolkit/vad/*` (prefill 450 ms, hangover 450/1650 ms, onset 60 ms, SmoothedVad, tail_report), `src-tauri/src/audio_toolkit/mod.rs` + `constants.rs` (16 kHz), `src-tauri/src/managers/model.rs` (effective_language, scores, sha256, HF cache), `src-tauri/src/settings.rs` (threshold 0.18, filler, overlay None/Minimal/Live, unload Min5), `AGENTS.md` (pipeline Audio→VAD→Whisper/Parakeet→pós-texto). |
 | `voquill/voquill` | `ef8572a3b00d` | AGPLv3 (+ termos) | Experiência de voz em contexto de IME no mobile. Somente referência — **nada copiado**. |
 | `altic-dev/FluidVoice` | `42e33e68ec47` | GPLv3 | Ditado ao vivo. Somente referência — **nada copiado**. |
 | `OpenWhispr/openwhispr` | `4335972b96a6` | MIT | Processamento de voz. Referência de UX. |
