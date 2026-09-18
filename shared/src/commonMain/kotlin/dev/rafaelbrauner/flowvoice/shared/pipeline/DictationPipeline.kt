@@ -17,6 +17,7 @@ import dev.rafaelbrauner.flowvoice.shared.transcription.OpenRouterConfig
 import dev.rafaelbrauner.flowvoice.shared.transcription.SecretStore
 import dev.rafaelbrauner.flowvoice.shared.transcription.TranscriptionClient
 import dev.rafaelbrauner.flowvoice.shared.transcription.TranscriptionEventLog
+import dev.rafaelbrauner.flowvoice.shared.transcription.TranscriptionModels
 import dev.rafaelbrauner.flowvoice.shared.transcription.TranscriptionSegment
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -56,6 +57,7 @@ class DictationPipeline(
         config = config,
         scope = scope,
         apiKeyProvider = { secrets.readOpenRouterKey() },
+        modelProvider = { TranscriptionModels.selected(preferences, config) },
         eventLog = { event, metadata -> log(event, metadata) },
         textLog = transcriptTextLog
     )
@@ -87,7 +89,7 @@ class DictationPipeline(
         get() = controller.capturedDurationMs
 
     val model: String
-        get() = config.model
+        get() = TranscriptionModels.selected(preferences, config)
 
     val proofreadingEnabled: Boolean
         get() = preferences.read().proofreadingEnabled
@@ -103,7 +105,7 @@ class DictationPipeline(
                     buildMap {
                         put("window", (window.index + 1).toString())
                         put("durationMs", window.durationMs.toString())
-                        put("model", config.model)
+                        put("model", TranscriptionModels.selected(preferences, config))
                         put("cut", window.cut.name.lowercase())
                         window.noiseFloor?.let { put("noiseFloor", it.toString()) }
                         // Fala medida na janela (P151): é o número que diz, no aparelho, por que a

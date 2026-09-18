@@ -5,6 +5,7 @@ import dev.rafaelbrauner.flowvoice.shared.dictation.DictationSessionState
 import dev.rafaelbrauner.flowvoice.shared.insertion.TextInserter
 import dev.rafaelbrauner.flowvoice.shared.preview.LivePreviewAssembler
 import dev.rafaelbrauner.flowvoice.shared.transcription.InMemorySecretStore
+import dev.rafaelbrauner.flowvoice.shared.prefs.InMemoryPreferencesStore
 import dev.rafaelbrauner.flowvoice.shared.transcription.IncrementalTranscriptionController
 import dev.rafaelbrauner.flowvoice.shared.transcription.KeyValidationResult
 import dev.rafaelbrauner.flowvoice.shared.transcription.OpenRouterConfig
@@ -39,11 +40,13 @@ class DesktopDictationController : KoinComponent {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val sessionOnlyKey = InMemorySecretStore()
+    private val sessionOnlyPrefs = InMemoryPreferencesStore()
     private val transcription = IncrementalTranscriptionController(
         client = transcriptionClient,
         config = config,
         scope = scope,
-        apiKeyProvider = ::currentKey
+        apiKeyProvider = ::currentKey,
+        modelProvider = { dev.rafaelbrauner.flowvoice.shared.transcription.TranscriptionModels.selected(sessionOnlyPrefs, config) }
     )
 
     private val statusFlow = MutableStateFlow("Pronto.")
