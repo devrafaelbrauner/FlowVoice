@@ -147,6 +147,13 @@ App de ditado **voz → texto** em nuvem (**OpenRouter**), com:
 - **Fallback:** `deepgram/nova-3` — WER 0,06 e 1511 ms em 15/set; WER 0,18 em 13/set.
 - Evidência ainda fraca: dois clipes curtos, e o benchmark transcreve o clipe inteiro, não as
   janelas de ~4 s do ditado. Repetir com mais frases reais.
+- **Rodada externa complementar (2026-09-17, curtos 11/set, 150 itens, 5,9 min,
+  limite US$ 1,00 aprovado, gasto ~US$ 0,12):** `mai-transcribe-2` 19,3% >
+  `gpt-transcribe` 19,8% > `turbo` 23,0% > `voxtral` 28,8% >
+  `parakeet`/`gpt-4o-transcribe` 35,4% > `gpt-4o-mini` 42,4% > `nova-3` 52,3%.
+  Converge no essencial (mai-2 entre os melhores, turbo o mais barato 10×) e
+  discrimina melhor que o clipe único. Detalhe em
+  [`docs/benchmarks/F05-rodada-externa-curtos.md`](benchmarks/F05-rodada-externa-curtos.md).
 
 **Rodada de 2026-09-15** (clipe de 4 janelas, *Terceiro ditado pela bolha. Paciente refere dor no
 joelho direito, sem febre e sem alergia a dipirona.*, 17 palavras; teto US$ 1,00; gasto
