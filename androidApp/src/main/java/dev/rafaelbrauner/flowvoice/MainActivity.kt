@@ -17,6 +17,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.runtime.getValue
@@ -37,6 +39,7 @@ class MainActivity : ComponentActivity() {
     private val serviceRunning = mutableStateOf(FlowVoiceAccessibilityService.isRunning)
     private val logLines = mutableStateListOf<String>()
     private val testText = mutableStateOf("")
+    private val selectedTab = mutableStateOf(0)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -45,16 +48,42 @@ class MainActivity : ComponentActivity() {
         setContent {
             MaterialTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(24.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Text(
-                            text = "FlowVoice — POC de inserção direta",
-                            style = MaterialTheme.typography.headlineSmall,
-                        )
+                    Column(modifier = Modifier.fillMaxSize()) {
+                        TabRow(selectedTabIndex = selectedTab.value) {
+                            Tab(
+                                selected = selectedTab.value == 0,
+                                onClick = { selectedTab.value = 0 },
+                                text = { Text("Ditado") }
+                            )
+                            Tab(
+                                selected = selectedTab.value == 1,
+                                onClick = { selectedTab.value = 1 },
+                                text = { Text("Inserção (F02)") }
+                            )
+                        }
+                        if (selectedTab.value == 0) {
+                            DictationScreen(logLines) { addLog(it) }
+                        } else {
+                            InsertionPocScreen()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @androidx.compose.runtime.Composable
+    private fun InsertionPocScreen() {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                text = "FlowVoice — POC de inserção direta",
+                style = MaterialTheme.typography.headlineSmall,
+            )
                         Text(
                             text = if (serviceRunning.value) {
                                 "Serviço de acessibilidade: ativo"
@@ -146,9 +175,6 @@ class MainActivity : ComponentActivity() {
                                 )
                             }
                         }
-                    }
-                }
-            }
         }
     }
 
