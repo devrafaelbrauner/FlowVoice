@@ -19,6 +19,7 @@ class IncrementalTranscriptionController(
     private val config: OpenRouterConfig,
     private val scope: CoroutineScope,
     private val apiKeyProvider: () -> String?,
+    private val modelProvider: () -> String = { config.model },
     private val eventLog: TranscriptionEventLog = TranscriptionEventLog.NoOp,
     private val textLog: TranscriptionEventLog = TranscriptionEventLog.NoOp
 ) {
@@ -97,7 +98,7 @@ class IncrementalTranscriptionController(
             mapOf(
                 "window" to window.index.toString(),
                 "durationMs" to window.durationMs.toString(),
-                "model" to config.model
+                "model" to modelProvider()
             )
         )
     }
@@ -136,7 +137,7 @@ class IncrementalTranscriptionController(
             return
         }
         try {
-            val result = client.transcribe(window, apiKey)
+            val result = client.transcribe(window, apiKey, modelProvider())
             upsert(
                 TranscriptionSegment(
                     windowIndex = window.index,
@@ -199,7 +200,7 @@ class IncrementalTranscriptionController(
             mapOf(
                 "window" to window.index.toString(),
                 "durationMs" to window.durationMs.toString(),
-                "model" to config.model,
+                "model" to modelProvider(),
                 "kind" to error.kind
             )
         )

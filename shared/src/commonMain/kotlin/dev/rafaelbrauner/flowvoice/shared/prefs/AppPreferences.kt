@@ -11,7 +11,9 @@ data class AppPreferences(
     val loginCompleted: Boolean = false,
     val onboardingCompleted: Boolean = false,
     // Desligado (padrão), a bolha digita cada trecho direto no campo (P139); ligado, mantém a barra com Inserir e a revisão por IA.
-    val reviewBeforeInsert: Boolean = false
+    val reviewBeforeInsert: Boolean = false,
+    // Modelo de transcrição escolhido em Ajustes (lista da OpenRouter). Vazio mantém o padrão do benchmark F05.
+    val transcriptionModel: String = ""
 ) {
     companion object {
         const val DEFAULT_PROOFREADING_MODEL = "openai/gpt-4o-mini"

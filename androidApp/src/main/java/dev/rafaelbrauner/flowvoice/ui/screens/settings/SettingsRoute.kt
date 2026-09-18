@@ -30,6 +30,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -58,6 +59,9 @@ import dev.rafaelbrauner.flowvoice.auth.GoogleSignInHelper
 import dev.rafaelbrauner.flowvoice.service.FlowVoiceAccessibilityService
 import dev.rafaelbrauner.flowvoice.service.FlowVoiceOverlayService
 import dev.rafaelbrauner.flowvoice.shared.auth.AuthGateway
+import dev.rafaelbrauner.flowvoice.shared.model.CatalogFailure
+import dev.rafaelbrauner.flowvoice.shared.model.TranscriptionCatalogResult
+import dev.rafaelbrauner.flowvoice.shared.model.TranscriptionModelCatalog
 import dev.rafaelbrauner.flowvoice.shared.prefs.PreferencesStore
 import dev.rafaelbrauner.flowvoice.shared.sync.SyncEngine
 import dev.rafaelbrauner.flowvoice.shared.transcription.KeyValidationResult
@@ -65,6 +69,8 @@ import dev.rafaelbrauner.flowvoice.shared.transcription.OpenRouterConfig
 import dev.rafaelbrauner.flowvoice.shared.transcription.OpenRouterKeyValidator
 import dev.rafaelbrauner.flowvoice.shared.transcription.SecretStore
 import dev.rafaelbrauner.flowvoice.shared.transcription.SecretStoreUnavailableException
+import dev.rafaelbrauner.flowvoice.shared.transcription.TranscriptionModel
+import dev.rafaelbrauner.flowvoice.shared.transcription.TranscriptionModels
 import dev.rafaelbrauner.flowvoice.ui.components.FvCard
 import dev.rafaelbrauner.flowvoice.ui.components.FvDivider
 import dev.rafaelbrauner.flowvoice.ui.components.FvToggle
@@ -90,6 +96,9 @@ data class SettingsUiState(
     val validatingKey: Boolean,
     val keyMessage: String?,
     val modelLabel: String,
+    val modelOptions: List<String>,
+    val modelLoading: Boolean,
+    val modelMessage: String?,
     val languageLabel: String,
     val accessibilityActive: Boolean,
     val overlayRunning: Boolean,
@@ -107,6 +116,8 @@ data class SettingsActions(
     val onKeyDraftChange: (String) -> Unit,
     val onToggleKeyDraftVisibility: () -> Unit,
     val onSaveKey: () -> Unit,
+    val onModelRefresh: () -> Unit,
+    val onModelSelect: (String) -> Unit,
     val onOverlayToggle: () -> Unit,
     val onProofreadingChange: (Boolean) -> Unit,
     val onReviewBeforeInsertChange: (Boolean) -> Unit,
@@ -124,6 +135,8 @@ fun SettingsRoute(onOpenDiagnostics: () -> Unit, modifier: Modifier = Modifier) 
     val secretStore = rememberKoin<SecretStore>()
     val keyValidator = rememberKoin<OpenRouterKeyValidator>()
     val config = rememberKoin<OpenRouterConfig>()
+    val modelCatalog = rememberKoin<TranscriptionModelCatalog>()
+    val transcriptionModel = rememberKoin<TranscriptionModel>()
     val preferencesStore = rememberKoin<PreferencesStore>()
     val authGateway = rememberKoin<AuthGateway>()
     val syncEngine = rememberKoin<SyncEngine>()
@@ -135,6 +148,10 @@ fun SettingsRoute(onOpenDiagnostics: () -> Unit, modifier: Modifier = Modifier) 
     var validatingKey by remember { mutableStateOf(false) }
     var keyMessage by remember { mutableStateOf<String?>(null) }
     var preferences by remember { mutableStateOf(preferencesStore.read()) }
+    var modelOptions by remember { mutableStateOf(emptyList<String>()) }
+    var modelLoading by remember { mutableStateOf(false) }
+    var modelMessage by remember { mutableStateOf<String?>(null) }
+    var modelsTouched by remember { mutableStateOf(false) }
     var accountEmail by remember { mutableStateOf(authGateway.currentUser()?.email) }
     var accessibilityActive by remember { mutableStateOf(FlowVoiceAccessibilityService.isRunning) }
     var overlayMessage by remember { mutableStateOf<String?>(null) }
@@ -149,6 +166,51 @@ fun SettingsRoute(onOpenDiagnostics: () -> Unit, modifier: Modifier = Modifier) 
         preferences = preferencesStore.read()
         accountEmail = authGateway.currentUser()?.email
         onPauseOrDispose { }
+    }
+
+    fun currentModelId(): String = TranscriptionModels.selected(preferencesStore, config)
+
+    fun refreshModels(showErrors: Boolean = true) {
+        val key = secretStore.readOpenRouterKey()
+        if (key.isNullOrBlank() || modelLoading) {
+            if (showErrors) {
+                modelMessage = if (key.isNullOrBlank()) {
+                    "Configure a chave para listar os modelos."
+                } else {
+                    modelMessage
+                }
+            }
+            return
+        }
+        modelLoading = true
+        scope.launch {
+            val message = when (val result = modelCatalog.load(key)) {
+                is TranscriptionCatalogResult.Ready -> {
+                    modelOptions = result.models.map { it.id }
+                    modelsTouched = true
+                    val selected = currentModelId()
+                    if (selected !in result.models.map { it.id }) {
+                        transcriptionModel.clear()
+                        preferences = preferencesStore.read()
+                    }
+                    "Catálogo atualizado (${result.models.size} modelos)."
+                }
+                TranscriptionCatalogResult.Empty ->
+                    "A OpenRouter não devolveu modelos de transcrição."
+                is TranscriptionCatalogResult.Failed -> when (result.reason) {
+                    CatalogFailure.NO_KEY -> "Configure a chave para listar os modelos."
+                    CatalogFailure.INVALID_KEY -> "A OpenRouter recusou esta chave."
+                    CatalogFailure.UNAVAILABLE -> "Não foi possível listar agora (rede ou serviço)."
+                }
+            }
+            modelMessage = message
+            diagnosticsLog.add(message)
+            modelLoading = false
+        }
+    }
+
+    LaunchedEffect(maskedKey) {
+        if (maskedKey != null && !modelsTouched) refreshModels(showErrors = false)
     }
 
     fun applyOverlayAction(action: OverlayToggleAction, requestPermissions: (Array<String>) -> Unit) {
@@ -199,6 +261,7 @@ fun SettingsRoute(onOpenDiagnostics: () -> Unit, modifier: Modifier = Modifier) 
                     keyDraft = ""
                     keyDraftVisible = false
                     maskedKey = KeyMask.mask(secretStore.readOpenRouterKey())
+                    modelCatalog.clear()
                     "Chave validada e guardada cifrada."
                 } catch (_: SecretStoreUnavailableException) {
                     "Cofre da chave indisponível neste aparelho; a chave não foi salva."
@@ -210,6 +273,9 @@ fun SettingsRoute(onOpenDiagnostics: () -> Unit, modifier: Modifier = Modifier) 
             keyMessage = message
             diagnosticsLog.add(message)
             validatingKey = false
+            if (message == "Chave validada e guardada cifrada.") {
+                refreshModels(showErrors = false)
+            }
         }
     }
 
@@ -264,6 +330,14 @@ fun SettingsRoute(onOpenDiagnostics: () -> Unit, modifier: Modifier = Modifier) 
         }
     }
 
+    fun selectModel(id: String) {
+        if (modelLoading) return
+        transcriptionModel.save(id)
+        preferences = preferencesStore.read()
+        modelMessage = "Modelo de transcrição: $id."
+        diagnosticsLog.add("Modelo de transcrição: $id.")
+    }
+
     val state = SettingsUiState(
         keyConfigured = maskedKey != null,
         maskedKey = maskedKey,
@@ -271,7 +345,10 @@ fun SettingsRoute(onOpenDiagnostics: () -> Unit, modifier: Modifier = Modifier) 
         keyDraftVisible = keyDraftVisible,
         validatingKey = validatingKey,
         keyMessage = keyMessage,
-        modelLabel = config.model.substringAfterLast('/'),
+        modelLabel = currentModelId().substringAfterLast('/'),
+        modelOptions = modelOptions,
+        modelLoading = modelLoading,
+        modelMessage = modelMessage,
         languageLabel = dictationLanguageLabel(config.language),
         accessibilityActive = accessibilityActive,
         overlayRunning = overlayRunning,
@@ -288,6 +365,8 @@ fun SettingsRoute(onOpenDiagnostics: () -> Unit, modifier: Modifier = Modifier) 
         onKeyDraftChange = { keyDraft = it },
         onToggleKeyDraftVisibility = { keyDraftVisible = !keyDraftVisible },
         onSaveKey = ::saveKey,
+        onModelRefresh = { refreshModels() },
+        onModelSelect = ::selectModel,
         onOverlayToggle = {
             applyOverlayAction(
                 overlayDecision(context, overlayRunning, permissionsRequested = false)
@@ -344,11 +423,7 @@ internal fun SettingsContent(
         ) {
             KeyCard(state, actions)
             SettingsCard {
-                SettingsRow(
-                    label = "Modelo de transcrição",
-                    hint = "Padrão escolhido no benchmark F05",
-                    value = state.modelLabel
-                )
+                ModelPickerCard(state, actions)
                 FvDivider()
                 SettingsRow(
                     label = "Idioma do ditado",
@@ -403,6 +478,95 @@ internal fun SettingsContent(
             AccountCard(state, actions)
             DiagnosticsLinkCard(actions.onOpenDiagnostics)
             Spacer(Modifier.height(8.dp))
+        }
+    }
+}
+
+@Composable
+private fun ModelPickerCard(state: SettingsUiState, actions: SettingsActions) {
+    val colors = FlowVoiceTheme.colors
+    val typography = FlowVoiceTheme.typography
+    var expanded by remember { mutableStateOf(false) }
+    val selectable = state.modelOptions.isNotEmpty()
+    val selectedId = state.modelOptions.firstOrNull { it.substringAfterLast('/') == state.modelLabel }
+    Column {
+        Box {
+            SettingsRow(
+                label = "Modelo de transcrição",
+                hint = state.modelMessage ?: when {
+                    state.modelLoading -> "Listando os modelos da OpenRouter…"
+                    selectable -> "${state.modelOptions.size} modelos · toque para trocar"
+                    state.keyConfigured -> "Toque para listar os modelos da OpenRouter"
+                    else -> "Configure a chave para listar os modelos"
+                },
+                value = state.modelLabel,
+                onClick = {
+                    if (state.modelLoading) return@SettingsRow
+                    if (selectable) {
+                        expanded = true
+                    } else {
+                        actions.onModelRefresh()
+                    }
+                },
+                trailing = {
+                    if (state.modelLoading) {
+                        androidx.compose.material3.CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            strokeWidth = 2.dp,
+                            color = colors.textTertiary
+                        )
+                    } else {
+                        Icon(
+                            FlowVoiceIcons.ChevronRight,
+                            contentDescription = null,
+                            tint = colors.textTertiary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+            )
+            androidx.compose.material3.DropdownMenu(
+                expanded = expanded && selectable,
+                onDismissRequest = { expanded = false },
+                modifier = Modifier.background(colors.surfaceRaised)
+            ) {
+                state.modelOptions.forEach { id ->
+                    val selected = id == selectedId
+                    androidx.compose.material3.DropdownMenuItem(
+                        text = {
+                            Text(
+                                text = id,
+                                style = typography.bodySmall,
+                                color = if (selected) colors.accentText else colors.textPrimary
+                            )
+                        },
+                        trailingIcon = if (selected) {
+                            {
+                                Icon(
+                                    FlowVoiceIcons.Check,
+                                    contentDescription = "Modelo atual",
+                                    tint = colors.accentText,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        } else {
+                            null
+                        },
+                        onClick = {
+                            expanded = false
+                            actions.onModelSelect(id)
+                        }
+                    )
+                }
+            }
+        }
+        if (selectable) {
+            Text(
+                text = "Padrão do benchmark F05: openai/gpt-transcribe.",
+                style = typography.bodySmall,
+                color = colors.textTertiary,
+                modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 10.dp)
+            )
         }
     }
 }
@@ -626,6 +790,9 @@ private fun SettingsContentPreview(@PreviewParameter(ThemePreviewParameter::clas
                 validatingKey = false,
                 keyMessage = null,
                 modelLabel = "gpt-transcribe",
+                modelOptions = emptyList(),
+                modelLoading = false,
+                modelMessage = null,
                 languageLabel = "pt-BR",
                 accessibilityActive = true,
                 overlayRunning = false,
@@ -638,7 +805,7 @@ private fun SettingsContentPreview(@PreviewParameter(ThemePreviewParameter::clas
                 syncing = false,
                 accountMessage = null
             ),
-            actions = SettingsActions({}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {})
+            actions = SettingsActions({}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {})
         )
     }
 }

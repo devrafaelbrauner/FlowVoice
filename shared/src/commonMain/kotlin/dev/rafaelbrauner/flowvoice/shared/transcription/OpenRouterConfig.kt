@@ -2,6 +2,9 @@ package dev.rafaelbrauner.flowvoice.shared.transcription
 
 data class OpenRouterConfig(
     val baseUrl: String = DEFAULT_BASE_URL,
+    // Modelo vazio herda o padrão do benchmark F05 em tempo de uso: `TranscriptionModels.resolve`
+    // lê o `PreferencesStore` via `TranscriptionModel` (AppModule) e cai para `DEFAULT_MODEL` quando
+    // o aparelho ainda não escolheu nada. Nunca persista "" como escolha — é só o estado inicial.
     val model: String = DEFAULT_MODEL,
     val language: String = DEFAULT_LANGUAGE,
     val temperature: Double = DEFAULT_TEMPERATURE,

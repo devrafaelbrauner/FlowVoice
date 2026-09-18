@@ -70,6 +70,10 @@ object FlowVoiceIcons {
         strokeIcon("ChevronRight", "M9.5 6l6 6-6 6")
     }
 
+    val Check: ImageVector by lazy {
+        strokeIcon("Check", "M5 12.5l4.5 4.5L19 7.5")
+    }
+
     val ArrowBack: ImageVector by lazy {
         strokeIcon("ArrowBack", "M19 12H5", "M11 6l-6 6 6 6")
     }
