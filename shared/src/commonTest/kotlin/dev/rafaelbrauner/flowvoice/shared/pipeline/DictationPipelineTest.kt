@@ -315,6 +315,31 @@ class DictationPipelineTest {
     }
 
     @Test
+    fun cancelDuringProofreadingNeverSendsFinalTextToReview() = runTest {
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = listOf(frame(50L)),
+            texts = mapOf(0 to "texto para revisar"),
+            preferences = AppPreferences(
+                reviewBeforeInsert = true,
+                proofreadingEnabled = true
+            ),
+            transcriptionDelayMs = 1_000L
+        )
+
+        env.pipeline.start()
+        val finalizing = async { env.pipeline.finalizeForReview() }
+        runCurrent()
+        assertEquals(DictationPipelineStatus.Transcribing, env.pipeline.status.value)
+        env.pipeline.cancel()
+        advanceUntilIdle()
+
+        assertEquals(DictationPipelineStatus.Cancelled, finalizing.await())
+        assertEquals(DictationPipelineStatus.Cancelled, env.pipeline.status.value)
+        assertTrue(env.proofreaderCalls.isEmpty())
+    }
+
+    @Test
     fun startFailureReportsFailedStatus() = runTest {
         val env = PipelineEnv(
             scope = backgroundScope,
@@ -2062,6 +2087,7 @@ private class PipelineEnv(
     val dictionary = InMemoryPersonalDictionary()
     val inserter = RecordingInserter(inserterSucceeds)
     val proofreader = FakeProofreader(proofreadingFails, proofreadingOutput, proofreadingDelayMs)
+    val proofreaderCalls: MutableList<String> get() = proofreader.received
     val client = ScriptedTranscriptionClient(texts, transcriptionDelayMs, failures)
     val secrets = secretStore ?: InMemorySecretStore().apply { apiKey?.let { writeOpenRouterKey(it) } }
     val pipeline = DictationPipeline(

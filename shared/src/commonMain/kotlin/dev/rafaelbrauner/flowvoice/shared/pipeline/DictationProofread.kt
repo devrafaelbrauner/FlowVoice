@@ -36,6 +36,8 @@ object DictationProofread {
     const val REASON_FIELD_CHANGED = "campo_diferente"
     // A revisão não voltou dentro do teto de espera (P152).
     const val REASON_TIMEOUT = "demorou"
+    // O ditado foi cancelado antes ou durante a revisão (P38): nada vai à OpenRouter.
+    const val REASON_CANCELLED = "cancelado"
 
     sealed interface Request {
         data class Send(val text: String) : Request
