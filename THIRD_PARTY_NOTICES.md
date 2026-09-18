@@ -14,8 +14,11 @@ dependência adicionada deve ter sua licença registrada aqui.
 | --- | --- | --- |
 | Kotlin | Apache-2.0 | Linguagem base. |
 | Jetpack Compose / Compose Multiplatform | Apache-2.0 | UI. |
-| Ktor Client | Apache-2.0 | HTTP (OpenRouter). |
+| Ktor Client | Apache-2.0 | HTTP (OpenRouter). `ktor-client-mock 2.3.13` adotado em F04.2 só para testes JVM. `HttpTimeout` usado via plugin do próprio Ktor. |
 | Kotlin Serialization | Apache-2.0 | Serialização. |
+| Koin | Apache-2.0 | DI (adotado F01, 3.5.6). |
+| kotlinx-coroutines-core/test | Apache-2.0 | Concorrência + testes (adotado F03.4, 1.10.1). |
+| androidx.security:security-crypto | Apache-2.0 | Chave OpenRouter cifrada no Android via EncryptedSharedPreferences (adotado F04.3, 1.1.0-alpha06). |
 | SQLDelight | Apache-2.0 | Persistência local. |
 | JNA (Windows, F13) | LGPL-2.1 / MPL-2.0 (dual) | Interop Win32 / `SendInput`. |
 | Supabase SDK | MIT (agora) | Auth + Postgres. |
