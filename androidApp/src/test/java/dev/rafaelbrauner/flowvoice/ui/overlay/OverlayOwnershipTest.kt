@@ -14,7 +14,7 @@ class OverlayOwnershipTest {
 
     @Test
     fun staleIdleSeenRightAfterStartingAFreshOverlayKeepsTheBar() {
-        var ownership = OverlayOwnership.begin(session(0, DictationPipelineStatus.Idle))
+        var ownership = OverlayOwnership.begin(session(0, DictationPipelineStatus.Idle), startedHere = true)
 
         ownership = OverlayOwnership.onSession(ownership, session(0, DictationPipelineStatus.Idle))
 
@@ -23,7 +23,7 @@ class OverlayOwnershipTest {
 
     @Test
     fun staleCancelledFromThePreviousSessionKeepsTheBar() {
-        var ownership = OverlayOwnership.begin(session(1, DictationPipelineStatus.Cancelled))
+        var ownership = OverlayOwnership.begin(session(1, DictationPipelineStatus.Cancelled), startedHere = true)
 
         ownership = OverlayOwnership.onSession(ownership, session(1, DictationPipelineStatus.Cancelled))
         ownership = OverlayOwnership.onSession(ownership, session(2, DictationPipelineStatus.Starting))
@@ -34,7 +34,7 @@ class OverlayOwnershipTest {
 
     @Test
     fun cancellingTheOwnedSessionReleasesTheBar() {
-        var ownership = OverlayOwnership.begin(session(1, DictationPipelineStatus.Cancelled))
+        var ownership = OverlayOwnership.begin(session(1, DictationPipelineStatus.Cancelled), startedHere = true)
 
         ownership = OverlayOwnership.onSession(ownership, session(2, DictationPipelineStatus.Starting))
         ownership = OverlayOwnership.onSession(ownership, session(2, DictationPipelineStatus.Recording))
@@ -45,7 +45,7 @@ class OverlayOwnershipTest {
 
     @Test
     fun newerSessionEndingWithTheSameStatusAsTheBaselineReleasesTheBar() {
-        var ownership = OverlayOwnership.begin(session(1, DictationPipelineStatus.Cancelled))
+        var ownership = OverlayOwnership.begin(session(1, DictationPipelineStatus.Cancelled), startedHere = true)
 
         ownership = OverlayOwnership.onSession(ownership, session(2, DictationPipelineStatus.Cancelled))
 

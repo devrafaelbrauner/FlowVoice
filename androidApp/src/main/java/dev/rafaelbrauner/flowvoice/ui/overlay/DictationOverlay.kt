@@ -87,7 +87,7 @@ fun DictationOverlay(
     pipeline: DictationPipeline,
     host: BubbleHost,
     onModeChange: (OverlayMode) -> Unit,
-    onSessionOwned: () -> Unit
+    onSessionOwned: (OverlayOwnership) -> Unit
 ) {
     val session by pipeline.session.collectAsState()
     val status = session.status
@@ -102,17 +102,18 @@ fun DictationOverlay(
     val latestSessionOwned by rememberUpdatedState(onSessionOwned)
     val startRequest by OverlayStartRequests.count.collectAsState()
 
-    val beginSession = {
-        ownership = OverlayOwnership.begin(pipeline.session.value)
+    val beginSession: (Boolean) -> Unit = { startedHere ->
+        ownership = OverlayOwnership.begin(pipeline.session.value, startedHere)
         dismissed = null
         elapsedMs = 0L
-        latestSessionOwned()
+        latestSessionOwned(ownership)
         pipeline.requestStart(DictationTarget.ActiveField)
     }
 
     LaunchedEffect(startRequest) {
         if (OverlayStartRequests.takePending() && !pipeline.status.value.isBusy) {
-            beginSession()
+            // Pedido do app (Início): a bolha executa o ditado, mas não é dona dele (P40).
+            beginSession(false)
         }
     }
 
@@ -192,11 +193,12 @@ fun DictationOverlay(
                 pipeline.requestFinalize()
             currentDirect && ownership.owned && current.status.isBusy -> Unit
             current.status.isBusy -> {
+                // Adotar dá os controles na barra; cancelar ao ocultar continua sendo só de quem
+                // começou o ditado (P40).
                 dismissed = null
                 ownership = OverlayOwnership.adopt(current.status)
-                latestSessionOwned()
             }
-            else -> beginSession()
+            else -> beginSession(true)
         }
     }
     val bubbleLabel = when {
