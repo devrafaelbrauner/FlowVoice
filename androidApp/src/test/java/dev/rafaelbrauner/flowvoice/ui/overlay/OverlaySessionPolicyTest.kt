@@ -1,5 +1,6 @@
 package dev.rafaelbrauner.flowvoice.ui.overlay
 
+import dev.rafaelbrauner.flowvoice.shared.pipeline.DictationPipelineSession
 import dev.rafaelbrauner.flowvoice.shared.pipeline.DictationPipelineStatus
 import dev.rafaelbrauner.flowvoice.shared.pipeline.DictationTarget
 import kotlin.test.Test
@@ -7,6 +8,47 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class OverlaySessionPolicyTest {
+
+    private fun session(id: Int, status: DictationPipelineStatus) =
+        DictationPipelineSession(id, DictationTarget.ActiveField, status)
+
+    @Test
+    fun hidingTheBubbleDoesNotCancelADictationTheAppAskedFor() {
+        // Início → ACTION_START_DICTATION → DictationOverlay.beginSession(startedHere = false): o app
+        // pediu o ditado, e ocultar a bolha não descarta o texto dele (P40).
+        val appRequested = OverlayOwnership.begin(session(1, DictationPipelineStatus.Recording), startedHere = false)
+        val ownsSession = OverlaySessionPolicy.ownsSession(appRequested)
+
+        assertFalse(
+            OverlaySessionPolicy.cancelOnDestroy(
+                ownsSession,
+                DictationTarget.ActiveField,
+                DictationPipelineStatus.Recording
+            )
+        )
+    }
+
+    @Test
+    fun hidingTheBubbleStillCancelsTheDictationTheBubbleStarted() {
+        val bubbleStarted = OverlayOwnership.begin(session(1, DictationPipelineStatus.Recording), startedHere = true)
+        val ownsSession = OverlaySessionPolicy.ownsSession(bubbleStarted)
+
+        assertTrue(
+            OverlaySessionPolicy.cancelOnDestroy(
+                ownsSession,
+                DictationTarget.ActiveField,
+                DictationPipelineStatus.Recording
+            )
+        )
+    }
+
+    @Test
+    fun adoptingABusySessionShowsControlsWithoutGrantingCancelOnHide() {
+        val adopted = OverlayOwnership.adopt(DictationPipelineStatus.Recording)
+
+        assertTrue(adopted.owned)
+        assertFalse(OverlaySessionPolicy.ownsSession(adopted))
+    }
 
     @Test
     fun destroyCancelsOnlyAnActiveFieldSessionOwnedByTheOverlay() {
