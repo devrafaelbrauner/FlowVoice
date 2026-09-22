@@ -86,6 +86,7 @@ private const val MOVE_OTHER_SIDE = "Mover para o outro lado"
 fun DictationOverlay(
     pipeline: DictationPipeline,
     host: BubbleHost,
+    bubbleHidden: StateFlow<Boolean>,
     onModeChange: (OverlayMode) -> Unit,
     onSessionOwned: (OverlayOwnership) -> Unit
 ) {
@@ -101,6 +102,8 @@ fun DictationOverlay(
     val latestModeChange by rememberUpdatedState(onModeChange)
     val latestSessionOwned by rememberUpdatedState(onSessionOwned)
     val startRequest by OverlayStartRequests.count.collectAsState()
+    // "Ocultar botão" só tira a bolha: a barra e a prévia do ditado em andamento continuam na tela (P159).
+    val hiddenBubble by bubbleHidden.collectAsState()
 
     val beginSession: (Boolean) -> Unit = { startedHere ->
         ownership = OverlayOwnership.begin(pipeline.session.value, startedHere)
@@ -232,7 +235,7 @@ fun DictationOverlay(
                 )
                 DictationBarState.Hidden -> Unit
             }
-        } else {
+        } else if (!hiddenBubble) {
             DictationBubble(
                 label = bubbleLabel,
                 pulsing = status.isBusy,
