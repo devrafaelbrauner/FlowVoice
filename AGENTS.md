@@ -23,7 +23,12 @@ Fonte de verdade do roadmap: [`docs/PLAN.md`](docs/PLAN.md).
 - Testes:     `./gradlew :shared:desktopTest`
 - Lint:       `./gradlew :androidApp:lintDebug`
 - Completo:   `./gradlew build` (assemble + testes + lint)
-- CI: GitHub Actions em `main` e em PRs roda assembleDebug, desktopTest e lintDebug.
+- Desktop:    `./gradlew :desktopApp:desktopTest`, `:desktopApp:desktopJar`,
+  `:desktopApp:createRuntimeImage`, `:desktopApp:run` (fase F13).
+- CI: GitHub Actions em `main` e em PRs roda `:androidApp:assembleDebug`,
+  `:shared:desktopTest`, `:androidApp:testDebugUnitTest`, `:androidApp:lintDebug`,
+  `:desktopApp:desktopJar`, `:desktopApp:desktopTest` e confere que o runtime
+  empacotado do desktop inclui `java.net.http`.
 
 ## Convenções de código
 
