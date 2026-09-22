@@ -79,6 +79,7 @@ class FlowVoiceOverlayService : Service(), KoinComponent, BubbleHost {
     private var barOffsetPx = -1
     private var keyboardTracking: Job? = null
     private var ownsSession = false
+    private val bubbleHiddenState = MutableStateFlow(false)
     private var position = BubblePosition.Default
     private var dragStart: BubblePoint? = null
     private var dragPoint: BubblePoint? = null
@@ -88,7 +89,7 @@ class FlowVoiceOverlayService : Service(), KoinComponent, BubbleHost {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
             positionStore.writeEnabled(false)
-            stopSelf()
+            hideBubble()
             return START_NOT_STICKY
         }
         if (!enterForeground()) {
@@ -101,6 +102,7 @@ class FlowVoiceOverlayService : Service(), KoinComponent, BubbleHost {
         }
         // Guardado para o app religar a bolha depois de uma reinstalação ou atualização (P141).
         positionStore.writeEnabled(true)
+        showBubble()
         if (intent?.action == OverlayStartRequests.ACTION_START_DICTATION) {
             OverlayStartRequests.request()
         }
@@ -170,7 +172,7 @@ class FlowVoiceOverlayService : Service(), KoinComponent, BubbleHost {
         val contentChanged = withoutClock(state) != withoutClock(previewState)
         previewState = state
         previewActions = actions
-        cardUi.value = cardUi.value.copy(state = state, actions = actions)
+        cardUi.value = cardUi.value.copy(state = state, actions = actions, bubbleHidden = bubbleHiddenState.value)
         syncCard(reposition = contentChanged)
     }
 
@@ -194,6 +196,22 @@ class FlowVoiceOverlayService : Service(), KoinComponent, BubbleHost {
     private fun stopOverlay() {
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
         stopSelf()
+    }
+
+    // "Ocultar botão" tira só a bolha da tela: com a barra ou a prévia visíveis o ditado em andamento
+    // continua com os controles à mão (P159) e o serviço só morre quando não sobra nada a mostrar. O
+    // `running` é a bolha na tela, não o serviço vivo — é o que o interruptor dos Ajustes mostra.
+    private fun hideBubble() {
+        bubbleHiddenState.value = true
+        runningState.value = false
+        cardUi.value = cardUi.value.copy(bubbleHidden = true)
+        if (OverlaySessionPolicy.shouldStopWithHiddenBubble(bubbleHiddenState.value, mode)) stopSelf()
+    }
+
+    private fun showBubble() {
+        bubbleHiddenState.value = false
+        runningState.value = true
+        cardUi.value = cardUi.value.copy(bubbleHidden = false)
     }
 
     private fun foregroundType(): Int =
@@ -244,6 +262,7 @@ class FlowVoiceOverlayService : Service(), KoinComponent, BubbleHost {
             DictationOverlay(
                 pipeline = pipeline,
                 host = this,
+                bubbleHidden = bubbleHiddenState,
                 onModeChange = ::applyMode,
                 onSessionOwned = { ownership -> ownsSession = OverlaySessionPolicy.ownsSession(ownership) }
             )
@@ -271,6 +290,10 @@ class FlowVoiceOverlayService : Service(), KoinComponent, BubbleHost {
     }
 
     private fun applyMode(next: OverlayMode) {
+        if (OverlaySessionPolicy.shouldStopWithHiddenBubble(bubbleHiddenState.value, next)) {
+            stopSelf()
+            return
+        }
         if (next == mode) return
         mode = next
         keyboardTracking?.cancel()

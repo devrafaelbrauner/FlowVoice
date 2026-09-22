@@ -6,6 +6,7 @@ import dev.rafaelbrauner.flowvoice.shared.pipeline.DictationPipeline
 class PreviewActions(
     val onCancel: () -> Unit,
     val onInsertHere: () -> Unit,
+    val onFinish: () -> Unit,
     val onDismiss: () -> Unit
 )
 
@@ -14,6 +15,8 @@ data class PreviewCardUi(
     val state: DirectPreviewState = DirectPreviewState.Hidden,
     val maxHeightPx: Int = 0,
     val compact: Boolean = false,
+    /** Com a bolha oculta, o cartão é o único lugar do encerrar (P159). */
+    val bubbleHidden: Boolean = false,
     val actions: PreviewActions? = null
 )
 
@@ -31,5 +34,6 @@ interface BubbleHost {
 internal fun previewActionsFor(pipeline: DictationPipeline, onDismiss: () -> Unit) = PreviewActions(
     onCancel = { pipeline.requestCancel() },
     onInsertHere = { pipeline.requestInsertPending() },
+    onFinish = { pipeline.requestFinalize() },
     onDismiss = onDismiss
 )

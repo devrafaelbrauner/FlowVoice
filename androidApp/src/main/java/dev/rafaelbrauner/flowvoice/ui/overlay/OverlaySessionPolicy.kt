@@ -14,4 +14,12 @@ object OverlaySessionPolicy {
 
     fun cancelOnDestroy(ownsSession: Boolean, target: DictationTarget, status: DictationPipelineStatus): Boolean =
         ownsSession && target == DictationTarget.ActiveField && status.isBusy
+
+    /**
+     * Ocultar o botão não pode levar junto a única coisa que mostra o ditado em andamento (P159): com a
+     * barra ou a prévia na tela o overlay continua vivo e só a bolha some. Quando não sobra mais nada —
+     * o modo volta a ser "só bolha" — não há o que mostrar e o serviço encerra.
+     */
+    fun shouldStopWithHiddenBubble(bubbleHidden: Boolean, mode: OverlayMode): Boolean =
+        bubbleHidden && mode == OverlayMode.Bubble
 }

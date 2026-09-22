@@ -51,6 +51,18 @@ class OverlaySessionPolicyTest {
     }
 
     @Test
+    fun hidingTheBubbleKeepsTheOverlayWhileTheDictationHasAControlOnScreen() {
+        assertFalse(OverlaySessionPolicy.shouldStopWithHiddenBubble(true, OverlayMode.Bar))
+        assertFalse(OverlaySessionPolicy.shouldStopWithHiddenBubble(true, OverlayMode.Preview))
+    }
+
+    @Test
+    fun hidingTheBubbleStopsTheOverlayWhenOnlyTheBubbleWasOnScreen() {
+        assertTrue(OverlaySessionPolicy.shouldStopWithHiddenBubble(true, OverlayMode.Bubble))
+        assertFalse(OverlaySessionPolicy.shouldStopWithHiddenBubble(false, OverlayMode.Bubble))
+    }
+
+    @Test
     fun destroyCancelsOnlyAnActiveFieldSessionOwnedByTheOverlay() {
         assertTrue(OverlaySessionPolicy.cancelOnDestroy(true, DictationTarget.ActiveField, DictationPipelineStatus.Recording))
         assertTrue(OverlaySessionPolicy.cancelOnDestroy(true, DictationTarget.ActiveField, DictationPipelineStatus.Ready("texto")))

@@ -29,6 +29,8 @@ sealed interface DirectPreviewState {
 object DirectPreviewModel {
     const val STATUS_STARTING = "iniciando"
     const val STATUS_LISTENING = "ouvindo · toque na bolha para encerrar"
+    // Sem a bolha na tela, o encerrar mora no próprio cartão (P159).
+    const val STATUS_LISTENING_WITHOUT_BUBBLE = "ouvindo · encerre aqui embaixo"
     const val STATUS_PAUSED = "pausado · nada mais é digitado sozinho"
     const val STATUS_FINISHING = "finalizando"
     const val STATUS_PROOFREADING = "revisando…"
@@ -37,6 +39,7 @@ object DirectPreviewModel {
     const val TYPED_LABEL = "no campo"
     const val PENDING_LABEL = "pendente"
     const val CANCEL = "Cancelar"
+    const val FINISH = "Encerrar"
     const val DISCARD = "Descartar"
     const val INSERT_HERE = "Inserir aqui"
     const val NOTHING_TRANSCRIBED = "Nada transcrito."
@@ -50,7 +53,8 @@ object DirectPreviewModel {
         transcribing: Boolean,
         elapsedMs: Long,
         owned: Boolean,
-        dismissed: Boolean
+        dismissed: Boolean,
+        bubbleHidden: Boolean = false
     ): DirectPreviewState {
         if (!owned) return DirectPreviewState.Hidden
         val clock = DictationBarModel.clock(elapsedMs)
@@ -61,7 +65,11 @@ object DirectPreviewModel {
             DictationPipelineStatus.Recording -> live(
                 DirectPhase.Recording,
                 clock,
-                if (progress.paused) STATUS_PAUSED else STATUS_LISTENING,
+                when {
+                    progress.paused -> STATUS_PAUSED
+                    bubbleHidden -> STATUS_LISTENING_WITHOUT_BUBBLE
+                    else -> STATUS_LISTENING
+                },
                 progress,
                 transcribing
             )
