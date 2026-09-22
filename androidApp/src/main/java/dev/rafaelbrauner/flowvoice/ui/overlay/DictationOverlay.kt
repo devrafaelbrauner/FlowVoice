@@ -165,7 +165,8 @@ fun DictationOverlay(
             transcribing = segments.any { it.status == TranscriptionSegment.Status.Transcribing },
             elapsedMs = elapsedMs,
             owned = owned,
-            dismissed = session == dismissed
+            dismissed = session == dismissed,
+            bubbleHidden = hiddenBubble
         )
     } else {
         DirectPreviewState.Hidden
@@ -259,8 +260,10 @@ fun PreviewCardOverlay(card: StateFlow<PreviewCardUi>) {
         DirectPreviewCard(
             state = ui.state,
             compact = ui.compact,
+            bubbleHidden = ui.bubbleHidden,
             onCancel = { actions?.onCancel?.invoke() },
             onInsertHere = { actions?.onInsertHere?.invoke() },
+            onFinish = { actions?.onFinish?.invoke() },
             onDismiss = { actions?.onDismiss?.invoke() },
             modifier = Modifier
                 .fillMaxWidth()
@@ -345,9 +348,11 @@ fun DirectPreviewCard(
     state: DirectPreviewState,
     onCancel: () -> Unit,
     onInsertHere: () -> Unit,
+    onFinish: () -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
-    compact: Boolean = false
+    compact: Boolean = false,
+    bubbleHidden: Boolean = false
 ) {
     val colors = FlowVoiceTheme.colors
     val shape = RoundedCornerShape(16.dp)
@@ -361,7 +366,7 @@ fun DirectPreviewCard(
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         when (state) {
-            is DirectPreviewState.Live -> DirectPreviewLive(state, compact, onCancel, onInsertHere)
+            is DirectPreviewState.Live -> DirectPreviewLive(state, compact, onCancel, onInsertHere, onFinish, bubbleHidden)
             is DirectPreviewState.Result -> DirectPreviewResult(state, onDismiss)
             DirectPreviewState.Hidden -> Unit
         }
@@ -374,7 +379,9 @@ private fun ColumnScope.DirectPreviewLive(
     state: DirectPreviewState.Live,
     compact: Boolean,
     onCancel: () -> Unit,
-    onInsertHere: () -> Unit
+    onInsertHere: () -> Unit,
+    onFinish: () -> Unit,
+    bubbleHidden: Boolean
 ) {
     val colors = FlowVoiceTheme.colors
     val typography = FlowVoiceTheme.typography
@@ -453,6 +460,16 @@ private fun ColumnScope.DirectPreviewLive(
             height = 40.dp,
             horizontalPadding = 14.dp
         )
+        // Sem a bolha, o "toque na bolha para encerrar" não existe: o encerrar fica neste botão (P159).
+        if (bubbleHidden) {
+            PillButton(
+                text = DirectPreviewModel.FINISH,
+                onClick = onFinish,
+                variant = PillButtonVariant.Outline,
+                height = 40.dp,
+                horizontalPadding = 14.dp
+            )
+        }
         Spacer(Modifier.weight(1f))
         if (state.canInsertHere) {
             PillButton(
@@ -726,6 +743,7 @@ private fun DirectPreviewCardPreview(@PreviewParameter(ThemePreviewParameter::cl
             ),
             onCancel = {},
             onInsertHere = {},
+            onFinish = {},
             onDismiss = {}
         )
         DirectPreviewCard(
@@ -743,6 +761,7 @@ private fun DirectPreviewCardPreview(@PreviewParameter(ThemePreviewParameter::cl
             ),
             onCancel = {},
             onInsertHere = {},
+            onFinish = {},
             onDismiss = {},
             compact = true
         )
@@ -750,6 +769,7 @@ private fun DirectPreviewCardPreview(@PreviewParameter(ThemePreviewParameter::cl
             state = DirectPreviewState.Result(success = true, message = "Digitado no campo · 11 palavras"),
             onCancel = {},
             onInsertHere = {},
+            onFinish = {},
             onDismiss = {}
         )
     }

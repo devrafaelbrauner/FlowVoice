@@ -47,6 +47,15 @@ class DirectPreviewModelTest {
     }
 
     @Test
+    fun withoutTheBubbleTheCardSaysWhereToFinish() {
+        val shown = assertIs<DirectPreviewState.Live>(state(DictationPipelineStatus.Recording))
+        val hidden = assertIs<DirectPreviewState.Live>(state(DictationPipelineStatus.Recording, bubbleHidden = true))
+
+        assertEquals(DirectPreviewModel.STATUS_LISTENING, shown.status)
+        assertEquals(DirectPreviewModel.STATUS_LISTENING_WITHOUT_BUBBLE, hidden.status)
+    }
+
+    @Test
     fun pausedRecordingExplainsWhyShowsWhatIsPendingAndOffersInsertHere() {
         val paused = typing.copy(pending = " consegui fechar", pausedReason = "o foco mudou de app; toque em Inserir aqui para escrever no app atual")
 
@@ -168,13 +177,15 @@ class DirectPreviewModelTest {
         transcribing: Boolean = false,
         elapsedMs: Long = 0L,
         owned: Boolean = true,
-        dismissed: Boolean = false
+        dismissed: Boolean = false,
+        bubbleHidden: Boolean = false
     ): DirectPreviewState = DirectPreviewModel.from(
         status = status,
         progress = progress,
         transcribing = transcribing,
         elapsedMs = elapsedMs,
         owned = owned,
-        dismissed = dismissed
+        dismissed = dismissed,
+        bubbleHidden = bubbleHidden
     )
 }

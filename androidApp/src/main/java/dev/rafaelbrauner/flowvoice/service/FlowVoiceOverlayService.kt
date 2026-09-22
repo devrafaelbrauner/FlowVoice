@@ -172,7 +172,7 @@ class FlowVoiceOverlayService : Service(), KoinComponent, BubbleHost {
         val contentChanged = withoutClock(state) != withoutClock(previewState)
         previewState = state
         previewActions = actions
-        cardUi.value = cardUi.value.copy(state = state, actions = actions)
+        cardUi.value = cardUi.value.copy(state = state, actions = actions, bubbleHidden = bubbleHiddenState.value)
         syncCard(reposition = contentChanged)
     }
 
@@ -204,12 +204,14 @@ class FlowVoiceOverlayService : Service(), KoinComponent, BubbleHost {
     private fun hideBubble() {
         bubbleHiddenState.value = true
         runningState.value = false
+        cardUi.value = cardUi.value.copy(bubbleHidden = true)
         if (OverlaySessionPolicy.shouldStopWithHiddenBubble(bubbleHiddenState.value, mode)) stopSelf()
     }
 
     private fun showBubble() {
         bubbleHiddenState.value = false
         runningState.value = true
+        cardUi.value = cardUi.value.copy(bubbleHidden = false)
     }
 
     private fun foregroundType(): Int =
