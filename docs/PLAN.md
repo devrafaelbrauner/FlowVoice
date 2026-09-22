@@ -89,7 +89,7 @@ App de ditado **voz → texto** em nuvem (**OpenRouter**), com:
     `ATTRIBUTIONS.md`, `THIRD_PARTY_NOTICES.md`, `docs/references.md`,
     `docs/tasks/`.
 - **F01 — Scaffold Kotlin Multiplatform + Gradle**
-  - Estrutura `shared/` (commonMain), `androidApp/`, (futuro) `desktopApp/`.
+  - Estrutura `shared/` (commonMain), `androidApp/`; o `desktopApp/` veio no F13.
   - Ktor, SQLDelight, Kotlin Serialization, DI.
   - CI base (GitHub Actions): compilação + testes Android em PR.
 - **F02 — POC de inserção direta (aparelho real)**
@@ -130,8 +130,8 @@ App de ditado **voz → texto** em nuvem (**OpenRouter**), com:
   - Botão flutuante, tela de configuração, diagnóstico técnico exportável,
     onboard.
 - **F13 — Preparação para Windows**
-  - Compose Desktop + JNA/`SendInput`; contratos prontos, implementação
-    adiada.
+  - Compose Desktop + JNA/`SendInput` + DPAPI no módulo `desktopApp`;
+    implementado, falta validar num Windows real (F13.7).
 - **F14 — Higiene de licença e entrega**
   - `ATTRIBUTIONS.md`, `THIRD_PARTY_NOTICES.md` finais; `LICENSE` (MIT);
     documentação de release; verificação de manutenção.

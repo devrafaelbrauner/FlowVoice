@@ -53,7 +53,8 @@ arquiteturalmente para **Windows**.
 
 - **Dispositivo-padrão**: Samsung Galaxy S26 Ultra.
 - Android nativo via Kotlin Multiplatform.
-- Windows: arquitetura pronta desde o início; implementação adiada.
+- Windows: implementado no módulo `desktopApp` (Compose Desktop + JNA/`SendInput`
+  + DPAPI, fase F13); falta validar num Windows real (F13.7).
 
 ## Dados pendentes (a confirmar pelo usuário)
 
