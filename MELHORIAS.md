@@ -55,7 +55,7 @@ O que falta para o produto ficar completo está em
 ## Build e dependências
 
 - O lint aponta versões novas: AGP 9.4, Gradle 8.14.5, Compose BOM 2026.09,
-  core-ktx 1.19, lifecycle 2.11, kotlinx-serialization 1.9. `targetSdk` 35 → 36.
+  core-ktx 1.19, lifecycle 2.11, kotlinx-serialization 1.9.
 - Compose Multiplatform 1.9+ quando o Kotlin passar de 2.1.10.
 - `.gitignore` tem uma linha estranha (`*!shared.keystore`) e `.kotlin/`
   duplicado.

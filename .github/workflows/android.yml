@@ -63,12 +63,15 @@ jobs:
         run: |
           export FLOWVOICE_KEYSTORE_FILE="$RUNNER_TEMP/flowvoice-release.jks"
           printf '%s' "$FLOWVOICE_KEYSTORE_BASE64" | base64 --decode > "$FLOWVOICE_KEYSTORE_FILE"
-          ./gradlew :androidApp:assembleRelease --stacktrace
+          ./gradlew :androidApp:assembleRelease :androidApp:bundleRelease --stacktrace
           rm -f "$FLOWVOICE_KEYSTORE_FILE"
           apk=androidApp/build/outputs/apk/release/androidApp-release.apk
           "$ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)/apksigner" verify --verbose --print-certs "$apk"
           (cd "$(dirname "$apk")" && sha256sum "$(basename "$apk")" > "$(basename "$apk").sha256")
           cat "$apk.sha256"
+          aab=androidApp/build/outputs/bundle/release/androidApp-release.aab
+          (cd "$(dirname "$aab")" && sha256sum "$(basename "$aab")" > "$(basename "$aab").sha256")
+          cat "$aab.sha256"
 
       - name: Upload release APK
         if: github.ref == 'refs/heads/main' && env.HAS_RELEASE_KEY == 'true'
@@ -78,3 +81,5 @@ jobs:
           path: |
             androidApp/build/outputs/apk/release/androidApp-release.apk
             androidApp/build/outputs/apk/release/androidApp-release.apk.sha256
+            androidApp/build/outputs/bundle/release/androidApp-release.aab
+            androidApp/build/outputs/bundle/release/androidApp-release.aab.sha256

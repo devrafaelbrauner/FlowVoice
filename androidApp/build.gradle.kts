@@ -8,12 +8,12 @@ plugins {
 
 android {
     namespace = "dev.rafaelbrauner.flowvoice"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "dev.rafaelbrauner.flowvoice"
         minSdk = 24
-        targetSdk = 35
+        targetSdk = 36
         versionCode = 15
         versionName = "0.5.1"
     }

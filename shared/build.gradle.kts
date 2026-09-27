@@ -43,7 +43,7 @@ kotlin {
 
 android {
     namespace = "dev.rafaelbrauner.flowvoice.shared"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         minSdk = 24
