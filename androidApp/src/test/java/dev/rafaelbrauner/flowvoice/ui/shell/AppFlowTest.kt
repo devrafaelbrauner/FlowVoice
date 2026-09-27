@@ -42,6 +42,8 @@ class AppFlowTest {
     fun loginAndOnboardingHaveNoBottomNav() {
         assertNull(FvDestination.Login.tab())
         assertNull(FvDestination.Onboarding.tab())
+        assertNull(FvDestination.AccessibilityDisclosure.tab())
+        assertNull(FvDestination.OpenRouterKey.tab())
     }
 
     @Test

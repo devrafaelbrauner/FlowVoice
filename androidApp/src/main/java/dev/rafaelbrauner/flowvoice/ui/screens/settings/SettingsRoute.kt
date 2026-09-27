@@ -24,7 +24,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
@@ -43,10 +42,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.tooling.preview.PreviewParameter
@@ -65,11 +61,8 @@ import dev.rafaelbrauner.flowvoice.shared.model.TranscriptionCatalogResult
 import dev.rafaelbrauner.flowvoice.shared.model.TranscriptionModelCatalog
 import dev.rafaelbrauner.flowvoice.shared.prefs.PreferencesStore
 import dev.rafaelbrauner.flowvoice.shared.sync.SyncEngine
-import dev.rafaelbrauner.flowvoice.shared.transcription.KeyValidationResult
 import dev.rafaelbrauner.flowvoice.shared.transcription.OpenRouterConfig
-import dev.rafaelbrauner.flowvoice.shared.transcription.OpenRouterKeyValidator
 import dev.rafaelbrauner.flowvoice.shared.transcription.SecretStore
-import dev.rafaelbrauner.flowvoice.shared.transcription.SecretStoreUnavailableException
 import dev.rafaelbrauner.flowvoice.shared.transcription.TranscriptionModel
 import dev.rafaelbrauner.flowvoice.shared.transcription.TranscriptionModels
 import dev.rafaelbrauner.flowvoice.ui.components.FvCard
@@ -139,7 +132,7 @@ fun SettingsRoute(onOpenDiagnostics: () -> Unit, modifier: Modifier = Modifier) 
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val secretStore = rememberKoin<SecretStore>()
-    val keyValidator = rememberKoin<OpenRouterKeyValidator>()
+    val keyEntry = rememberOpenRouterKeyEntry()
     val config = rememberKoin<OpenRouterConfig>()
     val modelCatalog = rememberKoin<TranscriptionModelCatalog>()
     val transcriptionModel = rememberKoin<TranscriptionModel>()
@@ -148,11 +141,6 @@ fun SettingsRoute(onOpenDiagnostics: () -> Unit, modifier: Modifier = Modifier) 
     val syncEngine = rememberKoin<SyncEngine>()
     val diagnosticsLog = rememberKoin<DiagnosticsLog>()
 
-    var maskedKey by remember { mutableStateOf(KeyMask.mask(secretStore.readOpenRouterKey())) }
-    var keyDraft by remember { mutableStateOf("") }
-    var keyDraftVisible by remember { mutableStateOf(false) }
-    var validatingKey by remember { mutableStateOf(false) }
-    var keyMessage by remember { mutableStateOf<String?>(null) }
     var preferences by remember { mutableStateOf(preferencesStore.read()) }
     var modelOptions by remember { mutableStateOf(emptyList<String>()) }
     var modelLoading by remember { mutableStateOf(false) }
@@ -169,7 +157,7 @@ fun SettingsRoute(onOpenDiagnostics: () -> Unit, modifier: Modifier = Modifier) 
 
     LifecycleResumeEffect(Unit) {
         accessibilityActive = FlowVoiceAccessibilityService.isRunning
-        maskedKey = KeyMask.mask(secretStore.readOpenRouterKey())
+        keyEntry.refresh()
         preferences = preferencesStore.read()
         accountEmail = authGateway.currentUser()?.email
         onPauseOrDispose { }
@@ -216,8 +204,8 @@ fun SettingsRoute(onOpenDiagnostics: () -> Unit, modifier: Modifier = Modifier) 
         }
     }
 
-    LaunchedEffect(maskedKey) {
-        if (maskedKey != null && !modelsTouched) refreshModels(showErrors = false)
+    LaunchedEffect(keyEntry.maskedKey) {
+        if (keyEntry.maskedKey != null && !modelsTouched) refreshModels(showErrors = false)
     }
 
     fun applyOverlayAction(action: OverlayToggleAction, requestPermissions: (Array<String>) -> Unit) {
@@ -273,37 +261,6 @@ fun SettingsRoute(onOpenDiagnostics: () -> Unit, modifier: Modifier = Modifier) 
             }
         }
         onPauseOrDispose { }
-    }
-
-    fun saveKey() {
-        val candidate = keyDraft
-        if (candidate.isBlank() || validatingKey) return
-        validatingKey = true
-        keyMessage = "Validando chave…"
-        diagnosticsLog.add("Validando chave OpenRouter.")
-        scope.launch {
-            val message = when (keyValidator.validate(candidate)) {
-                KeyValidationResult.Valid -> try {
-                    secretStore.writeOpenRouterKey(candidate)
-                    keyDraft = ""
-                    keyDraftVisible = false
-                    maskedKey = KeyMask.mask(secretStore.readOpenRouterKey())
-                    modelCatalog.clear()
-                    "Chave validada e guardada cifrada."
-                } catch (_: SecretStoreUnavailableException) {
-                    "Cofre da chave indisponível neste aparelho; a chave não foi salva."
-                }
-                KeyValidationResult.InvalidFormat -> "Formato inválido: a chave começa com sk- e não tem espaços."
-                KeyValidationResult.Rejected -> "A OpenRouter recusou esta chave."
-                KeyValidationResult.Unavailable -> "Não foi possível validar agora (rede ou serviço)."
-            }
-            keyMessage = message
-            diagnosticsLog.add(message)
-            validatingKey = false
-            if (message == "Chave validada e guardada cifrada.") {
-                refreshModels(showErrors = false)
-            }
-        }
     }
 
     fun signIn() {
@@ -366,12 +323,12 @@ fun SettingsRoute(onOpenDiagnostics: () -> Unit, modifier: Modifier = Modifier) 
     }
 
     val state = SettingsUiState(
-        keyConfigured = maskedKey != null,
-        maskedKey = maskedKey,
-        keyDraft = keyDraft,
-        keyDraftVisible = keyDraftVisible,
-        validatingKey = validatingKey,
-        keyMessage = keyMessage,
+        keyConfigured = keyEntry.maskedKey != null,
+        maskedKey = keyEntry.maskedKey,
+        keyDraft = keyEntry.draft,
+        keyDraftVisible = keyEntry.draftVisible,
+        validatingKey = keyEntry.validating,
+        keyMessage = keyEntry.message,
         modelLabel = currentModelId().substringAfterLast('/'),
         modelOptions = modelOptions,
         modelLoading = modelLoading,
@@ -389,9 +346,9 @@ fun SettingsRoute(onOpenDiagnostics: () -> Unit, modifier: Modifier = Modifier) 
         accountMessage = accountMessage
     )
     val actions = SettingsActions(
-        onKeyDraftChange = { keyDraft = it },
-        onToggleKeyDraftVisibility = { keyDraftVisible = !keyDraftVisible },
-        onSaveKey = ::saveKey,
+        onKeyDraftChange = { keyEntry.draft = it },
+        onToggleKeyDraftVisibility = { keyEntry.draftVisible = !keyEntry.draftVisible },
+        onSaveKey = { keyEntry.save(onSaved = { refreshModels(showErrors = false) }) },
         onModelRefresh = { refreshModels() },
         onModelSelect = ::selectModel,
         onOverlayToggle = {
@@ -620,50 +577,16 @@ private fun KeyCard(state: SettingsUiState, actions: SettingsActions) {
             )
         }
         Spacer(Modifier.height(10.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            FvDarkField(
-                value = state.keyDraft,
-                onValueChange = actions.onKeyDraftChange,
-                modifier = Modifier.weight(1f),
-                placeholder = state.maskedKey ?: "sk-or-v1-…",
-                label = "Nova chave OpenRouter",
-                visualTransformation = if (state.keyDraftVisible) {
-                    VisualTransformation.None
-                } else {
-                    PasswordVisualTransformation('•')
-                },
-                keyboardOptions = KeyboardOptions(
-                    keyboardType = KeyboardType.Password,
-                    autoCorrectEnabled = false,
-                    imeAction = ImeAction.Done
-                ),
-                keyboardActions = KeyboardActions(onDone = { actions.onSaveKey() }),
-                enabled = !state.validatingKey
-            )
-            FvFieldButton(
-                text = if (state.keyDraftVisible) "ocultar" else "mostrar",
-                onClick = actions.onToggleKeyDraftVisibility,
-                enabled = state.keyDraft.isNotEmpty()
-            )
-        }
-        if (state.keyDraft.isNotBlank()) {
-            Spacer(Modifier.height(10.dp))
-            PillButton(
-                text = if (state.validatingKey) "Validando…" else "Validar e salvar",
-                onClick = actions.onSaveKey,
-                enabled = !state.validatingKey,
-                modifier = Modifier.fillMaxWidth()
-            )
-        }
-        Spacer(Modifier.height(9.dp))
-        Text(
-            text = state.keyMessage ?: "Guardada cifrada no aparelho. Nunca sincronizada.",
-            style = typography.bodySmall,
-            color = colors.textTertiary
+        OpenRouterKeyInput(
+            draft = state.keyDraft,
+            draftVisible = state.keyDraftVisible,
+            validating = state.validatingKey,
+            maskedKey = state.maskedKey,
+            message = state.keyMessage,
+            idleHint = "Guardada cifrada no aparelho. Nunca sincronizada.",
+            onDraftChange = actions.onKeyDraftChange,
+            onToggleDraftVisibility = actions.onToggleKeyDraftVisibility,
+            onSave = actions.onSaveKey
         )
     }
 }

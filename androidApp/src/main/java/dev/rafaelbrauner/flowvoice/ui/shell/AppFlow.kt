@@ -15,7 +15,10 @@ fun FvDestination.tab(): FvTab? = when (this) {
     FvDestination.Notes -> FvTab.Notes
     FvDestination.Dictionary -> FvTab.Dictionary
     FvDestination.Settings, FvDestination.Diagnostics -> FvTab.Settings
-    FvDestination.Login, FvDestination.Onboarding -> null
+    FvDestination.Login,
+    FvDestination.Onboarding,
+    FvDestination.AccessibilityDisclosure,
+    FvDestination.OpenRouterKey -> null
 }
 
 fun FvTab.destination(): FvDestination = when (this) {
