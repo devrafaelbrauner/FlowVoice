@@ -658,7 +658,9 @@ class DictationPipeline(
         // guard ainda confere o resultado.
         val merged = ProofreadingMerge.merge(text, revised) ?: revised
         if (merged != revised) transcriptTextLog.log("proofreading_merged", mapOf("text" to merged))
-        when (val outcome = DictationProofread.outcome(text, merged)) {
+        // O vocabulário do usuário vale depois da revisão também (N2), como na revisão antes de inserir:
+        // a revisão pode reescrever um termo aprovado, e o guard confere o texto que vai ao campo.
+        when (val outcome = DictationProofread.outcome(text, dictionary.apply(merged))) {
             is DictationProofread.Outcome.Skip ->
                 // Revisão igual ao ditado não quer dizer campo igual ao ditado: o editor pode ter
                 // comido o espaço da emenda (P142). Antes de desistir, confere o campo.

@@ -2101,6 +2101,29 @@ class DictationPipelineTest {
         assertEquals("Paciente relata dor.", inserter.field.toString())
     }
 
+    // N2: a revisão final do ditado direto não pode desfazer um termo aprovado do vocabulário.
+    @Test
+    fun theDirectFinalRevisionKeepsTheUserVocabulary() = runTest {
+        val inserter = DirectInserter()
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = listOf(frame(50L)),
+            texts = mapOf(0 to "tomar dipirona"),
+            preferences = AppPreferences(proofreadingEnabled = true),
+            textInserter = inserter,
+            proofreadingOutput = { "Tomar dipirona." }
+        )
+        env.dictionary.approve("Dipirona")
+
+        env.pipeline.start()
+        runCurrent()
+        val completed = assertIs<DictationPipelineStatus.Completed>(env.pipeline.finalize())
+
+        assertEquals(listOf("tomar Dipirona"), env.proofreader.received)
+        assertEquals("Tomar Dipirona.", inserter.field.toString())
+        assertEquals("Tomar Dipirona.", completed.text)
+    }
+
     // N8: o teto de 5 s da revisão (P152) vale também para a revisão antes de inserir e para a nota.
     @Test
     fun aHangingRevisionBeforeInsertGivesUpAtTheCapAndKeepsTheDictation() = runTest {
