@@ -356,7 +356,7 @@ private fun HeroCard(onMic: () -> Unit, modifier: Modifier = Modifier) {
         Spacer(Modifier.height(22.dp))
         MicButton(onClick = onMic, contentDescription = "Ditar")
         Spacer(Modifier.height(16.dp))
-        MonoLabel("Segure ou toque para ditar", color = colors.textTertiary)
+        MonoLabel("Toque para ditar", color = colors.textTertiary)
     }
 }
 
