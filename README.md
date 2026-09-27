@@ -49,7 +49,16 @@ runtime empacotado do desktop inclui `java.net.http`.
 
 ## Instalação no Android
 
-Instale o **release assinado**, não o APK debug. A assinatura fixa e o app não
+**Para colegas (recomendado): teste interno do Google Play.** Instalar pela Play Store
+não é sideloading. A expectativa é que isso evite o alerta do Play Protect para app
+desconhecido e o passo "Permitir configurações restritas", mas ainda não foi
+conferido num aparelho. O passo a passo (conta, Play App Signing, `.aab` do CI,
+formulários, política de privacidade, testadores) está em
+[`docs/DISTRIBUICAO_PLAY.md`](docs/DISTRIBUICAO_PLAY.md). Até a Play Console estar
+pronta, este caminho ainda não existe.
+
+**Para o dono do repositório: release assinado pelo `adb`** (abaixo). Instale o
+**release assinado**, não o APK debug. A assinatura fixa e o app não
 depurável reduzem a chance de o Play Protect ou a proteção da Samsung acusarem o
 FlowVoice (P161).
 
@@ -90,7 +99,9 @@ FlowVoice (P161).
 - O CI publica o artefato `flowvoice-release` (APK assinado + `.sha256`) em `main`
   quando os segredos `FLOWVOICE_KEYSTORE_BASE64` (keystore em Base64),
   `FLOWVOICE_KEYSTORE_PASSWORD`, `FLOWVOICE_KEY_ALIAS` e `FLOWVOICE_KEY_PASSWORD`
-  estão configurados. O APK debug não é mais publicado.
+  estão configurados, junto com o `.aab` assinado para a Play
+  (`./gradlew :androidApp:bundleRelease` gera o mesmo localmente). O APK debug não é
+  mais publicado. O app mira o Android 16 (`compileSdk`/`targetSdk` 36).
 
 ### Se o Play Protect ou a Samsung acusarem
 
@@ -110,25 +121,49 @@ FlowVoice (P161).
 
 ## Primeiro uso
 
-1. **Login:** "Continuar com o Google". Sem Google Web Client ID configurado, segue
-   direto (o login ainda não tem backend).
-2. **Onboarding:** ligue o serviço de acessibilidade, conceda o microfone e salve a
-   chave OpenRouter em Ajustes. A chave fica cifrada no aparelho, fora do backup e
-   da sincronização, e só aparece mascarada.
-   - **Instalado por adb ou APK (fora de loja), Android 13+:** o sistema bloqueia o
-     interruptor do serviço ("configurações restritas"). Tente ligar uma vez e depois
-     vá em Configurações → Aplicativos → FlowVoice → ⋮ → **Permitir configurações
-     restritas**; aí ligue o FlowVoice em Acessibilidade. O onboarding mostra esse
-     passo e um atalho para os detalhes do app.
-   - **Não** ponha o FlowVoice como atalho de acessibilidade (botão ou gesto): o
-     atalho alterna o serviço e um toque acidental o desliga.
+1. **Login:** sem Google Web Client ID configurado (o normal), o botão é
+   **Começar** e segue direto. Com um Client ID em Ajustes, aparece "Continuar com o
+   Google". A sincronização entre aparelhos ainda não está ativa: notas e
+   dicionário ficam no celular.
+2. **Onboarding (três passos):** o botão escuro leva ao próximo passo pendente, e
+   "Pular por enquanto" fica como ação secundária. Quando os três passos ficam ok, o
+   onboarding se dá por concluído sozinho. Pular também fica guardado, e ele não
+   volta a cada abertura. O que faltar continua no Início (pílula de status e
+   microfone) e em Ajustes.
+   1. **Acessibilidade:** antes do Android, abre a tela **"O que o FlowVoice vê"**.
+      Ela diz o que o serviço acessa (o nome do app na tela; no ditado, o campo com
+      o cursor; a posição de campo, cursor e teclado) e para quê, avisa que o
+      Android vai falar em "controle total" e tem o link da política de
+      privacidade. A Acessibilidade só abre com **"Entendi, abrir Acessibilidade"**.
+      O botão do Diagnóstico passa pela mesma tela.
+      - **Instalado fora de loja, Android 13+:** o onboarding mostra, antes, os
+        passos das configurações restritas. (1) Tente ligar pelo passo 1: o Android
+        diz que o acesso foi negado e fala em risco às suas informações, o aviso
+        padrão para app de fora de loja. (2) Toque em **Abrir detalhes do app** →
+        ⋮ → **Permitir configurações restritas** (pode pedir o PIN). (3) Volte e
+        toque no passo 1 de novo.
+      - **Não** ponha o FlowVoice como atalho de acessibilidade (botão ou gesto): o
+        atalho alterna o serviço e um toque acidental o desliga.
+   2. **Microfone:** grava só durante o ditado.
+   3. **Chave OpenRouter:** tela própria. Explica a OpenRouter, abre
+      openrouter.ai/keys e avisa dos créditos pré-pagos no cartão (compra mínima
+      de US$ 5). Mostra uma **estimativa** de custo: ≈ R$ 1,90 a 2,70 por hora de
+      ditado (set/2026), calculada com os preços da OpenRouter, as taxas e o câmbio
+      de 2026-09-25, e não medida em uso real. "Validar e salvar" é o mesmo de
+      Ajustes. A chave fica cifrada no aparelho, fora do backup e da sincronização,
+      e só vai à OpenRouter. Ditar sem chave mostra o aviso "Falta a chave
+      OpenRouter", e **Configurar chave** abre essa mesma tela.
 3. **Ajustes:** ligue o botão flutuante (pede microfone, notificações e "sobrepor a
-   outros apps") e, se quiser, o Google Web Client ID. "Revisar antes de inserir"
-   (desligado por padrão) troca a digitação direta pela barra com Inserir; a revisão
-   por IA vale no fim do ditado pela bolha, nesse modo e nas notas.
+   outros apps"; na volta da permissão ele liga sozinho) e, se quiser, o Google Web
+   Client ID. "Revisar antes de inserir" (desligado por padrão) troca a digitação
+   direta pela barra com Inserir. A revisão por IA vale no fim do ditado pela bolha,
+   nesse modo e nas notas. A política de privacidade também está em Ajustes.
 
 ## Ditando
 
+- **Toque para ditar, toque de novo para parar:** não é preciso segurar o botão.
+  Com o FlowVoice aberto na tela, a bolha ociosa fica escondida e volta quando você
+  sai do app. O serviço segue ligado.
 - **Pela bolha flutuante:** toque na bolha no app em que está digitando. Cada trecho
   vai até uma pausa natural da fala (300 ms de pausa depois de ao menos ~1 s de
   áudio) ou, falando sem pausa, até ~4 s. Ele é **digitado no campo** assim que é

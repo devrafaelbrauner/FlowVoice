@@ -6,6 +6,75 @@ estão em [`docs/tasks/`](docs/tasks/README.md).
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-09-27
+
+Primeiro uso sem abandono e preparação para o teste interno do Google Play. Nada
+desta versão foi conferido num aparelho ou emulador ainda.
+
+### Distribuição
+
+- **`compileSdk` e `targetSdk` 36**, exigência do Play para apps novos desde
+  2026-08-31.
+- **CI gera o `.aab` assinado** junto do APK de release; `:androidApp:bundleRelease`
+  faz o mesmo localmente.
+- **`docs/DISTRIBUICAO_PLAY.md`:** checklist do teste interno (conta, Play App
+  Signing, formulários, testadores).
+- **`docs/POLITICA_PRIVACIDADE.md`:** rascunho da política de privacidade, ainda com
+  campos `[PREENCHER]` e sem URL publicada.
+
+### Onboarding (P162)
+
+- **"O que o FlowVoice vê":** tocar no passo 1 abre, antes do Android, uma tela que
+  diz o que a acessibilidade acessa e para quê: o nome do app na tela; no ditado,
+  o campo com o cursor; a posição de campo, cursor e teclado. Ela diz também o que
+  o serviço não faz: o texto lido fica no celular, ele não escreve em campo marcado
+  como senha e não navega por você. Avisa que o Android vai falar em "controle
+  total", tem o link da política de privacidade e só abre a Acessibilidade com o
+  toque em "Entendi, abrir Acessibilidade". É a divulgação em destaque que o Google
+  Play exige de quem usa AccessibilityService sem ser ferramenta de acessibilidade
+  ([política](https://support.google.com/googleplay/android-developer/answer/10964491)).
+  O botão "Abrir configurações de acessibilidade" do Diagnóstico passa pela mesma
+  tela.
+- **Configurações restritas em passos:** para quem instalou fora de loja no Android
+  13+, o aviso virou três passos numerados que avisam antes o "acesso negado" do
+  Android. "Abrir detalhes do app" virou botão.
+- **Tela própria da chave (passo 3):** explica a OpenRouter, abre openrouter.ai/keys
+  e informa os créditos pré-pagos no cartão (mínimo US$ 5, ≈ R$ 32 com taxa e IOF).
+  Mostra uma **estimativa** de ≈ R$ 1,90 a 2,70 por hora de ditado (set/2026), feita
+  com os preços da OpenRouter de 2026-09-27, a taxa de 5,5% (mínimo US$ 0,80), o IOF
+  de 3,5% e a PTAX de 2026-09-25 (5,1991), e não medida em uso. As premissas ficam
+  em `DictationCostEstimate`. "Validar e salvar" é o mesmo código de Ajustes
+  (`OpenRouterKeyEntry`). "Configurar chave" do Início e das Notas abre essa tela.
+- **Progresso persistido:** o onboarding conclui sozinho quando os três passos ficam
+  ok, e "Pular por enquanto" fica guardado. O botão escuro leva ao próximo passo
+  pendente e pular virou ação secundária.
+- **Textos honestos:** "Três passos…"; o microfone "grava só durante o ditado"; a
+  chave "só vai à OpenRouter, nunca é sincronizada"; o login sem Client ID diz
+  "Começar" e não promete sincronização; o rodapé diz "notas e dicionário ficam
+  neste celular"; o Início diz "Toque para ditar".
+
+### Adicionado
+
+- **Link para a política de privacidade nos Ajustes:** nova entrada "Política de privacidade — O que o FlowVoice envia, guarda e lê", logo abaixo de "Diagnóstico técnico". Abre `https://github.com/devrafaelbrauner/FlowVoice/blob/main/docs/POLITICA_PRIVACIDADE.md` no navegador. A URL fica numa constante única (`AppLinks.PRIVACY_POLICY_URL`), que o onboarding também pode usar. O link só funciona depois que `docs/POLITICA_PRIVACIDADE.md` chegar à `main`, e a política ainda tem campos `[PREENCHER]`.
+
+
+### Corrigido
+
+- **Botão flutuante liga de primeira (R5b):** ao ligar "Botão flutuante" sem a permissão "sobrepor a outros apps", o FlowVoice guarda o pedido. Na volta da tela do sistema, se a permissão foi dada, o fluxo continua sozinho: pede notificações (se faltar) e liga a bolha. Se não foi dada, mantém o aviso "Autorize “sobrepor a outros apps” e ligue de novo.". O microfone do Início faz o mesmo: o ditado começa na volta, sem outro toque.
+  - O app já abria `ACTION_MANAGE_OVERLAY_PERMISSION` com `package:`. A lista genérica de apps não é defeito do emulador nem do fabricante: a partir do **Android 11** o sistema ignora o pacote e sempre mostra a lista de apps ([documentação](https://developer.android.com/about/versions/11/privacy/permissions)). Do Android 6 ao 10 a página abre direto no FlowVoice. Por isso a mensagem diz "Ative “sobrepor a outros apps” para o FlowVoice".
+- **Sem chave, aviso que fica e leva à configuração (R5c):** o microfone do Início, "Nova nota" e "Ditar nesta nota" conferem a chave OpenRouter antes de começar. Sem chave, nada de ditado nem de nota "Sem título" vazia. Aparece o aviso fixo "Falta a chave OpenRouter", com **Configurar chave** (abre a tela própria da chave pelo `onOpenKeySetup` do `FlowVoiceRoot`) e **Agora não**. O aviso some quando a chave é salva ou quando o usuário dispensa. Pela bolha, o cartão de falha continua como antes.
+- **A bolha não cobre mais o próprio app (R5d):** com qualquer tela do FlowVoice aberta, a bolha ociosa fica escondida; o serviço segue ativo e o interruptor continua ligado. Ela volta quando o app sai da frente.
+  - **Decisão:** só a bolha ociosa some. Isso vale para o modo "só bolha", inclusive durante ditados de nota ou ditados que não são da bolha.
+  - Com a prévia de um ditado direto na tela, a bolha fica, porque ela é o "parar" desse ditado (P159).
+  - Com a barra de ditado, nada muda: a barra já substitui a bolha.
+  - Assim, nenhum ditado da bolha é cancelado nem perde os controles. "Ocultar botão" e as regras P40/P159/P160 continuam iguais.
+  - Ao ligar o botão nos Ajustes, a mensagem agora avisa que ele aparece quando você sai do FlowVoice.
+
+
+### Removido
+
+- **Estatísticas do Início (R5e):** os cartões "Latência média", "Ditados hoje" e "Gasto hoje" sempre mostravam "—" e saíram, junto com o componente `StatCard`, até existir fonte persistida (P59).
+
 ## [0.5.1] - 2026-09-27
 
 Release assinado e ícone do app, contra o aviso de malware no S26 (P161).
