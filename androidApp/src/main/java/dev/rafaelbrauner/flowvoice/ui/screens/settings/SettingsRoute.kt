@@ -52,6 +52,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.tooling.preview.PreviewParameter
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.core.net.toUri
 import androidx.credentials.exceptions.GetCredentialCancellationException
 import androidx.credentials.exceptions.NoCredentialException
 import androidx.lifecycle.compose.LifecycleResumeEffect
@@ -83,9 +84,11 @@ import dev.rafaelbrauner.flowvoice.ui.components.ThemePreviewParameter
 import dev.rafaelbrauner.flowvoice.ui.icons.FlowVoiceIcons
 import dev.rafaelbrauner.flowvoice.ui.rememberKoin
 import dev.rafaelbrauner.flowvoice.ui.screens.diagnostics.DiagnosticsLog
+import dev.rafaelbrauner.flowvoice.ui.shell.AppLinks
 import dev.rafaelbrauner.flowvoice.ui.shell.OverlayPermissionReturn
 import dev.rafaelbrauner.flowvoice.ui.shell.PendingOverlayPermission
 import dev.rafaelbrauner.flowvoice.ui.shell.openOverlayPermissionSettings
+import dev.rafaelbrauner.flowvoice.ui.shell.startActivitySafely
 import dev.rafaelbrauner.flowvoice.ui.theme.FlowVoiceTheme
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
@@ -124,6 +127,7 @@ data class SettingsActions(
     val onProofreadingChange: (Boolean) -> Unit,
     val onReviewBeforeInsertChange: (Boolean) -> Unit,
     val onOpenDiagnostics: () -> Unit,
+    val onOpenPrivacyPolicy: () -> Unit,
     val onClientIdChange: (String) -> Unit,
     val onSignIn: () -> Unit,
     val onSignOut: () -> Unit,
@@ -404,6 +408,9 @@ fun SettingsRoute(onOpenDiagnostics: () -> Unit, modifier: Modifier = Modifier) 
             preferences = preferencesStore.read()
         },
         onOpenDiagnostics = onOpenDiagnostics,
+        onOpenPrivacyPolicy = {
+            context.startActivitySafely(Intent(Intent.ACTION_VIEW, AppLinks.PRIVACY_POLICY_URL.toUri()))
+        },
         onClientIdChange = { clientId ->
             preferencesStore.write(preferences.copy(googleWebClientId = clientId.trim()))
             preferences = preferencesStore.read()
@@ -499,7 +506,8 @@ internal fun SettingsContent(
                 }
             }
             AccountCard(state, actions)
-            DiagnosticsLinkCard(actions.onOpenDiagnostics)
+            LinkCard("Diagnóstico técnico", "Rota de inserção, permissões e log do serviço", actions.onOpenDiagnostics)
+            LinkCard("Política de privacidade", "O que o FlowVoice envia, guarda e lê", actions.onOpenPrivacyPolicy)
             Spacer(Modifier.height(8.dp))
         }
     }
@@ -738,12 +746,12 @@ private fun AccountCard(state: SettingsUiState, actions: SettingsActions) {
 }
 
 @Composable
-private fun DiagnosticsLinkCard(onOpenDiagnostics: () -> Unit) {
+private fun LinkCard(title: String, subtitle: String, onClick: () -> Unit) {
     val colors = FlowVoiceTheme.colors
     val typography = FlowVoiceTheme.typography
     FvCard(
         modifier = Modifier.fillMaxWidth(),
-        onClick = onOpenDiagnostics,
+        onClick = onClick,
         contentPadding = PaddingValues(14.dp)
     ) {
         Row(
@@ -752,10 +760,10 @@ private fun DiagnosticsLinkCard(onOpenDiagnostics: () -> Unit) {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(Modifier.weight(1f)) {
-                Text("Diagnóstico técnico", style = typography.rowLabel, color = colors.textPrimary)
+                Text(title, style = typography.rowLabel, color = colors.textPrimary)
                 Spacer(Modifier.height(3.dp))
                 Text(
-                    text = "Rota de inserção, permissões e log do serviço",
+                    text = subtitle,
                     style = typography.bodySmall,
                     color = colors.textTertiary
                 )
@@ -821,7 +829,7 @@ private fun SettingsContentPreview(@PreviewParameter(ThemePreviewParameter::clas
                 syncing = false,
                 accountMessage = null
             ),
-            actions = SettingsActions({}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {})
+            actions = SettingsActions({}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {})
         )
     }
 }
