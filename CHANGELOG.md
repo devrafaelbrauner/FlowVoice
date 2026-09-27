@@ -98,6 +98,119 @@ emulador. Nada desta versão foi conferido num aparelho real.
   compostas e da lista de janelas de toque. A bolha volta no launcher, e numa prévia de
   ditado direto (Mensagens) a bolha continua visível e encerra o ditado ao toque.
 
+### Corrigido na revisão de código (REV)
+
+Revisão do projeto inteiro em duas partes: `shared/` e `desktopApp/` (REV1), depois
+`androidApp/` e o CI (REV2). Cada achado corrigido tem um teste de regressão que falhava
+antes da correção. Nada desta seção foi conferido num aparelho real; o que passou pelo
+emulador está marcado.
+
+**Texto que se perdia ou mudava de sentido**
+
+- **REV1-R1: uma janela alta que volta vazia não cala mais o resto do ditado.** Uma
+  tosse ou um esbarrão devolvidos sem texto ensinavam à memória da P153 que aquele
+  volume era silêncio, e toda fala mais baixa deixava de ser enviada, sem aviso. Agora
+  a memória só aprende com janelas de até 2× o limiar de fala da sessão, e a janela alta
+  sem texto vira trecho falho ("voz sem texto"), com o aviso de texto incompleto.
+- **REV1-R2: a revisão por IA não aceita mais trocas que mudam o sentido clínico:**
+  hipertensão→hipotensão (hiper/hipo), prefixo de negação posto ou tirado
+  (normal→anormal, regular→irregular, sintomático→assintomático), remédio trocado por
+  outro parecido (prednisona→prednisolona, amoxicilina→ampicilina), número por extenso
+  trocado (sessenta→setenta), "?" novo e pontuação nova logo depois de não, nem, nega
+  ou sem. A regra de contraste no começo da palavra (P156) virou um utilitário comum
+  (`OnsetContrast`). A P149 (tá→está, pontuação) continua valendo.
+- **REV1-R3: microfone que cai no meio do ditado não leva mais o texto junto.** A falha
+  de captura com o ditado em curso é tratada como parada antecipada, igual à chave
+  recusada (P111): o áudio guardado vira a última janela, as janelas na rede são
+  esperadas, e o texto chega à revisão, à nota ou ao campo com o aviso "Captura do
+  microfone interrompida aos m:ss: texto só até ali". Sem texto nenhum, falha como antes.
+- **REV1-Y1:** uma resposta 200 com erro do provedor, ou sem `text`, é falha da janela
+  (repetida se o código for 5xx), não um trecho vazio.
+- **REV1-Y2: depois de "Inserir aqui" noutro campo, a revisão final não reescreve mais
+  o campo.** Num campo que não se deixa ler, ela apagava o texto do usuário e escrevia
+  ali o trecho do primeiro campo.
+- **REV1-Y3:** o fim da última palavra não se perde no toque de parar. O quadro que o
+  parar destrava entra na última janela, e o resto do buffer do microfone é lido antes
+  de fechá-lo (não medido no S26).
+- **REV1-Y4:** a conferência do pedaço digitado se ancora no que o próprio app escreveu
+  e não apaga nem duplica o pedaço anterior quando o editor aplica um pedaço atrasado.
+- **REV2-Y1 e parte da P86: o FlowVoice só lê o texto antes do cursor depois de
+  conferir** que o foco continua no app e no campo do ditado, que o campo não é o do
+  próprio FlowVoice (chave OpenRouter) e que não é campo de senha. O fallback por
+  acessibilidade também recusa senha pelo tipo do input (`VISIBLE_PASSWORD`,
+  `WEB_PASSWORD`) antes de ler o texto. A divulgação diz agora "não lê nem escreve em
+  campos marcados como senha".
+- **REV2-Y5:** a reescrita atômica do campo (P142) só roda num EditText simples cujo
+  texto aparece por inteiro para o FlowVoice. Em editores ricos, web ou expostos em
+  parte, o campo fica como está e a divergência vai só para o log.
+- **REV1-N2:** o vocabulário do usuário é reaplicado depois da revisão final do ditado
+  direto, como já era na revisão antes de inserir.
+
+**Dados guardados**
+
+- **REV1-Y7:** sincronizar não carimba mais todas as notas com a hora do sync; a edição
+  mais nova de outro aparelho não se perde. A nota apagada vira lápide sem texto
+  (`deletedAtMs`) e não volta pelo sync. Notas gravadas antes continuam sendo lidas.
+- **REV1-Y8: uma nota ilegível no armazenamento não apaga mais as outras.** Cada nota é
+  lida sozinha, o texto original vai para um backup (`notes_json.bak`) e, se nada é
+  legível, o app não grava por cima. Preferências ilegíveis também vão para backup antes
+  de voltar ao padrão.
+- **REV1-N3:** o dicionário guarda a ordem de aprovação (lista JSON). Os termos já
+  aprovados são migrados em ordem alfabética, porque o formato antigo não tinha ordem.
+  **Conferido no emulador Android 16:** atualizando por `adb install -r` sobre a 0.6.0
+  anterior (`5a7fc54`, mesma chave), os três termos aprovados continuaram na lista, e
+  continuaram depois de um force-stop. As notas não puderam ser exercidas: sem chave, não
+  há como criar nota em nenhuma das duas versões.
+- **REV1-N4:** notas novas têm id UUID. **REV1-N9:** no máximo 100 sugestões pendentes
+  no dicionário.
+- **REV2-Y4:** um termo aprovado pode ser removido na tela do Dicionário e deixa de ser
+  aplicado. **Conferido no emulador:** "Remover dipirona do dicionário" tirou o termo, e
+  a remoção continuou depois de um force-stop.
+- **REV2-Y6:** editar uma nota não regrava mais todas as notas a cada tecla na thread
+  principal. A gravação sai 500 ms depois da última tecla, em segundo plano, e na hora
+  quando a tela pausa.
+
+**Bolha, Início e rede**
+
+- **REV2-R1: com "Ocultar botão" no ditado direto, o cartão da prévia voltou a
+  responder.** A correção da P164 punha `FLAG_NOT_TOUCHABLE` em todas as janelas do
+  overlay, inclusive no cartão com Encerrar, Cancelar e Inserir aqui. Agora só a janela
+  da bolha escondida deixa de receber toques (`OverlayWindowFlags`). **Conferido no
+  emulador** só o lado da bolha: com o app aberto, depois de voltar do launcher e depois
+  de girar, a janela da bolha fica `mViewVisibility=0x8` com `NOT_TOUCHABLE`, e no
+  launcher volta visível. O cartão tocável precisa de um ditado real, sem chave no
+  emulador.
+- **REV2-Y2:** o microfone do Início não religa mais para sempre a bolha que o usuário
+  desligou. O overlay aparece só para aquele ditado, e o interruptor dos Ajustes fica
+  como estava.
+- **REV2-Y3:** o app de volta do microfone do Início vence 10 min depois que o usuário
+  sai dele. Sem destino recente, o FlowVoice só vai para trás e o primeiro trecho espera
+  "Inserir aqui". Os dois caminhos da P130 (Início → ícone e Recentes) continuam.
+- **REV1-Y5: o fim do ditado tem prazo de 15 s.** Com a rede presa, o "Transcrevendo"
+  durava minutos. Vencido o prazo, o que voltou é entregue e os trechos sem resposta
+  entram no aviso. **REV1-N8:** o teto de 5 s da revisão por IA (P152) vale também antes
+  de inserir e nas notas.
+- **REV1-Y9:** um 429 ou 5xx do `/api/v1/models` é falha, não lista vazia, e nem falha
+  nem lista vazia ficam 24 h em cache.
+- **REV1-Y6: o desktop avisa do trecho que falhou** ("Trecho X de Y falhou") e encerra a
+  gravação no teto de requisições ou com a chave recusada, como o Android. A tela do
+  desktop não foi aberta.
+- **REV1-N1, N6, N7, N11 e P53:** o texto ao vivo tira a repetição do contexto como o
+  final; um 400/422 no pedido com tempos só marca o modelo como "sem tempos" se o mesmo
+  áudio passar em `json`; cancelar o ditado não derruba o benchmark; a emenda exata entre
+  janelas não apaga mais do que 1 s de contexto comporta; o controle da transcrição
+  ficou seguro entre threads.
+- **REV2-Y7: CI** com token só de leitura (`permissions: contents: read`), actions
+  fixadas por SHA e keystore apagado mesmo quando o build de release falha.
+- **REV2, pequenos:** cursor que não se reposiciona no meio do texto desfaz a escrita e
+  deixa o trecho pendente; a notificação reabre a tarefa existente; o seletor de
+  compartilhamento não vira destino do Início; o Diagnóstico exporta o modelo escolhido;
+  a descrição do serviço nos Ajustes do Android diz o que é lido; os Ajustes não
+  sobrescrevem preferências com cópia velha; o release não consulta o marcador de log;
+  `storeFile` relativo resolve a partir da raiz do repositório, como no README.
+- **REV1-N5 e N10:** o comentário do teto de requisições diz que ele conta janelas, não
+  chamadas (pior caso com as tentativas ≈ US$ 0,14 por sessão); o pacote desktop passou
+  a 0.6.0.
 
 ### Removido
 

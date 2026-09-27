@@ -211,7 +211,7 @@ Ao longo do caminho, dois defeitos foram achados e corrigidos: a leitura fora da
 | P83 | Média | SEG-7: ditado iniciado pelo Início não tem conferência de destino (`captureTarget` roda com o FlowVoice em primeiro plano e grava `null`, que nunca bloqueia); o CHANGELOG 0.4.1 afirma que a inserção é recusada se o foco mudou. Recapturar no `finalizeForReview` e comparar no `insertReady` | concluída (0.4.2, `914ca5a`) | /corrigir |
 | P84 | Média | O CI não roda `:androidApp:testDebugUnitTest`: `BackupRulesTest` e os demais testes de tela, componentes e overlay só rodam localmente | concluída (0.4.2, `851445a`); passo verde no CI | /corrigir |
 | P85 | Baixa | SEG-7: a conferência compara pacote, não campo (mesmo app, outra conversa ou prontuário, passa) | pendente | /aprimorar |
-| P86 | Baixa | SEG-7: o fallback detecta senha só por `node.isPassword` (transformação), deixando passar `VISIBLE_PASSWORD` e senha com "mostrar" ligado; nas APIs 26–32 o fallback é a única rota | pendente | /corrigir |
+| P86 | Baixa | SEG-7: o fallback detecta senha só por `node.isPassword` (transformação), deixando passar `VISIBLE_PASSWORD` e senha com "mostrar" ligado; nas APIs 26–32 o fallback é a única rota | concluída (0.6.0, REV2-Y1): o fallback, a reescrita atômica e a leitura antes do cursor recusam senha também pelo tipo do input (`VISIBLE_PASSWORD`, `WEB_PASSWORD`) antes de ler o texto; testes JVM, sem aparelho | /verificar |
 | P87 | Baixa | SEG-6: migração e leituras de chave rodam na thread principal (Koin `createdAtStart` → pipeline → `SecretStore`); com `Kept` a migração se repete a cada início de processo; cada `readOpenRouterKey` é uma operação de Keystore | pendente | /aprimorar |
 | P88 | Baixa (suspeito) | SEG-6: uma migração que termina em `Kept`, seguida de uma chave B salva no cofre novo e de uma leitura transitória `null`, grava a chave antiga A por cima de B | pendente | /corrigir |
 | P89 | Baixa (suspeito) | SEG-6: alias do Keystore existente mas inutilizável (`UnrecoverableKeyException`/`InvalidKeyException` persistentes) trava o cofre para sempre; só limpando os dados do app | pendente | /debugar |
@@ -254,3 +254,28 @@ e lint passam, mas nenhuma tela foi conferida em uso.
 | R5d | Média | A bolha cobria o microfone do Início e valores dos Ajustes e do Diagnóstico | concluída (`b35821d`): `BubbleVisibility` esconde só a bolha ociosa com o app na frente (`AppForeground`/`StartedActivities`, girar a tela não conta como saída); prévia e barra continuam. **Limite:** em tela dividida, a bolha fica oculta enquanto o FlowVoice estiver visível na outra metade | /verificar |
 | R5e | Baixa | Estatísticas "—" no Início | concluída (`f11ec3f`): cartões e `StatCard` removidos; a P59 segue pendente para quando houver dados reais | — |
 | PRIV-link | Alta (Play) | O Google Play exige a política de privacidade acessível dentro do app | concluída (`1d8fd26`): link nos Ajustes (`AppLinks.PRIVACY_POLICY_URL`). Depende de `docs/POLITICA_PRIVACIDADE.md` chegar à `main` (ver PRIV-url). Também na tela de divulgação da acessibilidade | /verificar |
+
+## Revisão de código completa (0.6.0, 2026-09-27)
+
+Revisão do projeto inteiro em duas partes: REV1 para `shared/` e `desktopApp/` (3 🔴,
+9 🟡, 11 💭) e REV2 para `androidApp/` e o CI (1 🔴, 7 🟡, 15 💭). Todos os 🔴 e 🟡
+foram corrigidos, cada um com teste de regressão que falhava antes da correção; o
+detalhe está no CHANGELOG 0.6.0, "Corrigido na revisão de código". O que segue é o que
+ficou aberto.
+
+| ID | Prioridade | Descrição | Status | Próximo passo |
+|---|---|---|---|---|
+| REV2-R1-disp | Alta | Validar no S26 o ditado direto → "Ocultar botão" → Encerrar, Cancelar e Inserir aqui respondem, sem superfície fantasma da bolha. A regressão veio da correção da P164: o `FLAG_NOT_TOUCHABLE` valia também para o cartão | corrigida em código (`OverlayWindowFlags`, teste JVM); sem chave real não dá para ditar no emulador | /verificar no S26 |
+| REV1-R3-disp | Alta | Validar no S26 que uma queda do microfone no meio do ditado entrega o texto com o aviso "Captura do microfone interrompida…" (nota, revisão e direto) | corrigida em código, testes JVM | /verificar no S26 |
+| REV1-Y3-disp | Média | Medir no S26 se a leitura sem bloqueio do resto do buffer do `AudioRecord` depois do parar traz o fim da última palavra | corrigida em código, não medida | /medir |
+| REV2-Y2-disp | Média | Validar no S26: com a bolha desligada, ditar pelo microfone do Início; o overlay some no fim, o interruptor dos Ajustes segue desligado e reabrir o app não religa a bolha | corrigida em código, testes JVM | /verificar no S26 |
+| REV2-Y3-disp | Média | Validar no S26 os dois caminhos da P130 (Notas → Início → ícone; Notas → Recentes → FlowVoice) e a expiração: depois de mais de 10 min fora do app, o Início não o reabre e o primeiro trecho espera "Inserir aqui" | corrigida em código, testes JVM | /verificar no S26 |
+| REV2-Y5-disp | Média | Medir no S26 que classe o Samsung Notes (e um formulário web) reporta, se aparece `rewrite_skipped`, e decidir se a reescrita atômica fica restrita como está | aberta | /medir |
+| REV1-Y6-disp | Baixa | Abrir a tela do desktop e ver o aviso "Trecho X de Y falhou" | corrigida em código, só com os testes do controller | /verificar no Windows (F13.7) |
+| REV2-N2-disp | Baixa | Conferir em Android 8–12 (só fallback) que um `SET_SELECTION` recusado no meio do texto desfaz a escrita e deixa o trecho pendente, sem duplicar | aberta | /verificar |
+| REV2-Y7b | Baixa | CI: job de release separado com `environment:` e revisores obrigatórios, sem o cache do setup-gradle | adiada: sugestão opcional da revisão | /decidir |
+| REV2-N6 | Baixa | "Remover chave" OpenRouter nos Ajustes (`clearOpenRouterKey()` já existe), para troca de aparelho e pedido de exclusão de dados | adiada: funcionalidade nova | /construir |
+| REV2-N8 | Baixa | Decidir se `flowvoice_overlay.xml` e `onboardingCompleted`/`loginCompleted` entram no backup; hoje sem dano concreto | adiada: sem dano concreto | /decidir |
+| REV2-N12 | Média | O benchmark do Diagnóstico reenvia o áudio real do último ditado (clínico) a vários provedores: avisar claramente ou exigir uma gravação de teste dedicada | adiada: decisão de produto | /decidir |
+| REV2-N13 | Média | A bolha ociosa mantém o serviço em primeiro plano do tipo `microphone` indefinidamente; conferir com a declaração de FGS do Play e, se preciso, só subir o microfone ao ditar | adiada: depende do Play | /decidir |
+| P142-comp | Média | O `commitText("")` do começo de `insertDirect` substitui a palavra que o teclado está compondo ("Paciente sem" + " febre." → "Paciente  febre."). A revisão REV2 sobe a prioridade da P142 por isso | adiada: medir no S26 antes de redesenhar | /medir |

@@ -67,7 +67,8 @@ o app:
   lê o texto do campo para acrescentar o ditado sem apagar o que já havia;
 - **insere** o texto ditado no campo.
 
-Não escreve em campos de senha nem no próprio FlowVoice. Nada do que o serviço lê
+Não lê nem escreve em campos de senha (inclusive com "mostrar senha" ligado) nem nos
+campos do próprio FlowVoice. Nada do que o serviço lê
 é enviado para fora do aparelho, guardado ou usado para outro fim.
 
 ### 1.5 Sobreposição e notificações
