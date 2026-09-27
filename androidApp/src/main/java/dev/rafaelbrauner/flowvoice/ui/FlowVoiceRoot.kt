@@ -135,6 +135,7 @@ fun FlowVoiceRoot(modifier: Modifier = Modifier) {
 
                 FvDestination.Diagnostics -> DiagnosticsRoute(
                     onBack = { stack = if (stack.canPop) stack.pop() else stack.selectTab(FvTab.Settings) },
+                    onOpenAccessibilityDisclosure = { stack = stack.push(FvDestination.AccessibilityDisclosure) },
                     modifier = screen
                 )
             }
