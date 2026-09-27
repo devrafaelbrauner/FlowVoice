@@ -34,6 +34,12 @@ data class OpenRouterConfig(
     val modelsPath: String
         get() = "/api/v1/models"
 
+    // Informações da chave usada na chamada: 200 para chave válida, 401 para chave inválida ou
+    // ausente (https://openrouter.ai/docs/api/api-reference/api-keys/get-current-key). Não gasta
+    // crédito. Conferido por curl em 2026-09-27: 401 com chave falsa e sem chave.
+    val keyPath: String
+        get() = "/api/v1/key"
+
     companion object {
         const val DEFAULT_BASE_URL = "https://openrouter.ai"
         // Benchmark F05 no S26 (P136, docs/PLAN.md): WER 0 nas rodadas de 13/set e 15/set.

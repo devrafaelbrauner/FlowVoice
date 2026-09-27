@@ -84,7 +84,7 @@ class DesktopDictationController : KoinComponent {
             statusFlow.value = "Validando chave…"
             statusFlow.value = when (keyValidator.validate(rawKey)) {
                 KeyValidationResult.Valid -> storeKey(rawKey)
-                KeyValidationResult.InvalidFormat -> "Formato de chave inválido."
+                KeyValidationResult.InvalidFormat -> OpenRouterKeyValidator.formatMessage(rawKey).orEmpty()
                 KeyValidationResult.Rejected -> "Chave recusada pela OpenRouter."
                 KeyValidationResult.Unavailable -> "Não foi possível validar agora (rede ou serviço)."
             }

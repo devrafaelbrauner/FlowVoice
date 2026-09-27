@@ -77,7 +77,7 @@ class OpenRouterKeyEntry(
                 } catch (_: SecretStoreUnavailableException) {
                     "Cofre da chave indisponível neste aparelho; a chave não foi salva."
                 }
-                KeyValidationResult.InvalidFormat -> "Formato inválido: a chave começa com sk- e não tem espaços."
+                KeyValidationResult.InvalidFormat -> OpenRouterKeyValidator.formatMessage(candidate).orEmpty()
                 KeyValidationResult.Rejected -> "A OpenRouter recusou esta chave."
                 KeyValidationResult.Unavailable -> "Não foi possível validar agora (rede ou serviço)."
             }

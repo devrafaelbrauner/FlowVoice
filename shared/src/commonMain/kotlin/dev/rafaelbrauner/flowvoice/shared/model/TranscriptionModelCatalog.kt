@@ -52,6 +52,9 @@ class TranscriptionModelCatalog(
         return TranscriptionCatalogResult.Ready(normalized)
     }
 
+    // O /api/v1/models é público: responde 200 com chave falsa e sem chave (curl, 2026-09-27). Este
+    // INVALID_KEY só aparece se a OpenRouter passar a autenticar a lista; quem confere a chave é o
+    // OpenRouterKeyValidator (/api/v1/key) e, no ditado, o 401 da transcrição.
     private fun mapFailure(error: Throwable): TranscriptionCatalogResult? {
         var cause: Throwable? = error
         while (cause != null) {
