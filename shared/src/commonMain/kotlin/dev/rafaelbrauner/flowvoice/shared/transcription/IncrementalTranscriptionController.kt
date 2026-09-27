@@ -164,8 +164,16 @@ class IncrementalTranscriptionController(
         }
         try {
             val result = client.transcribe(window, apiKey, modelProvider())
-            acceptText(window, result.text, session)
-            locked(lock) { if (session == generation) emptyAudio.remember(window.peakLevel, result.text.isNotBlank()) }
+            if (result.text.isNotBlank()) {
+                locked(lock) { if (session == generation) emptyAudio.rememberSpoken(window.peakLevel, window.noiseFloor) }
+                acceptText(window, result.text, session)
+            } else {
+                val silence = locked(lock) {
+                    if (session != generation) return
+                    emptyAudio.rememberEmpty(window.peakLevel, window.noiseFloor)
+                }
+                if (silence) acceptText(window, result.text, session) else failEmptyVoice(window, session)
+            }
             textLog.log("transcription_window_text", mapOf("window" to window.index.toString(), "text" to result.text))
         } catch (error: CancellationException) {
             throw error
@@ -196,6 +204,32 @@ class IncrementalTranscriptionController(
             ),
             session,
             rebuildProvisional = true
+        )
+    }
+
+    // Voz alta demais para ser silêncio voltou sem texto (R1): pode ser uma tosse, pode ser fala
+    // perdida pelo modelo. O trecho fica como falho, para o aviso de texto incompleto aparecer em vez
+    // de um "ok" mudo, e a memória da P153 não aprende nada com ele.
+    private fun failEmptyVoice(window: DictationWindow, session: Int) {
+        upsert(
+            TranscriptionSegment(
+                windowIndex = window.index,
+                status = TranscriptionSegment.Status.Failed,
+                errorKind = EMPTY_VOICE_KIND,
+                contextDurationMs = window.contextDurationMs
+            ),
+            session
+        )
+        eventLog.log(
+            "transcription_empty_voice",
+            buildMap {
+                put("window", window.index.toString())
+                put("durationMs", window.durationMs.toString())
+                put("model", modelProvider())
+                window.peakLevel?.let { put("peak", it.toString()) }
+                window.noiseFloor?.let { put("noiseFloor", it.toString()) }
+                window.voicedMs?.let { put("voicedMs", it.toString()) }
+            }
         )
     }
 
@@ -266,4 +300,8 @@ class IncrementalTranscriptionController(
         }
     }
 
+    companion object {
+        // Trecho com voz alta que voltou sem texto (R1).
+        const val EMPTY_VOICE_KIND = "empty_voice"
+    }
 }

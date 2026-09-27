@@ -424,6 +424,37 @@ class IncrementalTranscriptionControllerTest {
         assertEquals(listOf(0, 1, 2), client.started, "o nível que já rendeu texto não é silêncio")
     }
 
+    // R1: uma tosse ou um esbarrão no aparelho voltou vazio na janela 0. Com a P153 sem limite, toda a
+    // fala mais baixa que ele deixava de ser enviada pelo resto do ditado, e sem aviso. Voz alta que
+    // volta vazia não é silêncio: não ensina nada à memória e o trecho fica marcado como sem texto.
+    @Test
+    fun aLoudWindowThatComesBackEmptyDoesNotSilenceTheQuieterSpeechAfterIt() = runTest {
+        val client = FakeTranscriptionClient(
+            results = mapOf(
+                0 to TranscriptionResult("", "fake"),
+                1 to TranscriptionResult("Paciente relata dor torácica.", "fake"),
+                2 to TranscriptionResult("Nega febre.", "fake")
+            )
+        )
+        val controller = IncrementalTranscriptionController(
+            client = client,
+            config = OpenRouterConfig(),
+            scope = this,
+            apiKeyProvider = { "sk-or-v1-testkey123456" }
+        )
+
+        controller.submit(noiseWindow(0, WindowCut.Pause, durationMs = 2_500L, voicedMs = 800L, peakLevel = 6_000))
+        advanceUntilIdle()
+        controller.submit(noiseWindow(1, WindowCut.Pause, durationMs = 2_500L, voicedMs = 800L, peakLevel = 3_000))
+        advanceUntilIdle()
+        controller.submit(noiseWindow(2, WindowCut.Pause, durationMs = 2_500L, voicedMs = 800L, peakLevel = 2_500))
+        advanceUntilIdle()
+
+        assertEquals(listOf(0, 1, 2), client.started, "a fala depois do vazio alto tem de ir à rede")
+        assertEquals("Paciente relata dor torácica. Nega febre.", controller.provisionalText.value)
+        assertEquals(TranscriptionSegment.Status.Failed, controller.segments.value[0].status, "voz alta sem texto não é silêncio")
+    }
+
     // N7: o cliente de transcrição é único no app. Cancelar o ditado não pode derrubar o pedido de
     // outro usuário do mesmo cliente (o benchmark), só os pedidos do próprio ditado.
     @Test
