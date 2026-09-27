@@ -13,4 +13,12 @@ object BubbleVisibility {
         mode == OverlayMode.Preview -> true
         else -> !appInForeground
     }
+
+    /**
+     * A janela do overlay só fica visível quando mostra alguma coisa. Sem a bolha, o conteúdo encolhia
+     * a janela para 0×0, mas no Android 16 o SurfaceFlinger seguia desenhando o último quadro da bolha
+     * depois de sair e voltar ao app (smoke da 0.6.0): a janela passa a GONE e deixa de receber toques.
+     */
+    fun windowVisible(hiddenByUser: Boolean, appInForeground: Boolean, mode: OverlayMode): Boolean =
+        mode == OverlayMode.Bar || showBubble(hiddenByUser, appInForeground, mode)
 }

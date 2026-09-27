@@ -14,6 +14,7 @@ import android.provider.Settings
 import android.util.Log
 import android.view.Gravity
 import android.view.WindowInsets
+import android.view.View
 import android.view.WindowManager
 import android.widget.Toast
 import androidx.compose.ui.platform.ComposeView
@@ -28,6 +29,7 @@ import dev.rafaelbrauner.flowvoice.shared.pipeline.DictationPipeline
 import dev.rafaelbrauner.flowvoice.ui.overlay.BubbleHost
 import dev.rafaelbrauner.flowvoice.ui.overlay.BubbleMove
 import dev.rafaelbrauner.flowvoice.ui.overlay.BubblePlacement
+import dev.rafaelbrauner.flowvoice.ui.overlay.BubbleVisibility
 import dev.rafaelbrauner.flowvoice.ui.overlay.BubblePoint
 import dev.rafaelbrauner.flowvoice.ui.overlay.BubblePosition
 import dev.rafaelbrauner.flowvoice.ui.overlay.DictationOverlay
@@ -80,6 +82,7 @@ class FlowVoiceOverlayService : Service(), KoinComponent, BubbleHost {
     private var keyboardTracking: Job? = null
     private var ownsSession = false
     private val bubbleHiddenState = MutableStateFlow(false)
+    private var windowShown = true
     private var position = BubblePosition.Default
     private var dragStart: BubblePoint? = null
     private var dragPoint: BubblePoint? = null
@@ -206,12 +209,30 @@ class FlowVoiceOverlayService : Service(), KoinComponent, BubbleHost {
         runningState.value = false
         cardUi.value = cardUi.value.copy(bubbleHidden = true)
         if (OverlaySessionPolicy.shouldStopWithHiddenBubble(bubbleHiddenState.value, mode)) stopSelf()
+        syncWindowVisibility()
     }
 
     private fun showBubble() {
         bubbleHiddenState.value = false
         runningState.value = true
         cardUi.value = cardUi.value.copy(bubbleHidden = false)
+        syncWindowVisibility()
+    }
+
+    // Esconder a janela, não só esvaziar o conteúdo: veja BubbleVisibility.windowVisible.
+    private fun syncWindowVisibility() {
+        val view = overlayView ?: return
+        val show = BubbleVisibility.windowVisible(bubbleHiddenState.value, AppForeground.inForeground.value, mode)
+        if (show == windowShown) return
+        windowShown = show
+        view.visibility = if (show) View.VISIBLE else View.GONE
+        if (mode == OverlayMode.Bar) {
+            barOffsetPx = -1
+            placeBar()
+        } else {
+            placeBubble()
+        }
+        Log.i(TAG, "overlay_window_visible $show")
     }
 
     private fun foregroundType(): Int =
@@ -281,6 +302,7 @@ class FlowVoiceOverlayService : Service(), KoinComponent, BubbleHost {
         lifecycleOwner = owner
         mode = OverlayMode.Bubble
         runningState.value = true
+        scope.launch { AppForeground.inForeground.collect { syncWindowVisibility() } }
         scope.launch {
             pipeline.status.drop(1).collect { status ->
                 ownsSession = OverlaySessionPolicy.ownedAfter(ownsSession, status)
@@ -297,6 +319,7 @@ class FlowVoiceOverlayService : Service(), KoinComponent, BubbleHost {
         }
         if (next == mode) return
         mode = next
+        syncWindowVisibility()
         keyboardTracking?.cancel()
         keyboardTracking = null
         if (next != OverlayMode.Bar) {
@@ -517,7 +540,7 @@ class FlowVoiceOverlayService : Service(), KoinComponent, BubbleHost {
         width,
         WindowManager.LayoutParams.WRAP_CONTENT,
         WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-        flags,
+        if (windowShown) flags else flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
         PixelFormat.TRANSLUCENT
     )
 
