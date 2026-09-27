@@ -6,6 +6,11 @@ interface NoteStore {
     fun upsert(note: Note): Note
     fun create(body: String, title: String? = null): Note
     fun delete(id: String): Boolean
+
+    // Para o sync (Y7): todas as notas, lápides incluídas, e a gravação de uma nota mesclada sem
+    // carimbar a hora de agora, que apagaria a edição mais nova de outro aparelho.
+    fun all(): List<Note>
+    fun putMerged(note: Note)
 }
 
 interface NotePersist {
