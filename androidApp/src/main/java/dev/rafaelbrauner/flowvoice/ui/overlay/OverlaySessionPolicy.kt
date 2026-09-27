@@ -18,8 +18,16 @@ object OverlaySessionPolicy {
     /**
      * Ocultar o botão não pode levar junto a única coisa que mostra o ditado em andamento (P159): com a
      * barra ou a prévia na tela o overlay continua vivo e só a bolha some. Quando não sobra mais nada —
-     * o modo volta a ser "só bolha" — não há o que mostrar e o serviço encerra.
+     * o modo volta a ser "só bolha" — não há o que mostrar e o serviço encerra. O ditado pedido pelo
+     * microfone do Início com a bolha desligada (Y2) começa em "só bolha" antes de a barra ou a prévia
+     * aparecerem: enquanto ele não começou de fato, o serviço espera em vez de encerrar.
      */
-    fun shouldStopWithHiddenBubble(bubbleHidden: Boolean, mode: OverlayMode): Boolean =
-        bubbleHidden && mode == OverlayMode.Bubble
+    fun shouldStopWithHiddenBubble(bubbleHidden: Boolean, mode: OverlayMode, awaitingDictation: Boolean = false): Boolean =
+        bubbleHidden && mode == OverlayMode.Bubble && !awaitingDictation
+
+    /** A espera acaba quando o ditado pedido aparece na tela (barra ou prévia)... */
+    fun awaitingAfterMode(awaiting: Boolean, next: OverlayMode): Boolean = awaiting && next == OverlayMode.Bubble
+
+    /** ...ou quando o pipeline muda para um estado parado sem que ele tenha aparecido. */
+    fun awaitingAfterStatus(awaiting: Boolean, status: DictationPipelineStatus): Boolean = awaiting && status.isBusy
 }

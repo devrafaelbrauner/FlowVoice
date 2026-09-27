@@ -88,15 +88,22 @@ class FlowVoiceOverlayService : Service(), KoinComponent, BubbleHost {
     private var position = BubblePosition.Default
     private var dragStart: BubblePoint? = null
     private var dragPoint: BubblePoint? = null
+    private var awaitingDictation = false
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
             positionStore.writeEnabled(false)
+            awaitingDictation = false
             hideBubble()
             return START_NOT_STICKY
         }
+        val plan = OverlayStartRequests.plan(
+            action = intent?.action,
+            bubbleEnabled = positionStore.readEnabled(),
+            bubbleOnScreen = overlayView != null && !bubbleHiddenState.value
+        )
         if (!enterForeground()) {
             stopSelf()
             return START_NOT_STICKY
@@ -106,11 +113,9 @@ class FlowVoiceOverlayService : Service(), KoinComponent, BubbleHost {
             return START_NOT_STICKY
         }
         // Guardado para o app religar a bolha depois de uma reinstalação ou atualização (P141).
-        positionStore.writeEnabled(true)
-        showBubble()
-        if (intent?.action == OverlayStartRequests.ACTION_START_DICTATION) {
-            OverlayStartRequests.request()
-        }
+        if (plan.persistEnabled) positionStore.writeEnabled(true)
+        if (plan.showBubble) showBubble() else keepBubbleHiddenForDictation()
+        if (plan.requestDictation) OverlayStartRequests.request()
         return START_NOT_STICKY
     }
 
@@ -207,14 +212,33 @@ class FlowVoiceOverlayService : Service(), KoinComponent, BubbleHost {
     // continua com os controles à mão (P159) e o serviço só morre quando não sobra nada a mostrar. O
     // `running` é a bolha na tela, não o serviço vivo — é o que o interruptor dos Ajustes mostra.
     private fun hideBubble() {
-        bubbleHiddenState.value = true
-        runningState.value = false
-        cardUi.value = cardUi.value.copy(bubbleHidden = true)
-        if (OverlaySessionPolicy.shouldStopWithHiddenBubble(bubbleHiddenState.value, mode)) stopSelf()
+        markBubbleHidden()
+        stopIfNothingToShow()
         syncWindowVisibility()
     }
 
+    // Microfone do Início com a bolha desligada (Y2): a bolha fica fora, a barra ou a prévia mostram o
+    // ditado, e o serviço espera o ditado começar em vez de encerrar por não ter o que mostrar.
+    private fun keepBubbleHiddenForDictation() {
+        awaitingDictation = true
+        markBubbleHidden()
+        syncWindowVisibility()
+    }
+
+    private fun markBubbleHidden() {
+        bubbleHiddenState.value = true
+        runningState.value = false
+        cardUi.value = cardUi.value.copy(bubbleHidden = true)
+    }
+
+    private fun stopIfNothingToShow(): Boolean {
+        if (!OverlaySessionPolicy.shouldStopWithHiddenBubble(bubbleHiddenState.value, mode, awaitingDictation)) return false
+        stopSelf()
+        return true
+    }
+
     private fun showBubble() {
+        awaitingDictation = false
         bubbleHiddenState.value = false
         runningState.value = true
         cardUi.value = cardUi.value.copy(bubbleHidden = false)
@@ -309,13 +333,18 @@ class FlowVoiceOverlayService : Service(), KoinComponent, BubbleHost {
             pipeline.status.drop(1).collect { status ->
                 ownsSession = OverlaySessionPolicy.ownedAfter(ownsSession, status)
                 Log.i(TAG, "overlay_status ${status::class.simpleName}")
+                if (awaitingDictation) {
+                    awaitingDictation = OverlaySessionPolicy.awaitingAfterStatus(awaitingDictation, status)
+                    stopIfNothingToShow()
+                }
             }
         }
         return true
     }
 
     private fun applyMode(next: OverlayMode) {
-        if (OverlaySessionPolicy.shouldStopWithHiddenBubble(bubbleHiddenState.value, next)) {
+        awaitingDictation = OverlaySessionPolicy.awaitingAfterMode(awaitingDictation, next)
+        if (OverlaySessionPolicy.shouldStopWithHiddenBubble(bubbleHiddenState.value, next, awaitingDictation)) {
             stopSelf()
             return
         }
