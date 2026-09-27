@@ -36,6 +36,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -51,7 +52,6 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.tooling.preview.PreviewParameter
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
-import androidx.core.net.toUri
 import androidx.credentials.exceptions.GetCredentialCancellationException
 import androidx.credentials.exceptions.NoCredentialException
 import androidx.lifecycle.compose.LifecycleResumeEffect
@@ -83,7 +83,9 @@ import dev.rafaelbrauner.flowvoice.ui.components.ThemePreviewParameter
 import dev.rafaelbrauner.flowvoice.ui.icons.FlowVoiceIcons
 import dev.rafaelbrauner.flowvoice.ui.rememberKoin
 import dev.rafaelbrauner.flowvoice.ui.screens.diagnostics.DiagnosticsLog
-import dev.rafaelbrauner.flowvoice.ui.shell.startActivitySafely
+import dev.rafaelbrauner.flowvoice.ui.shell.OverlayPermissionReturn
+import dev.rafaelbrauner.flowvoice.ui.shell.PendingOverlayPermission
+import dev.rafaelbrauner.flowvoice.ui.shell.openOverlayPermissionSettings
 import dev.rafaelbrauner.flowvoice.ui.theme.FlowVoiceTheme
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
@@ -155,6 +157,7 @@ fun SettingsRoute(onOpenDiagnostics: () -> Unit, modifier: Modifier = Modifier) 
     var accountEmail by remember { mutableStateOf(authGateway.currentUser()?.email) }
     var accessibilityActive by remember { mutableStateOf(FlowVoiceAccessibilityService.isRunning) }
     var overlayMessage by remember { mutableStateOf<String?>(null) }
+    var pendingOverlayEnable by rememberSaveable { mutableStateOf(false) }
     var signingIn by remember { mutableStateOf(false) }
     var syncing by remember { mutableStateOf(false) }
     var accountMessage by remember { mutableStateOf<String?>(null) }
@@ -223,8 +226,9 @@ fun SettingsRoute(onOpenDiagnostics: () -> Unit, modifier: Modifier = Modifier) 
             }
             OverlayToggleAction.Unsupported -> "O botão flutuante requer Android 8 ou superior."
             OverlayToggleAction.RequestOverlayPermission -> {
-                openOverlayPermissionSettings(context)
-                "Autorize “sobrepor a outros apps” e ligue de novo."
+                pendingOverlayEnable = true
+                context.openOverlayPermissionSettings()
+                "Ative “sobrepor a outros apps” para o FlowVoice; o botão liga quando você voltar."
             }
             is OverlayToggleAction.RequestPermissions -> {
                 requestPermissions(action.permissions.toTypedArray())
@@ -246,6 +250,25 @@ fun SettingsRoute(onOpenDiagnostics: () -> Unit, modifier: Modifier = Modifier) 
         applyOverlayAction(
             overlayDecision(context, FlowVoiceOverlayService.running, permissionsRequested = true)
         ) { }
+    }
+
+    LifecycleResumeEffect(Unit) {
+        when (PendingOverlayPermission.onReturn(pendingOverlayEnable, Settings.canDrawOverlays(context))) {
+            OverlayPermissionReturn.NotPending -> Unit
+            OverlayPermissionReturn.Continue -> {
+                pendingOverlayEnable = false
+                applyOverlayAction(
+                    overlayDecision(context, FlowVoiceOverlayService.running, permissionsRequested = false)
+                ) { overlayPermissionLauncher.launch(it) }
+            }
+            OverlayPermissionReturn.StillMissing -> {
+                pendingOverlayEnable = false
+                val message = "Autorize “sobrepor a outros apps” e ligue de novo."
+                overlayMessage = message
+                diagnosticsLog.add(message)
+            }
+        }
+        onPauseOrDispose { }
     }
 
     fun saveKey() {
@@ -760,13 +783,6 @@ private fun overlayDecision(context: Context, running: Boolean, permissionsReque
             context.isGranted(OverlayToggle.POST_NOTIFICATIONS),
         permissionsRequested = permissionsRequested
     )
-
-private fun openOverlayPermissionSettings(context: Context) {
-    val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, "package:${context.packageName}".toUri())
-    if (!context.startActivitySafely(intent)) {
-        context.startActivitySafely(Intent(Settings.ACTION_SETTINGS))
-    }
-}
 
 private fun Context.isGranted(permission: String): Boolean =
     ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED

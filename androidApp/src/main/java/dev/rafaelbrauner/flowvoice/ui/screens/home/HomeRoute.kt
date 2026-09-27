@@ -52,7 +52,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
-import androidx.core.net.toUri
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import dev.rafaelbrauner.flowvoice.service.AccessibilityTextInserter
 import dev.rafaelbrauner.flowvoice.service.FlowVoiceAccessibilityService
@@ -71,8 +70,10 @@ import dev.rafaelbrauner.flowvoice.ui.components.ThemePreviewParameter
 import dev.rafaelbrauner.flowvoice.ui.components.Wordmark
 import dev.rafaelbrauner.flowvoice.ui.overlay.OverlayStartRequests
 import dev.rafaelbrauner.flowvoice.ui.rememberKoin
+import dev.rafaelbrauner.flowvoice.ui.shell.OverlayPermissionReturn
+import dev.rafaelbrauner.flowvoice.ui.shell.PendingOverlayPermission
 import dev.rafaelbrauner.flowvoice.ui.shell.findActivity
-import dev.rafaelbrauner.flowvoice.ui.shell.startActivitySafely
+import dev.rafaelbrauner.flowvoice.ui.shell.openOverlayPermissionSettings
 import dev.rafaelbrauner.flowvoice.ui.theme.FlowVoiceRadius
 import dev.rafaelbrauner.flowvoice.ui.theme.FlowVoiceSpacing
 import dev.rafaelbrauner.flowvoice.ui.theme.FlowVoiceTheme
@@ -113,6 +114,7 @@ fun HomeRoute(
     var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
     var askedNotifications by rememberSaveable { mutableStateOf(false) }
     var keyNotice by rememberSaveable { mutableStateOf(false) }
+    var pendingMicAfterOverlay by rememberSaveable { mutableStateOf(false) }
     fun keyConfigured(): Boolean = !secretStore.readOpenRouterKey().isNullOrBlank()
 
     LifecycleResumeEffect(Unit) {
@@ -132,6 +134,54 @@ fun HomeRoute(
         starter.start()
     }
 
+    val onMic: () -> Unit = {
+        val action = micAction(
+            accessibilityRunning = FlowVoiceAccessibilityService.isRunning,
+            microphoneGranted = context.hasPermission(Manifest.permission.RECORD_AUDIO),
+            keyConfigured = keyConfigured(),
+            sdkInt = Build.VERSION.SDK_INT,
+            canDrawOverlays = Settings.canDrawOverlays(context)
+        )
+        when (action) {
+            MicAction.OpenOnboarding -> onOpenOnboarding()
+            MicAction.ConfigureKey -> keyNotice = true
+            MicAction.OverlayUnsupported ->
+                context.toast("O ditado sobre outros apps requer Android 8 ou superior.")
+            MicAction.RequestOverlayPermission -> {
+                pendingMicAfterOverlay = true
+                context.toast("Ative “sobrepor a outros apps” para o FlowVoice; o ditado começa quando você voltar.")
+                context.openOverlayPermissionSettings()
+            }
+            MicAction.StartDictation -> {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                    !askedNotifications &&
+                    !context.hasPermission(Manifest.permission.POST_NOTIFICATIONS)
+                ) {
+                    askedNotifications = true
+                    notificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                } else {
+                    starter.start()
+                }
+            }
+        }
+    }
+    val latestOnMic by rememberUpdatedState(onMic)
+
+    LifecycleResumeEffect(Unit) {
+        when (PendingOverlayPermission.onReturn(pendingMicAfterOverlay, Settings.canDrawOverlays(context))) {
+            OverlayPermissionReturn.NotPending -> Unit
+            OverlayPermissionReturn.Continue -> {
+                pendingMicAfterOverlay = false
+                latestOnMic()
+            }
+            OverlayPermissionReturn.StillMissing -> {
+                pendingMicAfterOverlay = false
+                context.toast("Sem “sobrepor a outros apps” o ditado não abre sobre os outros apps.")
+            }
+        }
+        onPauseOrDispose { }
+    }
+
     HomeScreen(
         accessibilityActive = accessibilityActive,
         notes = notes.map { note ->
@@ -144,38 +194,7 @@ fun HomeRoute(
         },
         keyNotice = keyNotice,
         onStatus = { if (accessibilityActive) onOpenDiagnostics() else onOpenOnboarding() },
-        onMic = {
-            val action = micAction(
-                accessibilityRunning = FlowVoiceAccessibilityService.isRunning,
-                microphoneGranted = context.hasPermission(Manifest.permission.RECORD_AUDIO),
-                keyConfigured = keyConfigured(),
-                sdkInt = Build.VERSION.SDK_INT,
-                canDrawOverlays = Settings.canDrawOverlays(context)
-            )
-            when (action) {
-                MicAction.OpenOnboarding -> onOpenOnboarding()
-                MicAction.ConfigureKey -> keyNotice = true
-                MicAction.OverlayUnsupported ->
-                    context.toast("O ditado sobre outros apps requer Android 8 ou superior.")
-                MicAction.RequestOverlayPermission -> {
-                    context.toast("Autorize “sobrepor a outros apps” e toque de novo no microfone.")
-                    context.startActivitySafely(
-                        Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, "package:${context.packageName}".toUri())
-                    )
-                }
-                MicAction.StartDictation -> {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-                        !askedNotifications &&
-                        !context.hasPermission(Manifest.permission.POST_NOTIFICATIONS)
-                    ) {
-                        askedNotifications = true
-                        notificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                    } else {
-                        starter.start()
-                    }
-                }
-            }
-        },
+        onMic = onMic,
         onConfigureKey = onOpenKeySetup,
         onDismissKeyNotice = { keyNotice = false },
         onOpenNotes = onOpenNotes,
