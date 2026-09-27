@@ -54,11 +54,19 @@ data class OpenRouterConfig(
         const val DEFAULT_INITIAL_BACKOFF_MS = 500L
         const val DEFAULT_MAX_BACKOFF_MS = 8_000L
         // Janelas cortadas na pausa (P140, P143) têm de ~2 a 4,3 s, mais 1 s de contexto sobreposto
-        // no que é enviado. Com ~2,5 s de média, 90 pedidos dão uma sessão útil de ~3,7 min, mais que
+        // no que é enviado. Com ~2,5 s de média, 90 janelas dão uma sessão útil de ~3,7 min, mais que
         // os ~3 min de antes da P143: o teto de 90 segue valendo. O teto continua contado na
         // submissão (P107), e silêncio só sai no teto de ~4 s, então uma captura muda ainda para, em
-        // ~6 min. Custo máximo por sessão com o gpt-transcribe (~US$ 0,0011 por 15 s de áudio):
-        // 90 × (4,3 s + 1 s) ≈ US$ 0,035.
+        // ~6 min.
+        //
+        // O teto conta janelas, não chamadas HTTP (N5). Cada janela pode virar até 1 + `maxRetries`
+        // chamadas (408, 429, 5xx, rede, timeout), e a primeira janela com contexto de cada modelo
+        // pode refazer o pedido uma vez em `json` quando o `verbose_json` é recusado. Contar essas
+        // chamadas no teto fecharia o microfone mais cedo justamente numa rede ruim, no meio de uma
+        // nota; o teto é o limite de duração da sessão, e o gasto por janela já é limitado pelas
+        // tentativas. Custo com o gpt-transcribe (~US$ 0,0011 por 15 s de áudio): 90 × (4,3 s + 1 s)
+        // ≈ US$ 0,035 quando cada janela vai uma vez só; o pior caso, com todas as 4 tentativas
+        // cobradas em todas as janelas, é ~4× isso, ≈ US$ 0,14.
         const val DEFAULT_MAX_REQUESTS_PER_SESSION = 90
     }
 }
