@@ -73,6 +73,9 @@ class DebouncedNotePersistTest {
         scope.advanceTimeBy(600)
         scope.runCurrent()
 
-        assertTrue(disk.saves.last().isEmpty())
+        // Com a lápide da Y7, a nota apagada vai ao disco marcada como apagada e sem o conteúdo.
+        val saved = disk.saves.last().single { it.id == note.id }
+        assertTrue(saved.deletedAtMs != null)
+        assertTrue(saved.body.isEmpty() && saved.title.isEmpty())
     }
 }
