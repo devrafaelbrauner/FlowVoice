@@ -1,6 +1,7 @@
 package dev.rafaelbrauner.flowvoice.shared.preview
 
 import dev.rafaelbrauner.flowvoice.shared.text.EditDistance
+import dev.rafaelbrauner.flowvoice.shared.text.OnsetContrast
 import dev.rafaelbrauner.flowvoice.shared.text.PtBrSound
 import kotlin.math.min
 
@@ -147,19 +148,8 @@ object TranscriptOverlap {
         isSpokenShortening(a, b) -> Kind.Loose
         min(a.length, b.length) >= CLOSE_MIN_CHARS &&
             EditDistance.within(a, b, closeBudget(a, b)) &&
-            !hasOnsetContrast(a, b) -> Kind.Close
+            !OnsetContrast.has(a, b, LONG_WORD_CHARS) -> Kind.Close
         else -> Kind.Other
-    }
-
-    // P156: em palavra de 8+ letras, diferença nas primeiras 4 é prefixo (ex-/im-, hiper-/hipo-),
-    // não ortografia. "leucocitose"/"leucositose" (miolo) continua Close.
-    private fun hasOnsetContrast(a: String, b: String): Boolean {
-        if (maxOf(a.length, b.length) < LONG_WORD_CHARS) return false
-        val n = min(ONSET_CONTRAST_CHARS, min(a.length, b.length))
-        for (i in 0 until n) {
-            if (a[i] != b[i]) return true
-        }
-        return false
     }
 
     private fun isSpokenShortening(a: String, b: String): Boolean {
@@ -337,7 +327,6 @@ object TranscriptOverlap {
     private const val MIN_FRAGMENT_CHARS = 2
     private const val CLOSE_MIN_CHARS = 4
     private const val LONG_WORD_CHARS = 8
-    private const val ONSET_CONTRAST_CHARS = 4
     private const val MIN_EVIDENCE_WORDS = 2
     private const val CHARS_PER_SECOND = 30L
     private const val MAX_REMOVABLE_CHARS = 120L

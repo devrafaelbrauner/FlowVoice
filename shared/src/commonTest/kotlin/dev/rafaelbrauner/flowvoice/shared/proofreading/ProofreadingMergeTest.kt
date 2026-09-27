@@ -82,4 +82,33 @@ class ProofreadingMergeTest {
         assertEquals("Terceiro ditado pela bolha.", merged)
         assertEquals(true, ProofreadingGuard.accepts(dictated, merged))
     }
+
+    // R2 (revisão de código): a mistura palavra a palavra também não pode deixar passar essas trocas.
+    private val meaningChangingEdits = listOf(
+        "hipertensão" to "hipotensão",
+        "Hiperglicemia" to "Hipoglicemia",
+        "normal" to "anormal",
+        "sintomático" to "assintomático",
+        "regular" to "irregular",
+        "prednisona" to "prednisolona",
+        "amoxicilina" to "ampicilina",
+        "sessenta gotas" to "setenta gotas",
+        "Não tomou a medicação." to "Não, tomou a medicação.",
+        "Nega alergias." to "Nega alergias?"
+    )
+
+    @Test
+    fun meaningChangingEditsKeepTheDictatedText() {
+        meaningChangingEdits.forEach { (dictated, revised) ->
+            assertEquals(dictated, ProofreadingMerge.merge(dictated, revised), "$dictated → $revised")
+        }
+    }
+
+    @Test
+    fun punctuationAfterANegationStaysAsDictatedWhileTheRestIsTaken() {
+        assertEquals(
+            "Não tomou a medicação. Sem febre.",
+            ProofreadingMerge.merge("não tomou a medicação sem febre", "Não, tomou a medicação. Sem febre.")
+        )
+    }
 }
