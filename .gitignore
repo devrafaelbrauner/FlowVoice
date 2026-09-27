@@ -13,3 +13,5 @@ captures/
 *.db-journal
 .claude/worktrees/
 .kotlin/
+keystore.properties
+*.jks

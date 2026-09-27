@@ -13,6 +13,9 @@ jobs:
   build:
     name: Android build + shared tests
     runs-on: ubuntu-latest
+    env:
+      # Só um sinal; os segredos em si vão apenas ao passo que assina.
+      HAS_RELEASE_KEY: ${{ secrets.FLOWVOICE_KEYSTORE_BASE64 != '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -50,9 +53,28 @@ jobs:
           release=desktopApp/build/compose/tmp/main/runtime/release
           grep -q 'java.net.http' "$release" || { echo "Runtime do desktop sem java.net.http:"; cat "$release"; exit 1; }
 
-      - name: Upload APK
-        if: github.ref == 'refs/heads/main'
+      - name: Build signed release APK
+        if: github.ref == 'refs/heads/main' && env.HAS_RELEASE_KEY == 'true'
+        env:
+          FLOWVOICE_KEYSTORE_BASE64: ${{ secrets.FLOWVOICE_KEYSTORE_BASE64 }}
+          FLOWVOICE_KEYSTORE_PASSWORD: ${{ secrets.FLOWVOICE_KEYSTORE_PASSWORD }}
+          FLOWVOICE_KEY_ALIAS: ${{ secrets.FLOWVOICE_KEY_ALIAS }}
+          FLOWVOICE_KEY_PASSWORD: ${{ secrets.FLOWVOICE_KEY_PASSWORD }}
+        run: |
+          export FLOWVOICE_KEYSTORE_FILE="$RUNNER_TEMP/flowvoice-release.jks"
+          printf '%s' "$FLOWVOICE_KEYSTORE_BASE64" | base64 --decode > "$FLOWVOICE_KEYSTORE_FILE"
+          ./gradlew :androidApp:assembleRelease --stacktrace
+          rm -f "$FLOWVOICE_KEYSTORE_FILE"
+          apk=androidApp/build/outputs/apk/release/androidApp-release.apk
+          "$ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)/apksigner" verify --verbose --print-certs "$apk"
+          (cd "$(dirname "$apk")" && sha256sum "$(basename "$apk")" > "$(basename "$apk").sha256")
+          cat "$apk.sha256"
+
+      - name: Upload release APK
+        if: github.ref == 'refs/heads/main' && env.HAS_RELEASE_KEY == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: flowvoice-debug
-          path: androidApp/build/outputs/apk/debug/*.apk
+          name: flowvoice-release
+          path: |
+            androidApp/build/outputs/apk/release/androidApp-release.apk
+            androidApp/build/outputs/apk/release/androidApp-release.apk.sha256
