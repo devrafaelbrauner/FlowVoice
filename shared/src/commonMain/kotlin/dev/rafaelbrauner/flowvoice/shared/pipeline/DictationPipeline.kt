@@ -480,7 +480,7 @@ class DictationPipeline(
                             if (erase > 0) put("erased", erase.toString())
                         }
                     )
-                    auditDirectWrite(window, before, inserter.readBeforeCursor(limit), erase, text)
+                    auditDirectWrite(window, before, inserter.readBeforeCursor(limit), erase, text, next.typed)
                     next.copy(typed = next.typed.dropLast(erase) + text)
                 } else {
                     refusalMark = timeSource.markNow()
@@ -500,8 +500,15 @@ class DictationPipeline(
     // pela rota atômica — apagar e escrever num passo só, sem instante nenhum com o texto apagado —, e
     // o que diverge além do que escrevemos fica como está: refazer dali apagaria texto que não é do
     // FlowVoice. Sem leitura do campo não há o que conferir, e vale a conta do app, como antes.
-    private fun auditDirectWrite(window: String, before: String?, after: String?, erased: Int, written: String) {
-        when (val verdict = DirectFieldWrite.verdict(before, after, erased, written)) {
+    private fun auditDirectWrite(
+        window: String,
+        before: String?,
+        after: String?,
+        erased: Int,
+        written: String,
+        typed: String
+    ) {
+        when (val verdict = DirectFieldWrite.verdict(before, after, erased, written, typed)) {
             is DirectFieldWrite.Verdict.Ok, is DirectFieldWrite.Verdict.Unknown -> Unit
             is DirectFieldWrite.Verdict.Mismatch -> {
                 log("dictation_write_mismatch", mapOf("window" to window, "acao" to verdict.reason))

@@ -2026,6 +2026,35 @@ class DictationPipelineTest {
         assertEquals(DictationProofread.REASON_NOT_CONTIGUOUS, proofreadSkipReason(env))
     }
 
+    // Y4: o editor aplicou o pedaço " Sim." atrasado — a leitura "antes" do pedaço seguinte ainda não o
+    // tinha, a "depois" já tinha os dois. Ancorado só no "antes", o refazer apagava " Sim." junto.
+    @Test
+    fun aPieceTheEditorAppliesLateIsNotErasedByTheCheckOfTheNextPiece() = runTest {
+        val manual = ManualAudioCaptureEngine()
+        val inserter = DirectInserter()
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = emptyList(),
+            texts = mapOf(0 to "Paciente relata dor.", 1 to "Sim.", 2 to "Nega febre."),
+            preferences = AppPreferences(),
+            textInserter = inserter,
+            captureEngine = manual
+        )
+
+        env.pipeline.start()
+        manual.push(frame(100L))
+        runCurrent()
+        inserter.lagsNextWrite = true
+        manual.push(frame(100L))
+        runCurrent()
+        manual.push(frame(100L))
+        runCurrent()
+
+        assertEquals("Paciente relata dor. Sim. Nega febre.", inserter.field.toString())
+        assertTrue(inserter.rewrites.isEmpty())
+        assertEquals("Paciente relata dor. Sim. Nega febre.", env.pipeline.directInsertion.value.typed)
+    }
+
     // Y5: uma janela presa na rede não segura o fim do ditado por minutos. No prazo, sai o que voltou,
     // com aviso de qual trecho ficou sem resposta.
     @Test
@@ -2152,6 +2181,11 @@ class DictationPipelineTest {
         // Campo que não se deixa ler (`getSurroundingText` nulo: API < 33, alguns editores).
         var unreadable = false
 
+        // Editor atrasado (Y4): a próxima escrita é aceita, mas só aparece no campo junto com a
+        // seguinte — o pedaço já comitado ainda não está lá quando o app lê o campo de novo.
+        var lagsNextWrite = false
+        private var held: String? = null
+
         override val isAvailable: Boolean = true
 
         override fun captureTarget() {
@@ -2174,10 +2208,17 @@ class DictationPipelineTest {
             DirectInsertionGuard.refusal(target, focused, OWN, pinnedInput, input)?.let {
                 return TextInsertionResult(success = false, route = it.reason.route, message = it.message)
             }
+            applyHeld()
             if (deleteBefore > 0 && !swallowsErase) field.setLength((field.length - deleteBefore).coerceAtLeast(0))
             // O que a leitura velha devolve: o campo com o apagar já aplicado e sem o texto novo.
             if (staleReadAfterWrite) staleRead = field.toString()
             val landed = if (swallowsSeparator && field.lastOrNull() == '.' && text.startsWith(" ")) text.drop(1) else text
+            if (lagsNextWrite) {
+                lagsNextWrite = false
+                held = landed
+                pinnedInput = input
+                return TextInsertionResult(success = true, route = "teste", message = "ok")
+            }
             return written(landed)
         }
 
@@ -2198,10 +2239,16 @@ class DictationPipelineTest {
             DirectInsertionGuard.refusal(target, focused, OWN, pinnedInput, input)?.let {
                 return TextInsertionResult(success = false, route = it.reason.route, message = it.message)
             }
+            applyHeld()
             field.setLength((field.length - deleteBefore).coerceAtLeast(0))
             field.append(text)
             pinnedInput = input
             return TextInsertionResult(success = true, route = "teste_atomico", message = "ok")
+        }
+
+        private fun applyHeld() {
+            held?.let(field::append)
+            held = null
         }
 
         private fun written(text: String): TextInsertionResult {

@@ -18,7 +18,8 @@ class DirectFieldWriteTest {
             before = before,
             after = before,
             erased = 0,
-            written = " Segue internada."
+            written = " Segue internada.",
+            typed = before
         )
 
         assertIs<DirectFieldWrite.Verdict.Unknown>(verdict)
@@ -36,7 +37,8 @@ class DirectFieldWriteTest {
             before = "O exame de sangue.",
             after = "O exame de sangue",
             erased = 1,
-            written = " mostrou leucocitose importante."
+            written = " mostrou leucocitose importante.",
+            typed = "O exame de sangue."
         )
 
         assertIs<DirectFieldWrite.Verdict.Unknown>(verdict)
@@ -52,7 +54,8 @@ class DirectFieldWriteTest {
             before = before,
             after = before,
             erased = 1,
-            written = " mostrou leucocitose."
+            written = " mostrou leucocitose.",
+            typed = before
         )
 
         assertIs<DirectFieldWrite.Verdict.Unknown>(verdict)
@@ -85,7 +88,7 @@ class DirectFieldWriteTest {
         val after = "O exame de sangue mostrou leucocitose."
 
         assertIs<DirectFieldWrite.Verdict.Ok>(
-            DirectFieldWrite.verdict(before = before, after = after, erased = 1, written = " mostrou leucocitose.")
+            DirectFieldWrite.verdict(before = before, after = after, erased = 1, written = " mostrou leucocitose.", typed = before)
         )
     }
 
@@ -97,7 +100,8 @@ class DirectFieldWriteTest {
                 before = "de sangue.",
                 after = "sangue mostrou leucocitose.",
                 erased = 1,
-                written = " mostrou leucocitose."
+                written = " mostrou leucocitose.",
+                typed = "O exame de sangue."
             )
         )
     }
@@ -111,7 +115,8 @@ class DirectFieldWriteTest {
             before = "O exame de sangue.",
             after = "O exame de sangue. mostrou leucocitose.",
             erased = 1,
-            written = written
+            written = written,
+            typed = "O exame de sangue."
         )
 
         assertEquals(DirectFieldWrite.Verdict.Repair(deleteBefore = written.length + 1, text = written), verdict)
@@ -126,7 +131,8 @@ class DirectFieldWriteTest {
             before = "de Grandmont.",
             after = "de Grandmont.Queda da pressão arterial.",
             erased = 0,
-            written = written
+            written = written,
+            typed = "de Grandmont."
         )
 
         assertEquals(DirectFieldWrite.Verdict.Repair(deleteBefore = written.length - 1, text = written), verdict)
@@ -140,7 +146,8 @@ class DirectFieldWriteTest {
             before = "O exame de sangue.",
             after = "O exame de sangue. Anotação minha no meio. mostrou leucocitose.",
             erased = 1,
-            written = " mostrou leucocitose."
+            written = " mostrou leucocitose.",
+            typed = "O exame de sangue."
         )
 
         assertIs<DirectFieldWrite.Verdict.Mismatch>(verdict)
@@ -151,18 +158,50 @@ class DirectFieldWriteTest {
     @Test
     fun aFieldWithoutAnyAnchorBeforeTheWriteIsLeftAlone() {
         val written = "Hoje o dia está bonito."
-        val verdict = DirectFieldWrite.verdict(before = "", after = "$written.", erased = 0, written = written)
+        val verdict = DirectFieldWrite.verdict(before = "", after = "$written.", erased = 0, written = written, typed = "")
 
         assertIs<DirectFieldWrite.Verdict.Mismatch>(verdict)
+    }
+
+    // Y4: o pedaço anterior (" Sim.") foi comitado mas o editor só o aplicou depois da leitura "antes"
+    // do pedaço seguinte. A "depois" tem os dois: é o que o app escreveu, e nada se refaz — ancorado
+    // só no "antes", o refazer apagava " Sim." junto com o pedaço novo.
+    @Test
+    fun aStaleBeforeWithoutThePreviousPieceDoesNotEraseThatPiece() {
+        val verdict = DirectFieldWrite.verdict(
+            before = "Paciente relata dor.",
+            after = "Paciente relata dor. Sim. Nega febre.",
+            erased = 0,
+            written = " Nega febre.",
+            typed = "Paciente relata dor. Sim."
+        )
+
+        assertEquals(DirectFieldWrite.Verdict.Ok, verdict)
+    }
+
+    // A variante: a "depois" só tem o pedaço anterior, o novo ainda não entrou. Refazer apagaria
+    // " Sim." e, quando o pedaço novo chegasse ao campo, ele sairia duas vezes.
+    @Test
+    fun aFieldEndingInThePreviousPieceWithoutTheNewOneIsAStaleRead() {
+        val verdict = DirectFieldWrite.verdict(
+            before = "Paciente relata dor.",
+            after = "Paciente relata dor. Sim.",
+            erased = 0,
+            written = " Nega febre.",
+            typed = "Paciente relata dor. Sim."
+        )
+
+        assertIs<DirectFieldWrite.Verdict.Unknown>(verdict)
+        assertEquals(DirectFieldWrite.REASON_STALE, verdict.reason)
     }
 
     @Test
     fun withoutReadingTheFieldThereIsNothingToCheck() {
         assertIs<DirectFieldWrite.Verdict.Unknown>(
-            DirectFieldWrite.verdict(before = "O exame.", after = null, erased = 0, written = " mostrou.")
+            DirectFieldWrite.verdict(before = "O exame.", after = null, erased = 0, written = " mostrou.", typed = "O exame.")
         )
         assertIs<DirectFieldWrite.Verdict.Unknown>(
-            DirectFieldWrite.verdict(before = null, after = "O exame.", erased = 0, written = " mostrou.")
+            DirectFieldWrite.verdict(before = null, after = "O exame.", erased = 0, written = " mostrou.", typed = "O exame.")
         )
     }
 
