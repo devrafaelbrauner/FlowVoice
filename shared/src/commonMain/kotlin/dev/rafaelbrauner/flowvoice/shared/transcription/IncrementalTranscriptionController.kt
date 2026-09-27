@@ -6,6 +6,7 @@ import dev.rafaelbrauner.flowvoice.shared.dictation.SilentWindow
 import dev.rafaelbrauner.flowvoice.shared.dictation.WindowSpeechGate
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -23,18 +24,23 @@ class IncrementalTranscriptionController(
     private val eventLog: TranscriptionEventLog = TranscriptionEventLog.NoOp,
     private val textLog: TranscriptionEventLog = TranscriptionEventLog.NoOp
 ) {
-    private val segmentsMutex = Mutex()
     private val processMutex = Mutex()
     private val provisional = MutableStateFlow("")
     private val segmentState = MutableStateFlow<List<TranscriptionSegment>>(emptyList())
+    private val budgetState = MutableStateFlow(false)
+    private val fatalState = MutableStateFlow<TranscriptionError?>(null)
+
+    // Estado da sessão, lido e escrito só sob `lock` (P53): no desktop `submit` vem de
+    // `Dispatchers.Default` e `reset`/`cancel` da thread da interface. `generation` muda a cada
+    // reset, e a janela de uma sessão anterior que termina depois dele não escreve mais nada.
+    private val lock = Any()
+    private var generation = 0
     private val jobs = mutableListOf<Job>()
     private var cancelled = false
     private var requestCount = 0
     // O que já se provou vazio nesta sessão, para não pagar duas vezes pelo mesmo nível (P153).
     private val emptyAudio = EmptyAudioMemory()
     private var sessionApiKey: String? = null
-    private val budgetState = MutableStateFlow(false)
-    private val fatalState = MutableStateFlow<TranscriptionError?>(null)
 
     val provisionalText: StateFlow<String> = provisional.asStateFlow()
     val segments: StateFlow<List<TranscriptionSegment>> = segmentState.asStateFlow()
@@ -42,56 +48,72 @@ class IncrementalTranscriptionController(
     val fatalError: StateFlow<TranscriptionError?> = fatalState.asStateFlow()
 
     fun submit(window: DictationWindow) {
-        if (cancelled) return
-        val withinBudget = requestCount < config.maxRequestsPerSession
-        if (withinBudget) requestCount++ else budgetState.value = true
-        val job = scope.launch {
-            if (!withinBudget) {
-                rejectOverBudget(window)
-            } else {
-                processMutex.withLock {
-                    if (!cancelled) {
-                        process(window)
+        val job = locked(lock) {
+            if (cancelled) return
+            val withinBudget = requestCount < config.maxRequestsPerSession
+            if (withinBudget) requestCount++
+            val session = generation
+            // Só começa depois de entrar em `jobs`: um reset no meio do caminho já o encontra lá.
+            val job = scope.launch(start = CoroutineStart.LAZY) {
+                if (!withinBudget) {
+                    rejectOverBudget(window, session)
+                } else {
+                    processMutex.withLock {
+                        if (isLive(session)) {
+                            process(window, session)
+                        }
                     }
                 }
             }
+            jobs += job
+            if (!withinBudget) budgetState.value = true
+            job
         }
-        jobs += job
+        job.start()
     }
 
     fun cancel() {
-        cancelled = true
-        jobs.toList().forEach { it.cancel() }
-        jobs.clear()
-        client.cancel()
+        val active = locked(lock) {
+            cancelled = true
+            jobs.toList().also { jobs.clear() }
+        }
+        active.forEach { it.cancel() }
     }
 
     // A chave vale para a sessão inteira: uma falha passageira do cofre no meio do ditado não pode
     // virar "chave ausente" e encerrar a sessão (P134).
     fun reset(apiKey: String? = null) {
-        jobs.toList().forEach { it.cancel() }
-        jobs.clear()
-        cancelled = false
-        requestCount = 0
-        sessionApiKey = apiKey?.takeIf { it.isNotBlank() }
-        budgetState.value = false
-        fatalState.value = null
-        emptyAudio.clear()
-        provisional.value = ""
-        segmentState.value = emptyList()
+        val previous = locked(lock) {
+            generation++
+            val previous = jobs.toList()
+            jobs.clear()
+            cancelled = false
+            requestCount = 0
+            sessionApiKey = apiKey?.takeIf { it.isNotBlank() }
+            emptyAudio.clear()
+            budgetState.value = false
+            fatalState.value = null
+            provisional.value = ""
+            segmentState.value = emptyList()
+            previous
+        }
+        previous.forEach { it.cancel() }
     }
 
     suspend fun awaitIdle() {
-        jobs.toList().forEach { it.join() }
+        locked(lock) { jobs.toList() }.forEach { it.join() }
     }
 
-    private suspend fun rejectOverBudget(window: DictationWindow) {
+    private fun isLive(session: Int): Boolean = locked(lock) { session == generation && !cancelled }
+
+    private fun rejectOverBudget(window: DictationWindow, session: Int) {
         upsert(
             TranscriptionSegment(
                 windowIndex = window.index,
                 status = TranscriptionSegment.Status.Failed,
                 errorKind = TranscriptionError.SessionBudgetExceeded().kind
-            )
+            ),
+            session
         )
         eventLog.log(
             "transcription_budget",
@@ -103,67 +125,118 @@ class IncrementalTranscriptionController(
         )
     }
 
-    private suspend fun process(window: DictationWindow) {
-        if (cancelled) return
+    private suspend fun process(window: DictationWindow, session: Int) {
         if (SilentWindow.detect(window)) {
-            skipSilent(window, "digital")
+            skipSilent(window, "digital", session)
             return
         }
         // Sem fala medida bastante, a janela não vale uma requisição: com o piso de ruído alto o
         // silêncio do fim do ditado chegava aqui como janela de teto e voltava vazia (P151).
         WindowSpeechGate.skipReason(window)?.let { reason ->
-            skipSilent(window, reason)
+            skipSilent(window, reason, session)
             return
         }
         // Áudio que não é mais alto do que um que já voltou vazio nesta sessão não se paga de novo
         // (P153). Quem fala baixo escapa da trava: o nível que já rendeu texto nunca é silêncio.
-        if (emptyAudio.skips(window.peakLevel)) {
-            skipSilent(window, WindowSpeechGate.REASON_LEVEL_ALREADY_EMPTY)
+        val alreadyEmpty = locked(lock) {
+            if (session != generation) return
+            emptyAudio.skips(window.peakLevel)
+        }
+        if (alreadyEmpty) {
+            skipSilent(window, WindowSpeechGate.REASON_LEVEL_ALREADY_EMPTY, session)
             return
         }
         upsert(
             TranscriptionSegment(
                 windowIndex = window.index,
                 status = TranscriptionSegment.Status.Transcribing
-            )
+            ),
+            session
         )
         fatalState.value?.let { fatal ->
-            fail(window, fatal)
+            fail(window, fatal, session)
             return
         }
-        val apiKey = sessionApiKey ?: apiKeyProvider()?.takeIf { it.isNotBlank() }?.also { sessionApiKey = it }
+        val apiKey = sessionKey(session)
         if (apiKey == null) {
-            failFatally(window, TranscriptionError.InvalidKey())
+            failFatally(window, TranscriptionError.InvalidKey(), session)
             return
         }
         try {
             val result = client.transcribe(window, apiKey, modelProvider())
-            upsert(
-                TranscriptionSegment(
-                    windowIndex = window.index,
-                    status = TranscriptionSegment.Status.Ok,
-                    text = result.text,
-                    contextDurationMs = window.contextDurationMs
-                )
-            )
-            emptyAudio.remember(window.peakLevel, result.text.isNotBlank())
+            if (result.text.isNotBlank()) {
+                locked(lock) { if (session == generation) emptyAudio.rememberSpoken(window.peakLevel, window.noiseFloor) }
+                acceptText(window, result.text, session)
+            } else {
+                val silence = locked(lock) {
+                    if (session != generation) return
+                    emptyAudio.rememberEmpty(window.peakLevel, window.noiseFloor)
+                }
+                if (silence) acceptText(window, result.text, session) else failEmptyVoice(window, session)
+            }
             textLog.log("transcription_window_text", mapOf("window" to window.index.toString(), "text" to result.text))
-            rebuildProvisionalText()
         } catch (error: CancellationException) {
             throw error
         } catch (error: TranscriptionError.InvalidKey) {
-            failFatally(window, error)
+            failFatally(window, error, session)
         } catch (error: TranscriptionError) {
-            fail(window, error)
+            fail(window, error, session)
         } catch (error: Throwable) {
-            fail(window, TranscriptionErrorClassifier.fromThrowable(error))
+            fail(window, TranscriptionErrorClassifier.fromThrowable(error), session)
         }
+    }
+
+    // O cofre é lido fora da trava: no desktop a leitura decifra a chave (DPAPI).
+    private fun sessionKey(session: Int): String? {
+        locked(lock) { sessionApiKey }?.let { return it }
+        val key = apiKeyProvider()?.takeIf { it.isNotBlank() } ?: return null
+        locked(lock) { if (session == generation) sessionApiKey = key }
+        return key
+    }
+
+    private fun acceptText(window: DictationWindow, text: String, session: Int) {
+        upsert(
+            TranscriptionSegment(
+                windowIndex = window.index,
+                status = TranscriptionSegment.Status.Ok,
+                text = text,
+                contextDurationMs = window.contextDurationMs
+            ),
+            session,
+            rebuildProvisional = true
+        )
+    }
+
+    // Voz alta demais para ser silêncio voltou sem texto (R1): pode ser uma tosse, pode ser fala
+    // perdida pelo modelo. O trecho fica como falho, para o aviso de texto incompleto aparecer em vez
+    // de um "ok" mudo, e a memória da P153 não aprende nada com ele.
+    private fun failEmptyVoice(window: DictationWindow, session: Int) {
+        upsert(
+            TranscriptionSegment(
+                windowIndex = window.index,
+                status = TranscriptionSegment.Status.Failed,
+                errorKind = EMPTY_VOICE_KIND,
+                contextDurationMs = window.contextDurationMs
+            ),
+            session
+        )
+        eventLog.log(
+            "transcription_empty_voice",
+            buildMap {
+                put("window", window.index.toString())
+                put("durationMs", window.durationMs.toString())
+                put("model", modelProvider())
+                window.peakLevel?.let { put("peak", it.toString()) }
+                window.noiseFloor?.let { put("noiseFloor", it.toString()) }
+                window.voicedMs?.let { put("voicedMs", it.toString()) }
+            }
+        )
     }
 
     // A janela silenciosa já ocupou uma vaga do teto na submissão: sem isso, uma captura muda
     // nunca atingiria o teto e o microfone ficaria aberto (P107).
-    private suspend fun skipSilent(window: DictationWindow, reason: String) {
-        upsert(TranscriptionSegment(windowIndex = window.index, status = TranscriptionSegment.Status.Ok))
+    private fun skipSilent(window: DictationWindow, reason: String, session: Int) {
+        upsert(TranscriptionSegment(windowIndex = window.index, status = TranscriptionSegment.Status.Ok), session)
         eventLog.log(
             "transcription_silent_window",
             buildMap {
@@ -178,12 +251,12 @@ class IncrementalTranscriptionController(
         )
     }
 
-    private suspend fun failFatally(window: DictationWindow, error: TranscriptionError) {
-        fail(window, error)
-        fatalState.value = error
+    private fun failFatally(window: DictationWindow, error: TranscriptionError, session: Int) {
+        fail(window, error, session)
+        locked(lock) { if (session == generation) fatalState.value = error }
     }
 
-    private suspend fun fail(window: DictationWindow, error: TranscriptionError) {
+    private fun fail(window: DictationWindow, error: TranscriptionError, session: Int) {
         upsert(
             TranscriptionSegment(
                 windowIndex = window.index,
@@ -193,7 +266,8 @@ class IncrementalTranscriptionController(
                     is TranscriptionError.Server -> "server_${error.statusCode}"
                     else -> error.kind
                 }
-            )
+            ),
+            session
         )
         eventLog.log(
             "transcription_window_failed",
@@ -206,8 +280,9 @@ class IncrementalTranscriptionController(
         )
     }
 
-    private suspend fun upsert(segment: TranscriptionSegment) {
-        segmentsMutex.withLock {
+    private fun upsert(segment: TranscriptionSegment, session: Int, rebuildProvisional: Boolean = false) {
+        locked(lock) {
+            if (session != generation) return
             val current = segmentState.value.toMutableList()
             val index = current.indexOfFirst { it.windowIndex == segment.windowIndex }
             if (index >= 0) {
@@ -217,12 +292,16 @@ class IncrementalTranscriptionController(
                 current.sortBy { it.windowIndex }
             }
             segmentState.value = current
+            if (rebuildProvisional) {
+                provisional.value = current
+                    .filter { it.status == TranscriptionSegment.Status.Ok && it.text.isNotBlank() }
+                    .joinToString(" ") { it.text.trim() }
+            }
         }
     }
 
-    private fun rebuildProvisionalText() {
-        provisional.value = segmentState.value
-            .filter { it.status == TranscriptionSegment.Status.Ok && it.text.isNotBlank() }
-            .joinToString(" ") { it.text.trim() }
+    companion object {
+        // Trecho com voz alta que voltou sem texto (R1).
+        const val EMPTY_VOICE_KIND = "empty_voice"
     }
 }

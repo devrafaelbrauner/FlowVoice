@@ -13,9 +13,7 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
 import io.ktor.util.encodeBase64
-import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Job
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -25,9 +23,6 @@ class OpenRouterTranscriptionClient(
     private val config: OpenRouterConfig,
     private val eventLog: TranscriptionEventLog = TranscriptionEventLog.NoOp
 ) : TranscriptionClient {
-    @Volatile
-    private var currentJob: Job? = null
-
     // Modelos que não devolvem tempos (P146), porque recusaram `verbose_json` ou responderam sem
     // `words`/`segments`. Guardado por modelo, não por sessão: quem não devolve tempo hoje não passa a
     // devolver no meio do ditado, e assim a recusa não se repete a cada janela. Escrita por cópia —
@@ -40,7 +35,6 @@ class OpenRouterTranscriptionClient(
         apiKey: String,
         model: String?
     ): TranscriptionResult {
-        currentJob = coroutineContext[Job]
         val usedModel = model?.takeIf { it.isNotBlank() } ?: config.model
         eventLog.log(
             "transcription_request",
@@ -60,6 +54,9 @@ class OpenRouterTranscriptionClient(
         // uma resposta maior.
         var verbose = window.contextDurationMs > 0L && usedModel !in withoutTimestamps
         var httpStatus: Int? = null
+        // Status do `verbose_json` recusado, à espera de o pedido em `json` dizer se a culpa era do
+        // formato (N6).
+        var verboseRefusal: Int? = null
         return try {
             var payload: TranscriptionPayload? = null
             while (payload == null) {
@@ -70,7 +67,7 @@ class OpenRouterTranscriptionClient(
                     // Provedor que recusa o formato: a janela é refeita em `json` na hora, para o
                     // ditado não parar por causa de um campo a mais no pedido.
                     if (verbose && status in FORMAT_REFUSED) {
-                        dropTimestamps(window, usedModel, "http_$status", status)
+                        verboseRefusal = status
                         verbose = false
                         continue
                     }
@@ -82,7 +79,10 @@ class OpenRouterTranscriptionClient(
                     )
                 }
                 payload = TranscriptionPayloadParser.parse(raw)
-                    ?: throw TranscriptionError.InvalidResponse("unparseable json")
+                // O 400/422 só prova que o modelo não tem tempos quando o mesmo áudio passa em `json`.
+                // Se o `json` também recusa, o problema era a janela (curta, malformada), e marcar o
+                // modelo tiraria o corte por tempo de todas as janelas seguintes do processo.
+                verboseRefusal?.let { dropTimestamps(window, usedModel, "http_$it", it) }
                 // Aceitou o formato e não mandou tempo: refazer não adiantaria e o texto já veio.
                 if (verbose && !payload.hasTimes && payload.text.isNotEmpty()) {
                     dropTimestamps(window, usedModel, "sem_tempos", null)
@@ -183,10 +183,6 @@ class OpenRouterTranscriptionClient(
                 if (httpStatus != null) put("status", httpStatus.toString())
             }
         )
-    }
-
-    override fun cancel() {
-        currentJob?.cancel()
     }
 
     private fun extractErrorMessage(raw: String): String? =

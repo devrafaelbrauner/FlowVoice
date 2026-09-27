@@ -43,10 +43,14 @@ object TranscriptOverlap {
         val leftTokens = tokenize(left)
         val rightTokens = tokenize(right)
 
-        val exact = overlapSize(leftTokens, rightTokens)
+        // Com contexto, nem o casamento exato apaga mais do que o contexto comporta (N11): 1 s explica
+        // umas quatro palavras, e dez palavras iguais na emenda são repetição de quem ditou. Sem
+        // contexto vale o teto de palavras da P127.
+        val exactLimit = if (contextDurationMs > 0L) removableChars(contextDurationMs) else Int.MAX_VALUE
+        val exact = overlapSize(leftTokens, rightTokens, exactLimit)
         if (exact > 0) return Match(rightTokens.drop(exact).joinToString(" "), glued = false)
 
-        val anchor = overlapSize(leftTokens.dropLast(1), rightTokens)
+        val anchor = overlapSize(leftTokens.dropLast(1), rightTokens, exactLimit)
         if (anchor == 0 || isWholeWordRepeatedAfterAnchor(leftTokens.last(), rightTokens, anchor)) {
             val approximate = approximateOverlapSize(leftTokens, rightTokens, contextDurationMs)
                 .takeIf { it > 0 }
@@ -81,9 +85,10 @@ object TranscriptOverlap {
 
     // Maior sufixo de `left` igual ao prefixo de `right`. Um trecho só de pontuação não conta como
     // repetição: ele casaria com qualquer outro e apagaria palavra de verdade.
-    private fun overlapSize(left: List<String>, right: List<String>): Int {
+    private fun overlapSize(left: List<String>, right: List<String>, maxChars: Int): Int {
         val max = minOf(left.size, right.size, MAX_OVERLAP_TOKENS)
         for (size in max downTo 1) {
+            if (right.take(size).joinToString(" ").length > maxChars) continue
             val tail = left.takeLast(size).map(::normalize)
             val head = right.take(size).map(::normalize)
             if (tail == head && tail.any { it.isNotEmpty() }) return size

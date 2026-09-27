@@ -2525,8 +2525,6 @@ private class ScriptedTranscriptionClient(
         failures[window.index]?.let { throw it }
         return TranscriptionResult(texts[window.index] ?: "w${window.index}", "fake")
     }
-
-    override fun cancel() = Unit
 }
 
 private class ScriptedAudioCaptureEngine(

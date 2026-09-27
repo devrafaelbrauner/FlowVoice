@@ -1,8 +1,10 @@
 package dev.rafaelbrauner.flowvoice.shared.pipeline
 
+import dev.rafaelbrauner.flowvoice.shared.transcription.IncrementalTranscriptionController
 import dev.rafaelbrauner.flowvoice.shared.transcription.TranscriptionSegment
 
-internal class TranscriptionFailureSummary private constructor(
+// Público para o desktop avisar do trecho que falhou como o Android (Y6).
+class TranscriptionFailureSummary private constructor(
     val failedCount: Int,
     private val failedWindows: List<Int>,
     private val totalWindows: Int,
@@ -46,6 +48,7 @@ internal class TranscriptionFailureSummary private constructor(
             kind == "invalid_key" -> "chave OpenRouter ausente ou inválida"
             kind == "forbidden" -> "recusado pela OpenRouter"
             kind == "budget" -> "teto de requisições da sessão"
+            kind == IncrementalTranscriptionController.EMPTY_VOICE_KIND -> "voz sem texto"
             kind?.startsWith("server") == true -> "erro do servidor"
             else -> "resposta inválida"
         }
