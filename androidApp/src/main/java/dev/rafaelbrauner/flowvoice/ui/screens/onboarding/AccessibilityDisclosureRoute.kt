@@ -54,7 +54,9 @@ object AccessibilityDisclosure {
             "para qual app voltar; o conteúdo da tela não é lido nesses avisos.",
         "No ditado, o campo de texto em que está o cursor: o FlowVoice escreve nele e lê o texto logo antes " +
             "do cursor para conferir e corrigir o que ele mesmo escreveu, inclusive na revisão por IA. Se a " +
-            "escrita direta falhar, lê o texto do campo para inserir no ponto do cursor sem apagar nada.",
+            "escrita direta falhar, lê o texto do campo para inserir no ponto do cursor sem apagar nada. Só " +
+            "lê o campo em que o ditado está escrevendo: se o foco for para outro app ou outro campo, nada é " +
+            "lido até você tocar em Inserir aqui.",
         "A posição do campo, do cursor e do teclado na tela, para a bolha e a prévia não cobrirem o que " +
             "você escreve."
     )
@@ -62,7 +64,7 @@ object AccessibilityDisclosure {
         "O texto lido do campo fica no celular: não é enviado nem guardado. O que vai para a internet é o " +
             "áudio, só enquanto você dita, para a OpenRouter transcrever (e, com a revisão por IA ligada, o " +
             "texto ditado).",
-        "Não escreve em campos marcados como senha.",
+        "Não lê nem escreve em campos marcados como senha.",
         "Não toca em botões nem navega por você: só escreve e corrige o texto que você ditou e posiciona o cursor."
     )
     const val SYSTEM_WARNING = "Em seguida, o Android vai perguntar se o FlowVoice pode ter “controle total” " +
