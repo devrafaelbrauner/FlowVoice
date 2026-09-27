@@ -263,6 +263,7 @@ class FlowVoiceOverlayService : Service(), KoinComponent, BubbleHost {
                 pipeline = pipeline,
                 host = this,
                 bubbleHidden = bubbleHiddenState,
+                appInForeground = AppForeground.inForeground,
                 onModeChange = ::applyMode,
                 onSessionOwned = { ownership -> ownsSession = OverlaySessionPolicy.ownsSession(ownership) }
             )

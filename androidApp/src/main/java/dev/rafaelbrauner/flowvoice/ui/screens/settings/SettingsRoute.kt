@@ -237,7 +237,7 @@ fun SettingsRoute(onOpenDiagnostics: () -> Unit, modifier: Modifier = Modifier) 
             OverlayToggleAction.MicrophoneDenied -> "O botão flutuante precisa da permissão de microfone."
             OverlayToggleAction.Start -> {
                 ContextCompat.startForegroundService(context, Intent(context, FlowVoiceOverlayService::class.java))
-                "Botão flutuante ligado."
+                "Botão flutuante ligado: ele aparece quando você sai do FlowVoice."
             }
         }
         overlayMessage = message
