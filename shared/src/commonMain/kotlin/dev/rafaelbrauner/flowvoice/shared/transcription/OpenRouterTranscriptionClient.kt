@@ -82,7 +82,6 @@ class OpenRouterTranscriptionClient(
                     )
                 }
                 payload = TranscriptionPayloadParser.parse(raw)
-                    ?: throw TranscriptionError.InvalidResponse("unparseable json")
                 // Aceitou o formato e não mandou tempo: refazer não adiantaria e o texto já veio.
                 if (verbose && !payload.hasTimes && payload.text.isNotEmpty()) {
                     dropTimestamps(window, usedModel, "sem_tempos", null)
