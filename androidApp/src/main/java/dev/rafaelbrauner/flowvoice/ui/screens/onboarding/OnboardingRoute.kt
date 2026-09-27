@@ -16,6 +16,7 @@ import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -29,9 +30,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -39,6 +42,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.tooling.preview.PreviewParameter
 import androidx.compose.ui.unit.dp
@@ -49,9 +53,11 @@ import androidx.core.net.toUri
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import dev.rafaelbrauner.flowvoice.service.FlowVoiceAccessibilityService
 import dev.rafaelbrauner.flowvoice.shared.transcription.SecretStore
+import dev.rafaelbrauner.flowvoice.ui.components.FvCard
 import dev.rafaelbrauner.flowvoice.ui.components.ThemePreviewParameter
 import dev.rafaelbrauner.flowvoice.ui.components.Wordmark
 import dev.rafaelbrauner.flowvoice.ui.rememberKoin
+import dev.rafaelbrauner.flowvoice.ui.screens.settings.FvFieldButton
 import dev.rafaelbrauner.flowvoice.ui.shell.startActivitySafely
 import dev.rafaelbrauner.flowvoice.ui.theme.FlowVoiceRadius
 import dev.rafaelbrauner.flowvoice.ui.theme.FlowVoiceSpacing
@@ -59,16 +65,25 @@ import dev.rafaelbrauner.flowvoice.ui.theme.FlowVoiceTheme
 import dev.rafaelbrauner.flowvoice.ui.theme.PillShape
 
 @Composable
-fun OnboardingRoute(onDone: () -> Unit, onOpenKeySettings: () -> Unit, modifier: Modifier = Modifier) {
+fun OnboardingRoute(
+    onProgress: (OnboardingProgress) -> Unit,
+    onLeave: (progress: OnboardingProgress, skipped: Boolean) -> Unit,
+    onOpenAccessibilityDisclosure: () -> Unit,
+    onOpenKey: () -> Unit,
+    modifier: Modifier = Modifier
+) {
     val context = LocalContext.current
     val secretStore = rememberKoin<SecretStore>()
     val installer = remember { installerPackage(context) }
     var progress by remember { mutableStateOf(readProgress(context, secretStore)) }
+    val latestOnProgress by rememberUpdatedState(onProgress)
 
     LifecycleResumeEffect(Unit) {
         progress = readProgress(context, secretStore)
         onPauseOrDispose { }
     }
+
+    LaunchedEffect(progress) { latestOnProgress(progress) }
 
     val microphoneLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
         progress = readProgress(context, secretStore)
@@ -81,7 +96,7 @@ fun OnboardingRoute(onDone: () -> Unit, onOpenKeySettings: () -> Unit, modifier:
             accessibilityActive = progress.accessibility,
             installer = installer
         ),
-        onAccessibility = { context.startActivitySafely(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) },
+        onAccessibility = onOpenAccessibilityDisclosure,
         onOpenAppDetails = {
             context.startActivitySafely(
                 Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, "package:${context.packageName}".toUri())
@@ -90,8 +105,9 @@ fun OnboardingRoute(onDone: () -> Unit, onOpenKeySettings: () -> Unit, modifier:
         onMicrophone = {
             if (!progress.microphone) microphoneLauncher.launch(Manifest.permission.RECORD_AUDIO)
         },
-        onKey = onOpenKeySettings,
-        onCta = onDone,
+        onKey = onOpenKey,
+        onStart = { onLeave(progress, false) },
+        onSkip = { onLeave(progress, true) },
         modifier = modifier
     )
 }
@@ -120,13 +136,15 @@ internal fun OnboardingScreen(
     onAccessibility: () -> Unit,
     onMicrophone: () -> Unit,
     onKey: () -> Unit,
-    onCta: () -> Unit,
+    onStart: () -> Unit,
+    onSkip: () -> Unit,
     modifier: Modifier = Modifier,
     showRestrictedSettingsHint: Boolean = false,
     onOpenAppDetails: () -> Unit = {}
 ) {
     val colors = FlowVoiceTheme.colors
     val typography = FlowVoiceTheme.typography
+    val next = progress.nextPending
     Column(
         modifier = modifier
             .background(colors.background)
@@ -140,7 +158,7 @@ internal fun OnboardingScreen(
             Wordmark()
             Spacer(Modifier.height(26.dp))
             Text(
-                text = "Três permissões e você já está ditando.",
+                text = "Três passos e você já está ditando.",
                 style = typography.screenTitle.copy(lineHeight = 1.1.em),
                 color = colors.textPrimary
             )
@@ -157,54 +175,95 @@ internal fun OnboardingScreen(
                     title = "Serviço de acessibilidade",
                     description = "É o que permite escrever no campo ativo sem trocar seu teclado.",
                     done = progress.accessibility,
+                    next = next == OnboardingStep.Accessibility,
                     onClick = onAccessibility
                 )
                 if (showRestrictedSettingsHint) {
-                    RestrictedSettingsHintRow(onOpenAppDetails = onOpenAppDetails)
+                    RestrictedSettingsHintCard(onOpenAppDetails = onOpenAppDetails)
                 }
                 OnboardingStepCard(
                     number = 2,
                     title = "Microfone",
-                    description = "Captura contínua enquanto você segura o botão.",
+                    description = "Grava só durante o ditado: toque para começar, toque de novo para parar.",
                     done = progress.microphone,
+                    next = next == OnboardingStep.Microphone,
                     onClick = onMicrophone
                 )
                 OnboardingStepCard(
                     number = 3,
                     title = "Chave OpenRouter",
-                    description = "Fica cifrada no aparelho. Nunca sai daqui.",
+                    description = "Guardada cifrada neste celular. Só vai à OpenRouter, para autorizar cada " +
+                        "transcrição; nunca é sincronizada.",
                     done = progress.key,
+                    next = next == OnboardingStep.Key,
                     onClick = onKey
                 )
             }
             Spacer(Modifier.height(16.dp))
         }
-        OnboardingCta(label = progress.ctaLabel, onClick = onCta)
+        OnboardingCta(
+            label = progress.primaryLabel,
+            onClick = when (next) {
+                null -> onStart
+                OnboardingStep.Accessibility -> onAccessibility
+                OnboardingStep.Microphone -> onMicrophone
+                OnboardingStep.Key -> onKey
+            }
+        )
+        if (next != null) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = FlowVoiceSpacing.minTouchTarget)
+                    .clickable(role = Role.Button, onClick = onSkip),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = OnboardingProgress.CTA_SKIP,
+                    style = typography.buttonSecondary,
+                    color = colors.textMuted
+                )
+            }
+            Text(
+                text = "O que faltar continua no Início e em Ajustes.",
+                style = typography.bodySmall,
+                color = colors.textTertiary,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
     }
 }
 
 @Composable
-private fun RestrictedSettingsHintRow(onOpenAppDetails: () -> Unit) {
+private fun RestrictedSettingsHintCard(onOpenAppDetails: () -> Unit) {
     val colors = FlowVoiceTheme.colors
     val typography = FlowVoiceTheme.typography
-    Column(modifier = Modifier.padding(horizontal = 4.dp)) {
-        Text(
-            text = RestrictedSettingsHint.MESSAGE,
-            style = typography.bodySmall.copy(lineHeight = 1.5.em),
-            color = colors.textMuted
-        )
-        Box(
-            modifier = Modifier
-                .heightIn(min = FlowVoiceSpacing.minTouchTarget)
-                .clickable(role = Role.Button, onClick = onOpenAppDetails),
-            contentAlignment = Alignment.CenterStart
-        ) {
-            Text(
-                text = RestrictedSettingsHint.ACTION,
-                style = typography.monoValue,
-                color = colors.accentText
-            )
+    FvCard(modifier = Modifier.fillMaxWidth(), contentPadding = PaddingValues(15.dp)) {
+        Text(text = RestrictedSettingsHint.TITLE, style = typography.itemTitleSmall, color = colors.textPrimary)
+        Spacer(Modifier.height(10.dp))
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            RestrictedSettingsHint.STEPS.forEachIndexed { index, step ->
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = "${index + 1}.",
+                        style = typography.bodySmall.copy(lineHeight = 1.5.em, fontWeight = FontWeight.SemiBold),
+                        color = colors.textMuted
+                    )
+                    Text(
+                        text = step,
+                        style = typography.bodySmall.copy(lineHeight = 1.5.em),
+                        color = colors.textMuted
+                    )
+                }
+            }
         }
+        Spacer(Modifier.height(12.dp))
+        FvFieldButton(
+            text = RestrictedSettingsHint.ACTION,
+            onClick = onOpenAppDetails,
+            modifier = Modifier.fillMaxWidth()
+        )
     }
 }
 
@@ -214,6 +273,7 @@ private fun OnboardingStepCard(
     title: String,
     description: String,
     done: Boolean,
+    next: Boolean,
     onClick: () -> Unit
 ) {
     val colors = FlowVoiceTheme.colors
@@ -226,7 +286,11 @@ private fun OnboardingStepCard(
             .fillMaxWidth()
             .clip(shape)
             .background(colors.surface)
-            .border(1.dp, if (done || pressed) colors.accentBorder else colors.hairlineInput, shape)
+            .border(
+                if (next) 2.dp else 1.dp,
+                if (done || next || pressed) colors.accentBorder else colors.hairlineInput,
+                shape
+            )
             .clickable(
                 interactionSource = interactionSource,
                 indication = null,
@@ -256,20 +320,24 @@ private fun OnboardingStepCard(
             Text(text = description, style = typography.bodyMedium, color = colors.textMuted)
         }
         Text(
-            text = if (done) "ok" else "tocar",
+            text = when {
+                done -> "ok"
+                next -> "próximo"
+                else -> "tocar"
+            },
             style = typography.monoStatus,
-            color = if (done) colors.accentText else colors.textTertiary
+            color = if (done || next) colors.accentText else colors.textTertiary
         )
     }
 }
 
 @Composable
-private fun OnboardingCta(label: String, onClick: () -> Unit) {
+internal fun OnboardingCta(label: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
     val colors = FlowVoiceTheme.colors
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
     Box(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .height(52.dp)
             .clip(PillShape)
@@ -295,13 +363,14 @@ private fun OnboardingScreenPreview(@PreviewParameter(ThemePreviewParameter::cla
             onAccessibility = {},
             onMicrophone = {},
             onKey = {},
-            onCta = {},
+            onStart = {},
+            onSkip = {},
             modifier = Modifier.fillMaxSize()
         )
     }
 }
 
-@Preview(heightDp = 860)
+@Preview(heightDp = 1000)
 @Composable
 private fun OnboardingRestrictedSettingsPreview(@PreviewParameter(ThemePreviewParameter::class) dark: Boolean) {
     FlowVoiceTheme(darkTheme = dark) {
@@ -310,7 +379,8 @@ private fun OnboardingRestrictedSettingsPreview(@PreviewParameter(ThemePreviewPa
             onAccessibility = {},
             onMicrophone = {},
             onKey = {},
-            onCta = {},
+            onStart = {},
+            onSkip = {},
             modifier = Modifier.fillMaxSize(),
             showRestrictedSettingsHint = true
         )

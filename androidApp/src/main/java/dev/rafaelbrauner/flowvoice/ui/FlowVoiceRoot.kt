@@ -30,7 +30,10 @@ import dev.rafaelbrauner.flowvoice.ui.screens.dictionary.DictionaryRoute
 import dev.rafaelbrauner.flowvoice.ui.screens.home.HomeRoute
 import dev.rafaelbrauner.flowvoice.ui.screens.login.LoginRoute
 import dev.rafaelbrauner.flowvoice.ui.screens.notes.NotesRoute
+import dev.rafaelbrauner.flowvoice.ui.screens.onboarding.AccessibilityDisclosureRoute
 import dev.rafaelbrauner.flowvoice.ui.screens.onboarding.OnboardingRoute
+import dev.rafaelbrauner.flowvoice.ui.screens.onboarding.OpenRouterKeyRoute
+import dev.rafaelbrauner.flowvoice.ui.screens.onboarding.afterOnboarding
 import dev.rafaelbrauner.flowvoice.ui.screens.settings.SettingsRoute
 import dev.rafaelbrauner.flowvoice.ui.shell.BackStack
 import dev.rafaelbrauner.flowvoice.ui.shell.startDestination
@@ -79,11 +82,24 @@ fun FlowVoiceRoot(modifier: Modifier = Modifier) {
                 )
 
                 FvDestination.Onboarding -> OnboardingRoute(
-                    onDone = {
-                        preferences.update { copy(onboardingCompleted = true) }
+                    onProgress = { progress -> preferences.update { afterOnboarding(progress, skipped = false) } },
+                    onLeave = { progress, skipped ->
+                        preferences.update { afterOnboarding(progress, skipped) }
                         stack = if (stack.canPop) stack.pop() else BackStack.of(FvDestination.Home)
                     },
-                    onOpenKeySettings = { stack = stack.push(FvDestination.Settings) },
+                    onOpenAccessibilityDisclosure = { stack = stack.push(FvDestination.AccessibilityDisclosure) },
+                    onOpenKey = { stack = stack.push(FvDestination.OpenRouterKey) },
+                    modifier = screen
+                )
+
+                FvDestination.AccessibilityDisclosure -> AccessibilityDisclosureRoute(
+                    onBack = { stack = stack.pop() },
+                    modifier = screen
+                )
+
+                FvDestination.OpenRouterKey -> OpenRouterKeyRoute(
+                    onBack = { stack = stack.pop() },
+                    onSaved = { stack = stack.pop() },
                     modifier = screen
                 )
 
@@ -136,7 +152,9 @@ fun FlowVoiceRoot(modifier: Modifier = Modifier) {
 }
 
 private fun PreferencesStore.update(transform: AppPreferences.() -> AppPreferences) {
-    write(read().transform())
+    val current = read()
+    val next = current.transform()
+    if (next != current) write(next)
 }
 
 private val BackStackSaver = Saver<BackStack, ArrayList<String>>(
