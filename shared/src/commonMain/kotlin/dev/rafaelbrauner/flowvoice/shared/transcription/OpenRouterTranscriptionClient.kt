@@ -13,9 +13,7 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
 import io.ktor.util.encodeBase64
-import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Job
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -25,9 +23,6 @@ class OpenRouterTranscriptionClient(
     private val config: OpenRouterConfig,
     private val eventLog: TranscriptionEventLog = TranscriptionEventLog.NoOp
 ) : TranscriptionClient {
-    @Volatile
-    private var currentJob: Job? = null
-
     // Modelos que não devolvem tempos (P146), porque recusaram `verbose_json` ou responderam sem
     // `words`/`segments`. Guardado por modelo, não por sessão: quem não devolve tempo hoje não passa a
     // devolver no meio do ditado, e assim a recusa não se repete a cada janela. Escrita por cópia —
@@ -40,7 +35,6 @@ class OpenRouterTranscriptionClient(
         apiKey: String,
         model: String?
     ): TranscriptionResult {
-        currentJob = coroutineContext[Job]
         val usedModel = model?.takeIf { it.isNotBlank() } ?: config.model
         eventLog.log(
             "transcription_request",
@@ -189,10 +183,6 @@ class OpenRouterTranscriptionClient(
                 if (httpStatus != null) put("status", httpStatus.toString())
             }
         )
-    }
-
-    override fun cancel() {
-        currentJob?.cancel()
     }
 
     private fun extractErrorMessage(raw: String): String? =

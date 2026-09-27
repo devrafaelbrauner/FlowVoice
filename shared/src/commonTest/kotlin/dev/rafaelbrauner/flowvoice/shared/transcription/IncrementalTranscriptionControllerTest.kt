@@ -3,13 +3,26 @@ package dev.rafaelbrauner.flowvoice.shared.transcription
 import dev.rafaelbrauner.flowvoice.shared.dictation.AudioFormat
 import dev.rafaelbrauner.flowvoice.shared.dictation.DictationWindow
 import dev.rafaelbrauner.flowvoice.shared.dictation.WindowCut
+import io.ktor.client.HttpClient
+import io.ktor.client.engine.mock.MockEngine
+import io.ktor.client.engine.mock.respond
+import io.ktor.client.plugins.HttpTimeout
+import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.http.HttpHeaders
+import io.ktor.http.HttpStatusCode
+import io.ktor.http.headersOf
+import io.ktor.serialization.kotlinx.json.json
+import io.ktor.utils.io.ByteReadChannel
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -173,7 +186,6 @@ class IncrementalTranscriptionControllerTest {
         controller.submit(testWindow(2))
         advanceUntilIdle()
 
-        assertEquals(1, client.cancelCount)
         assertTrue(client.started.size <= 1)
         assertEquals("", controller.provisionalText.value)
         assertEquals(0, controller.segments.value.count { it.windowIndex == 2 })
@@ -409,6 +421,42 @@ class IncrementalTranscriptionControllerTest {
         assertEquals(listOf(0, 1, 2), client.started, "o nível que já rendeu texto não é silêncio")
     }
 
+    // N7: o cliente de transcrição é único no app. Cancelar o ditado não pode derrubar o pedido de
+    // outro usuário do mesmo cliente (o benchmark), só os pedidos do próprio ditado.
+    @Test
+    fun cancellingTheDictationDoesNotCancelAnotherUserOfTheSameClient() = runTest {
+        val gate = CompletableDeferred<Unit>()
+        val engine = MockEngine {
+            gate.await()
+            respond(
+                content = ByteReadChannel("""{"text":"texto do benchmark"}"""),
+                status = HttpStatusCode.OK,
+                headers = headersOf(HttpHeaders.ContentType, "application/json")
+            )
+        }
+        val http = HttpClient(engine) {
+            install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
+            install(HttpTimeout)
+        }
+        val shared = OpenRouterTranscriptionClient(http, OpenRouterConfig())
+        val controller = IncrementalTranscriptionController(
+            client = shared,
+            config = OpenRouterConfig(),
+            scope = this,
+            apiKeyProvider = { "sk-or-v1-testkey123456" }
+        )
+
+        controller.submit(testWindow(0))
+        runCurrent()
+        val benchmark = async { shared.transcribe(testWindow(7), "sk-or-v1-testkey123456") }
+        runCurrent()
+        controller.cancel()
+        runCurrent()
+        gate.complete(Unit)
+
+        assertEquals("texto do benchmark", benchmark.await().text)
+    }
+
     private fun quietWindow(index: Int, cut: WindowCut) = DictationWindow(
         index = index,
         pcm = ByteArray(32_000) { if (it % 2 == 0) 100.toByte() else 0.toByte() },
@@ -451,8 +499,6 @@ class IncrementalTranscriptionControllerTest {
     ) : TranscriptionClient {
         val started = mutableListOf<Int>()
         val keys = mutableListOf<String>()
-        var cancelCount = 0
-            private set
 
         override suspend fun transcribe(
             window: dev.rafaelbrauner.flowvoice.shared.dictation.DictationWindow,
@@ -465,9 +511,6 @@ class IncrementalTranscriptionControllerTest {
             failures[window.index]?.let { throw it }
             return results[window.index] ?: TranscriptionResult("w${window.index}", "fake")
         }
-
-        override fun cancel() {
-            cancelCount++
-        }
     }
+
 }

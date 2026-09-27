@@ -63,7 +63,6 @@ class IncrementalTranscriptionController(
         cancelled = true
         jobs.toList().forEach { it.cancel() }
         jobs.clear()
-        client.cancel()
     }
 
     // A chave vale para a sessão inteira: uma falha passageira do cofre no meio do ditado não pode

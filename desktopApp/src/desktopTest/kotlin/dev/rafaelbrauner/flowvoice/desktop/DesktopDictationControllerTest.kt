@@ -146,7 +146,6 @@ private class GatedTranscriptionClient : TranscriptionClient {
         return TranscriptionResult(text = text, model = model ?: "fake")
     }
 
-    override fun cancel() = Unit
 }
 
 private object NoOpTextInserter : TextInserter {

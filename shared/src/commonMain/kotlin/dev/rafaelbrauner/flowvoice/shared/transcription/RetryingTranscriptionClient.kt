@@ -42,10 +42,6 @@ class RetryingTranscriptionClient(
         }
     }
 
-    override fun cancel() {
-        delegate.cancel()
-    }
-
     private fun delayFor(error: TranscriptionError, attempt: Int): Long {
         if (error is TranscriptionError.RateLimit) {
             return error.retryAfterMs ?: RetryDelay.exponential(
