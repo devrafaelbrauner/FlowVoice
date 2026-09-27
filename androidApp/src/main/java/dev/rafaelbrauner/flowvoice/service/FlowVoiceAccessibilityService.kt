@@ -9,6 +9,7 @@ import android.graphics.Rect
 import android.graphics.RectF
 import android.os.Build
 import android.os.Bundle
+import android.os.SystemClock
 import android.text.Spanned
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
@@ -50,7 +51,7 @@ class FlowVoiceAccessibilityService : AccessibilityService(), FocusedFieldAccess
         Log.i(TAG, "Serviço de acessibilidade conectado (flags=0x${flags.toString(16)})")
     }
 
-    private val previousApps by lazy { PreviousAppTracker(packageName) }
+    private val previousApps by lazy { PreviousAppTracker(packageName) { SystemClock.elapsedRealtime() } }
     private var homePackages: Set<String> = emptySet()
 
     // Muda a cada input novo ou encerrado, nunca num restartInput do mesmo campo: a inserção sem toque
