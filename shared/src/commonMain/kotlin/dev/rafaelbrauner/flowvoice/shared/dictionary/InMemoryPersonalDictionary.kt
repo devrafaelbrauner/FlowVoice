@@ -1,5 +1,8 @@
 package dev.rafaelbrauner.flowvoice.shared.dictionary
 
+// N9 (revisão de código): toda palavra de 4+ letras de todo ditado virava sugestão pendente, e a
+// lista crescia sem limite, guardando vocabulário clínico na memória. Ficam as últimas
+// MAX_PENDING_SUGGESTIONS; ao passar disso sai a mais antiga.
 class InMemoryPersonalDictionary(
     private val persist: DictionaryPersist = DictionaryPersist.NoOp
 ) : PersonalDictionary {
@@ -41,12 +44,19 @@ class InMemoryPersonalDictionary(
             .filter { normalizeKey(it) !in known }
             .also { suggestions ->
                 suggestions.forEach { pendingTerms.putIfAbsent(normalizeKey(it), it) }
+                while (pendingTerms.size > MAX_PENDING_SUGGESTIONS) {
+                    pendingTerms.remove(pendingTerms.keys.first())
+                }
             }
     }
 
     override fun apply(text: String): String = DictionaryApplier.apply(text, approvedTerms.values)
 
     private fun normalizeKey(value: String): String = value.lowercase()
+
+    companion object {
+        const val MAX_PENDING_SUGGESTIONS = 100
+    }
 }
 
 interface DictionaryPersist {
