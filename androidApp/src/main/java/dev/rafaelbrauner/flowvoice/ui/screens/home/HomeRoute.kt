@@ -14,11 +14,9 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -66,7 +64,6 @@ import dev.rafaelbrauner.flowvoice.shared.pipeline.DictationPipelineStatus
 import dev.rafaelbrauner.flowvoice.ui.components.FvCard
 import dev.rafaelbrauner.flowvoice.ui.components.MicButton
 import dev.rafaelbrauner.flowvoice.ui.components.MonoLabel
-import dev.rafaelbrauner.flowvoice.ui.components.StatCard
 import dev.rafaelbrauner.flowvoice.ui.components.StatusPill
 import dev.rafaelbrauner.flowvoice.ui.components.ThemePreviewParameter
 import dev.rafaelbrauner.flowvoice.ui.components.Wordmark
@@ -86,7 +83,6 @@ import kotlinx.coroutines.withTimeoutOrNull
 private const val RECENT_NOTES = 2
 private const val START_TIMEOUT_MS = 4_000L
 private const val LATE_START_GRACE_MS = 10_000L
-private const val NO_DATA = "—"
 
 @Immutable
 data class RecentNote(
@@ -275,21 +271,7 @@ internal fun HomeScreen(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(IntrinsicSize.Min)
-                .padding(start = 16.dp, end = 16.dp, top = 14.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            val stat = Modifier
-                .weight(1f)
-                .fillMaxHeight()
-            StatCard(value = NO_DATA, label = "Latência média", modifier = stat)
-            StatCard(value = NO_DATA, label = "Ditados hoje", modifier = stat)
-            StatCard(value = NO_DATA, label = "Gasto hoje", modifier = stat)
-        }
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(start = 16.dp, end = 16.dp, top = 4.dp),
+                .padding(start = 16.dp, end = 16.dp, top = 10.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
