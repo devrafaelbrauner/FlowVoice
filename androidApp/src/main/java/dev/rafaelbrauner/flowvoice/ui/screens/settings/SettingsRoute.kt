@@ -357,11 +357,11 @@ fun SettingsRoute(onOpenDiagnostics: () -> Unit, modifier: Modifier = Modifier) 
             ) { overlayPermissionLauncher.launch(it) }
         },
         onProofreadingChange = { enabled ->
-            preferencesStore.write(preferences.copy(proofreadingEnabled = enabled))
+            preferencesStore.write(preferencesStore.read().copy(proofreadingEnabled = enabled))
             preferences = preferencesStore.read()
         },
         onReviewBeforeInsertChange = { enabled ->
-            preferencesStore.write(preferences.copy(reviewBeforeInsert = enabled))
+            preferencesStore.write(preferencesStore.read().copy(reviewBeforeInsert = enabled))
             preferences = preferencesStore.read()
         },
         onOpenDiagnostics = onOpenDiagnostics,
@@ -369,7 +369,7 @@ fun SettingsRoute(onOpenDiagnostics: () -> Unit, modifier: Modifier = Modifier) 
             context.startActivitySafely(Intent(Intent.ACTION_VIEW, AppLinks.PRIVACY_POLICY_URL.toUri()))
         },
         onClientIdChange = { clientId ->
-            preferencesStore.write(preferences.copy(googleWebClientId = clientId.trim()))
+            preferencesStore.write(preferencesStore.read().copy(googleWebClientId = clientId.trim()))
             preferences = preferencesStore.read()
         },
         onSignIn = ::signIn,

@@ -276,12 +276,10 @@ class FlowVoiceOverlayService : Service(), KoinComponent, BubbleHost {
             Intent(this, FlowVoiceOverlayService::class.java).setAction(ACTION_STOP),
             PendingIntent.FLAG_IMMUTABLE
         )
-        val open = PendingIntent.getActivity(
-            this,
-            0,
-            Intent(this, MainActivity::class.java),
-            PendingIntent.FLAG_IMMUTABLE
-        )
+        // A mesma intent do ícone do launcher: o toque traz a tarefa que já existe para a frente em vez de
+        // empilhar uma segunda MainActivity, com outra pilha e outro onboarding (N3).
+        val launch = packageManager.getLaunchIntentForPackage(packageName) ?: Intent(this, MainActivity::class.java)
+        val open = PendingIntent.getActivity(this, 0, launch, PendingIntent.FLAG_IMMUTABLE)
         NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
             .setContentTitle("FlowVoice pronto para ditar")

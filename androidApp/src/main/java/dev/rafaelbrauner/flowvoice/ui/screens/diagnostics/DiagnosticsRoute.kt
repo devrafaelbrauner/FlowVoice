@@ -61,6 +61,7 @@ import dev.rafaelbrauner.flowvoice.shared.prefs.PreferencesStore
 import dev.rafaelbrauner.flowvoice.shared.transcription.OpenRouterConfig
 import dev.rafaelbrauner.flowvoice.shared.transcription.SecretStore
 import dev.rafaelbrauner.flowvoice.shared.transcription.TranscriptionClient
+import dev.rafaelbrauner.flowvoice.shared.transcription.TranscriptionModels
 import dev.rafaelbrauner.flowvoice.ui.components.FvCard
 import dev.rafaelbrauner.flowvoice.ui.components.FvDivider
 import dev.rafaelbrauner.flowvoice.ui.components.KeyValueRow
@@ -149,7 +150,7 @@ fun DiagnosticsRoute(
             keyConfigured = secretStore.readOpenRouterKey() != null,
             signedIn = authGateway.isSignedIn,
             proofreading = preferencesStore.read().proofreadingEnabled,
-            model = config.model,
+            model = TranscriptionModels.selected(preferencesStore, config),
             notes = noteStore.list().size,
             terms = dictionary.approved().size,
             overlay = FlowVoiceOverlayService.running

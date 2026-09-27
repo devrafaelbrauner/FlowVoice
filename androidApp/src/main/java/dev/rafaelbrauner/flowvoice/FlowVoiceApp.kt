@@ -65,6 +65,8 @@ private fun logcat(event: String, metadata: Map<String, String>) {
 
 private fun transcriptTextLog(context: Context): TranscriptionEventLog {
     val debuggable = context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
+    // Release nem olha o marcador: nada de acesso a disco na thread principal a cada evento (N14).
+    if (!debuggable) return TranscriptionEventLog { _, _ -> }
     val marker = File(context.filesDir, TranscriptTextLogging.MARKER_FILE)
     return TranscriptionEventLog { event, metadata ->
         val modifiedAt = marker.lastModified().takeIf { it > 0L }

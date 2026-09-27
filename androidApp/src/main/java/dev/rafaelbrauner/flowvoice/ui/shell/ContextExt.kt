@@ -29,6 +29,9 @@ fun Context.startActivitySafely(intent: Intent): Boolean = try {
     true
 } catch (_: ActivityNotFoundException) {
     false
+} catch (_: SecurityException) {
+    // Telas de Ajustes de alguns fabricantes não são exportadas: melhor não abrir do que derrubar o app (N5).
+    false
 }
 
 // Até o Android 10 o `package:` abre a página do FlowVoice; do 11 em diante o sistema ignora o pacote
