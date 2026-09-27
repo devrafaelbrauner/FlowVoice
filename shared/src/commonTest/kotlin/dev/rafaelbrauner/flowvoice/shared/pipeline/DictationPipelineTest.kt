@@ -36,6 +36,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.currentTime
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
@@ -1982,6 +1983,95 @@ class DictationPipelineTest {
         assertEquals(DictationProofread.REASON_PENDING, proofreadSkipReason(env))
     }
 
+    // Y5: uma janela presa na rede não segura o fim do ditado por minutos. No prazo, sai o que voltou,
+    // com aviso de qual trecho ficou sem resposta.
+    @Test
+    fun aWindowThatNeverAnswersEndsTheReviewAtTheDeadlineWithWhatCameBack() = runTest {
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = listOf(frame(100L), frame(100L), frame(50L)),
+            texts = mapOf(0 to "o médico", 1 to "pediu o exame", 2 to "de sangue"),
+            windowDelaysMs = mapOf(2 to 600_000L)
+        )
+
+        env.pipeline.start()
+        runCurrent()
+        val stoppedAt = currentTime
+        val ready = assertIs<DictationPipelineStatus.Ready>(env.pipeline.finalizeForReview())
+
+        assertEquals(15_000L, currentTime - stoppedAt)
+        assertEquals("o médico pediu o exame", ready.text)
+        assertEquals("Trecho 3 de 3 falhou (sem resposta a tempo): texto incompleto", ready.warning)
+    }
+
+    @Test
+    fun aWindowThatNeverAnswersEndsTheDirectDictationAtTheDeadlineAndNothingIsTypedAfterwards() = runTest {
+        val inserter = DirectInserter()
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = listOf(frame(100L), frame(100L), frame(50L)),
+            texts = mapOf(0 to "Paciente relata dor.", 1 to "Nega febre.", 2 to "Sem tosse."),
+            preferences = AppPreferences(),
+            textInserter = inserter,
+            windowDelaysMs = mapOf(1 to 600_000L)
+        )
+
+        env.pipeline.start()
+        runCurrent()
+        assertEquals("Paciente relata dor.", inserter.field.toString())
+        val stoppedAt = currentTime
+        val completed = assertIs<DictationPipelineStatus.Completed>(env.pipeline.finalize())
+
+        assertEquals(15_000L, currentTime - stoppedAt)
+        assertEquals("Paciente relata dor.", completed.text)
+        assertEquals("Trechos 2, 3 de 3 falharam (sem resposta a tempo): texto incompleto", completed.warning)
+        advanceTimeBy(600_000L)
+        assertEquals("Paciente relata dor.", inserter.field.toString())
+    }
+
+    // N8: o teto de 5 s da revisão (P152) vale também para a revisão antes de inserir e para a nota.
+    @Test
+    fun aHangingRevisionBeforeInsertGivesUpAtTheCapAndKeepsTheDictation() = runTest {
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = listOf(frame(50L)),
+            texts = mapOf(0 to "tomar dipirona"),
+            preferences = AppPreferences(proofreadingEnabled = true, reviewBeforeInsert = true),
+            proofreadingDelayMs = 60_000L
+        )
+
+        env.pipeline.start()
+        runCurrent()
+        val stoppedAt = currentTime
+        val ready = assertIs<DictationPipelineStatus.Ready>(env.pipeline.finalizeForReview())
+
+        assertEquals(DictationProofread.TIMEOUT_MS, currentTime - stoppedAt)
+        assertEquals("tomar dipirona", ready.text)
+    }
+
+    @Test
+    fun aHangingRevisionOfANoteGivesUpAtTheCapAndKeepsTheDictation() = runTest {
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = listOf(frame(50L)),
+            texts = mapOf(0 to "tomar dipirona"),
+            preferences = AppPreferences(proofreadingEnabled = true),
+            proofreadingDelayMs = 60_000L,
+            textInserter = CallRecordingInserter()
+        )
+        val note = NoteHarness(env.pipeline, backgroundScope)
+
+        env.pipeline.start(DictationTarget.Note)
+        runCurrent()
+        val stoppedAt = currentTime
+        assertIs<DictationPipelineStatus.Completed>(env.pipeline.finalize())
+        val elapsed = currentTime - stoppedAt
+        runCurrent()
+
+        assertEquals(DictationProofread.TIMEOUT_MS, elapsed)
+        assertEquals("tomar dipirona", note.body())
+    }
+
     private fun proofreadSkipReason(env: PipelineEnv): String? =
         env.log.events.single { it.event == "dictation_proofread_skipped" }.metadata["reason"]
 
@@ -2159,6 +2249,8 @@ private class PipelineEnv(
     proofreadingFails: Boolean = false,
     proofreadingDelayMs: Long = 0L,
     transcriptionDelayMs: Long = 0L,
+    // Janela que demora mais que as outras: a rede presa numa requisição só (Y5).
+    windowDelaysMs: Map<Int, Long> = emptyMap(),
     startError: Throwable? = null,
     failures: Map<Int, Throwable> = emptyMap(),
     apiKey: String? = "sk-or-v1-testkey123456",
@@ -2177,7 +2269,7 @@ private class PipelineEnv(
     val inserter = RecordingInserter(inserterSucceeds)
     val proofreader = FakeProofreader(proofreadingFails, proofreadingOutput, proofreadingDelayMs)
     val proofreaderCalls: MutableList<String> get() = proofreader.received
-    val client = ScriptedTranscriptionClient(texts, transcriptionDelayMs, failures)
+    val client = ScriptedTranscriptionClient(texts, transcriptionDelayMs, failures, windowDelaysMs)
     val secrets = secretStore ?: InMemorySecretStore().apply { apiKey?.let { writeOpenRouterKey(it) } }
     val pipeline = DictationPipeline(
         controller = DictationSessionController(captureEngine ?: engine, windowTargetDurationMs = 100L),
@@ -2304,13 +2396,15 @@ private class FakeProofreader(
 private class ScriptedTranscriptionClient(
     var texts: Map<Int, String>,
     private val delayMs: Long,
-    private val failures: Map<Int, Throwable> = emptyMap()
+    private val failures: Map<Int, Throwable> = emptyMap(),
+    private val windowDelaysMs: Map<Int, Long> = emptyMap()
 ) : TranscriptionClient {
     val requested = mutableListOf<Int>()
 
     override suspend fun transcribe(window: DictationWindow, apiKey: String, model: String?): TranscriptionResult {
         requested += window.index
-        if (delayMs > 0L) delay(delayMs)
+        val wait = windowDelaysMs[window.index] ?: delayMs
+        if (wait > 0L) delay(wait)
         failures[window.index]?.let { throw it }
         return TranscriptionResult(texts[window.index] ?: "w${window.index}", "fake")
     }

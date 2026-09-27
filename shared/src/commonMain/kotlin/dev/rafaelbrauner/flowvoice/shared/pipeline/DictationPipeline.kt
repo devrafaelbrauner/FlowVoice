@@ -77,6 +77,8 @@ class DictationPipeline(
     private var directPlan = DirectInsertionPlan()
     // Microfone que caiu no meio do ditado (R3): o texto até ali é entregue com este aviso.
     private var captureInterruption: CaptureInterruption? = null
+    // O fim do ditado passou do prazo (Y5): as janelas ainda sem resposta contam como falha.
+    private var finalizeDeadlinePassed = false
 
     val status: StateFlow<DictationPipelineStatus> = statusState.asStateFlow()
     val target: StateFlow<DictationTarget> = targetState.asStateFlow()
@@ -174,6 +176,7 @@ class DictationPipeline(
         targetState.value = target
         directPlan = DirectInsertionPlan()
         captureInterruption = null
+        finalizeDeadlinePassed = false
         directState.value = DirectInsertionProgress(
             sessionId = sessionId,
             active = target == DictationTarget.ActiveField && !preferences.read().reviewBeforeInsert
@@ -422,7 +425,7 @@ class DictationPipeline(
             DictationPipelineStatus.Transcribing -> Unit
             else -> return
         }
-        val segments = transcription.segments.value
+        val segments = resolvedSegments()
         val step = DirectInsertionPlanner.advance(directPlan, segments)
         var next = progress
         // Deixa de valer assim que um pedaço não entra direto no campo: o que está antes do cursor
@@ -535,9 +538,7 @@ class DictationPipeline(
         val mark = timeSource.markNow()
         publish(DictationPipelineStatus.Transcribing)
         val outcome = try {
-            controller.finalize()
-            submittedWindows.first { it >= controller.emittedWindowCount }
-            transcription.awaitIdle()
+            awaitTranscriptions()
             if (token != sessionToken) {
                 DictationPipelineStatus.Cancelled
             } else {
@@ -565,7 +566,7 @@ class DictationPipeline(
         }
         val latencyMs = mark.elapsedNow().inWholeMilliseconds
         val progress = directState.value
-        val failures = TranscriptionFailureSummary.from(transcription.segments.value, controller.emittedWindowCount)
+        val failures = TranscriptionFailureSummary.from(resolvedSegments(), controller.emittedWindowCount)
         val dictated = progress.typed + progress.pending
         if (dictated.isNotBlank()) dictionary.suggestFrom(dictated)
         return when {
@@ -745,14 +746,54 @@ class DictationPipeline(
     }
 
     private suspend fun transcribeFinalText(): FinalText {
-        controller.finalize()
-        submittedWindows.first { it >= controller.emittedWindowCount }
-        transcription.awaitIdle()
+        awaitTranscriptions()
+        val segments = resolvedSegments()
         val failures = TranscriptionFailureSummary.from(
-            segments = transcription.segments.value,
+            segments = segments,
             totalWindows = controller.emittedWindowCount
         )
-        return FinalText(reviseFinalText(), failures)
+        return FinalText(reviseFinalText(segments), failures)
+    }
+
+    // Fecha a captura e espera as janelas em voo, com prazo para a sessão inteira (Y5). Cada janela
+    // tem seus 30 s e 3 retentativas; com a rede presa, a fila somava minutos com o usuário parado em
+    // "Transcrevendo". Passado o prazo, o que já voltou é entregue e o resto conta como falha, com
+    // aviso — e nada mais é pedido à OpenRouter nesta sessão.
+    private suspend fun awaitTranscriptions() {
+        controller.finalize()
+        submittedWindows.first { it >= controller.emittedWindowCount }
+        withTimeoutOrNull(FINALIZE_DEADLINE) { transcription.awaitIdle() } ?: run {
+            finalizeDeadlinePassed = true
+            transcription.cancel()
+            log(
+                "dictation_finalize_deadline",
+                mapOf(
+                    "windows" to controller.emittedWindowCount.toString(),
+                    "unresolved" to resolvedSegments().count { it.errorKind == TranscriptionFailureSummary.DEADLINE_KIND }.toString()
+                )
+            )
+        }
+    }
+
+    // As janelas como o fim do ditado as enxerga: depois do prazo (Y5), a que ficou sem resposta — ou
+    // nem chegou a ir, presa na fila — vira falha, para o texto sair sem ela e o aviso dizer qual foi.
+    private fun resolvedSegments(): List<TranscriptionSegment> {
+        val segments = transcription.segments.value
+        if (!finalizeDeadlinePassed) return segments
+        val byWindow = segments.associateBy { it.windowIndex }
+        val total = maxOf(controller.emittedWindowCount, (segments.maxOfOrNull { it.windowIndex } ?: -1) + 1)
+        return (0 until total).map { index ->
+            val segment = byWindow[index]
+            if (segment == null || segment.status == TranscriptionSegment.Status.Transcribing) {
+                TranscriptionSegment(
+                    windowIndex = index,
+                    status = TranscriptionSegment.Status.Failed,
+                    errorKind = TranscriptionFailureSummary.DEADLINE_KIND
+                )
+            } else {
+                segment
+            }
+        }
     }
 
     private fun noTextFailure(failures: TranscriptionFailureSummary): DictationPipelineStatus {
@@ -813,9 +854,9 @@ class DictationPipeline(
         return DictationPipelineStatus.Completed(text, insertion, warning, latencyMs)
     }
 
-    private suspend fun reviseFinalText(): String {
+    private suspend fun reviseFinalText(segments: List<TranscriptionSegment>): String {
         val assembled = LivePreviewAssembler.assemble(
-            segments = transcription.segments.value,
+            segments = segments,
             sessionComplete = true
         )
         val revised = dictionary.apply(assembled.finalized)
@@ -824,7 +865,14 @@ class DictationPipeline(
         if (statusState.value == DictationPipelineStatus.Cancelled) return revised
         val apiKey = sessionApiKey ?: return revised
         return try {
-            val proofread = proofreading.proofread(revised, apiKey, prefs.proofreadingModel)
+            // O mesmo teto da revisão do ditado direto (P152, N8): o usuário espera parado pelo texto.
+            val proofread = withTimeoutOrNull(DictationProofread.TIMEOUT_MS) {
+                proofreading.proofread(revised, apiKey, prefs.proofreadingModel)
+            }
+            if (proofread == null) {
+                log("proofreading_unavailable", mapOf("reason" to DictationProofread.REASON_TIMEOUT))
+                return revised
+            }
             transcriptTextLog.log("proofreading_input", mapOf("text" to revised))
             transcriptTextLog.log("proofreading_output", mapOf("text" to proofread))
             if (!ProofreadingGuard.accepts(revised, proofread)) {
@@ -885,5 +933,10 @@ class DictationPipeline(
         const val DIRECT_ROUTE = "direto"
         val RETRY_GUARD = 1.seconds
         val NOTE_DELIVERY = TextInsertionResult(success = false, route = "nota", message = "texto entregue à nota")
+
+        // Prazo do fim do ditado (Y5), do toque de parar até o texto: uma janela sadia volta em 1–2 s,
+        // e a fila no fim é de uma ou duas janelas. 15 s cobrem uma retentativa com folga sem deixar o
+        // usuário minutos em "Transcrevendo".
+        val FINALIZE_DEADLINE = 15.seconds
     }
 }
