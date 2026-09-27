@@ -60,6 +60,9 @@ class OpenRouterTranscriptionClient(
         // uma resposta maior.
         var verbose = window.contextDurationMs > 0L && usedModel !in withoutTimestamps
         var httpStatus: Int? = null
+        // Status do `verbose_json` recusado, à espera de o pedido em `json` dizer se a culpa era do
+        // formato (N6).
+        var verboseRefusal: Int? = null
         return try {
             var payload: TranscriptionPayload? = null
             while (payload == null) {
@@ -70,7 +73,7 @@ class OpenRouterTranscriptionClient(
                     // Provedor que recusa o formato: a janela é refeita em `json` na hora, para o
                     // ditado não parar por causa de um campo a mais no pedido.
                     if (verbose && status in FORMAT_REFUSED) {
-                        dropTimestamps(window, usedModel, "http_$status", status)
+                        verboseRefusal = status
                         verbose = false
                         continue
                     }
@@ -82,6 +85,10 @@ class OpenRouterTranscriptionClient(
                     )
                 }
                 payload = TranscriptionPayloadParser.parse(raw)
+                // O 400/422 só prova que o modelo não tem tempos quando o mesmo áudio passa em `json`.
+                // Se o `json` também recusa, o problema era a janela (curta, malformada), e marcar o
+                // modelo tiraria o corte por tempo de todas as janelas seguintes do processo.
+                verboseRefusal?.let { dropTimestamps(window, usedModel, "http_$it", it) }
                 // Aceitou o formato e não mandou tempo: refazer não adiantaria e o texto já veio.
                 if (verbose && !payload.hasTimes && payload.text.isNotEmpty()) {
                     dropTimestamps(window, usedModel, "sem_tempos", null)
