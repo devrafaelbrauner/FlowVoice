@@ -4,15 +4,19 @@ import dev.rafaelbrauner.flowvoice.shared.overlay.OverlayStartGuard
 import dev.rafaelbrauner.flowvoice.shared.pipeline.DictationPipelineSession
 import dev.rafaelbrauner.flowvoice.shared.pipeline.DictationPipelineStatus
 
-enum class MicAction { OpenOnboarding, OverlayUnsupported, RequestOverlayPermission, StartDictation }
+enum class MicAction { OpenOnboarding, ConfigureKey, OverlayUnsupported, RequestOverlayPermission, StartDictation }
 
+// A chave é conferida antes da sobreposição: sem ela o ditado falharia logo depois de o usuário
+// voltar da tela do sistema (R5c).
 fun micAction(
     accessibilityRunning: Boolean,
     microphoneGranted: Boolean,
+    keyConfigured: Boolean,
     sdkInt: Int,
     canDrawOverlays: Boolean
 ): MicAction = when {
     !accessibilityRunning || !microphoneGranted -> MicAction.OpenOnboarding
+    !keyConfigured -> MicAction.ConfigureKey
     sdkInt < OverlayStartGuard.MIN_SDK_APPLICATION_OVERLAY -> MicAction.OverlayUnsupported
     !canDrawOverlays -> MicAction.RequestOverlayPermission
     else -> MicAction.StartDictation

@@ -7,6 +7,7 @@ import android.util.Log
 import dev.rafaelbrauner.flowvoice.logging.LogChunks
 import dev.rafaelbrauner.flowvoice.logging.TranscriptTextLogging
 import dev.rafaelbrauner.flowvoice.service.AccessibilityTextInserter
+import dev.rafaelbrauner.flowvoice.service.AppForeground
 import dev.rafaelbrauner.flowvoice.shared.dictation.AndroidAudioCaptureEngine
 import dev.rafaelbrauner.flowvoice.shared.dictation.AudioCaptureEngine
 import dev.rafaelbrauner.flowvoice.shared.dictation.DictationSessionController
@@ -44,6 +45,7 @@ class FlowVoiceApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        registerActivityLifecycleCallbacks(AppForeground)
         GlobalContext.startKoin {
             androidContext(this@FlowVoiceApp)
             modules(sharedModule, dictationModule)

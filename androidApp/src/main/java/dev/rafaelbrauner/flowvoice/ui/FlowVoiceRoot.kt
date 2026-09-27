@@ -47,6 +47,8 @@ fun FlowVoiceRoot(modifier: Modifier = Modifier) {
     var noteToOpen by rememberSaveable { mutableStateOf<String?>(null) }
     val current = stack.current
     val tab = current.tab()
+    // Único destino de "Configurar chave" no Início e nas Notas: hoje a aba Ajustes.
+    val openKeySetup: () -> Unit = { stack = stack.selectTab(FvTab.Settings) }
 
     BackHandler(enabled = stack.canPop) { stack = stack.pop() }
 
@@ -98,10 +100,15 @@ fun FlowVoiceRoot(modifier: Modifier = Modifier) {
                     },
                     onOpenDiagnostics = { stack = stack.push(FvDestination.Diagnostics) },
                     onOpenOnboarding = { stack = stack.push(FvDestination.Onboarding) },
+                    onOpenKeySetup = openKeySetup,
                     modifier = screen
                 )
 
-                FvDestination.Notes -> NotesRoute(initialNoteId = noteToOpen, modifier = screen)
+                FvDestination.Notes -> NotesRoute(
+                    initialNoteId = noteToOpen,
+                    onOpenKeySetup = openKeySetup,
+                    modifier = screen
+                )
 
                 FvDestination.Dictionary -> DictionaryRoute(modifier = screen)
 

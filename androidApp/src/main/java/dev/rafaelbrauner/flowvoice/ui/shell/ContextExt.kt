@@ -5,6 +5,8 @@ import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
+import android.provider.Settings
+import androidx.core.net.toUri
 import dev.rafaelbrauner.flowvoice.service.FlowVoiceAccessibilityService
 
 tailrec fun Context.findActivity(): Activity? = when (this) {
@@ -27,4 +29,11 @@ fun Context.startActivitySafely(intent: Intent): Boolean = try {
     true
 } catch (_: ActivityNotFoundException) {
     false
+}
+
+// Até o Android 10 o `package:` abre a página do FlowVoice; do 11 em diante o sistema ignora o pacote
+// e sempre mostra a lista de apps (mudança documentada da plataforma), então o usuário escolhe o app lá.
+fun Context.openOverlayPermissionSettings() {
+    val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, "package:$packageName".toUri())
+    if (!startActivitySafely(intent)) startActivitySafely(Intent(Settings.ACTION_SETTINGS))
 }

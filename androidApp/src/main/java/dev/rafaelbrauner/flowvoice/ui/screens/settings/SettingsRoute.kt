@@ -36,6 +36,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -83,6 +84,10 @@ import dev.rafaelbrauner.flowvoice.ui.components.ThemePreviewParameter
 import dev.rafaelbrauner.flowvoice.ui.icons.FlowVoiceIcons
 import dev.rafaelbrauner.flowvoice.ui.rememberKoin
 import dev.rafaelbrauner.flowvoice.ui.screens.diagnostics.DiagnosticsLog
+import dev.rafaelbrauner.flowvoice.ui.shell.AppLinks
+import dev.rafaelbrauner.flowvoice.ui.shell.OverlayPermissionReturn
+import dev.rafaelbrauner.flowvoice.ui.shell.PendingOverlayPermission
+import dev.rafaelbrauner.flowvoice.ui.shell.openOverlayPermissionSettings
 import dev.rafaelbrauner.flowvoice.ui.shell.startActivitySafely
 import dev.rafaelbrauner.flowvoice.ui.theme.FlowVoiceTheme
 import kotlinx.coroutines.CancellationException
@@ -122,6 +127,7 @@ data class SettingsActions(
     val onProofreadingChange: (Boolean) -> Unit,
     val onReviewBeforeInsertChange: (Boolean) -> Unit,
     val onOpenDiagnostics: () -> Unit,
+    val onOpenPrivacyPolicy: () -> Unit,
     val onClientIdChange: (String) -> Unit,
     val onSignIn: () -> Unit,
     val onSignOut: () -> Unit,
@@ -155,6 +161,7 @@ fun SettingsRoute(onOpenDiagnostics: () -> Unit, modifier: Modifier = Modifier) 
     var accountEmail by remember { mutableStateOf(authGateway.currentUser()?.email) }
     var accessibilityActive by remember { mutableStateOf(FlowVoiceAccessibilityService.isRunning) }
     var overlayMessage by remember { mutableStateOf<String?>(null) }
+    var pendingOverlayEnable by rememberSaveable { mutableStateOf(false) }
     var signingIn by remember { mutableStateOf(false) }
     var syncing by remember { mutableStateOf(false) }
     var accountMessage by remember { mutableStateOf<String?>(null) }
@@ -223,8 +230,9 @@ fun SettingsRoute(onOpenDiagnostics: () -> Unit, modifier: Modifier = Modifier) 
             }
             OverlayToggleAction.Unsupported -> "O botão flutuante requer Android 8 ou superior."
             OverlayToggleAction.RequestOverlayPermission -> {
-                openOverlayPermissionSettings(context)
-                "Autorize “sobrepor a outros apps” e ligue de novo."
+                pendingOverlayEnable = true
+                context.openOverlayPermissionSettings()
+                "Ative “sobrepor a outros apps” para o FlowVoice; o botão liga quando você voltar."
             }
             is OverlayToggleAction.RequestPermissions -> {
                 requestPermissions(action.permissions.toTypedArray())
@@ -233,7 +241,7 @@ fun SettingsRoute(onOpenDiagnostics: () -> Unit, modifier: Modifier = Modifier) 
             OverlayToggleAction.MicrophoneDenied -> "O botão flutuante precisa da permissão de microfone."
             OverlayToggleAction.Start -> {
                 ContextCompat.startForegroundService(context, Intent(context, FlowVoiceOverlayService::class.java))
-                "Botão flutuante ligado."
+                "Botão flutuante ligado: ele aparece quando você sai do FlowVoice."
             }
         }
         overlayMessage = message
@@ -246,6 +254,25 @@ fun SettingsRoute(onOpenDiagnostics: () -> Unit, modifier: Modifier = Modifier) 
         applyOverlayAction(
             overlayDecision(context, FlowVoiceOverlayService.running, permissionsRequested = true)
         ) { }
+    }
+
+    LifecycleResumeEffect(Unit) {
+        when (PendingOverlayPermission.onReturn(pendingOverlayEnable, Settings.canDrawOverlays(context))) {
+            OverlayPermissionReturn.NotPending -> Unit
+            OverlayPermissionReturn.Continue -> {
+                pendingOverlayEnable = false
+                applyOverlayAction(
+                    overlayDecision(context, FlowVoiceOverlayService.running, permissionsRequested = false)
+                ) { overlayPermissionLauncher.launch(it) }
+            }
+            OverlayPermissionReturn.StillMissing -> {
+                pendingOverlayEnable = false
+                val message = "Autorize “sobrepor a outros apps” e ligue de novo."
+                overlayMessage = message
+                diagnosticsLog.add(message)
+            }
+        }
+        onPauseOrDispose { }
     }
 
     fun saveKey() {
@@ -381,6 +408,9 @@ fun SettingsRoute(onOpenDiagnostics: () -> Unit, modifier: Modifier = Modifier) 
             preferences = preferencesStore.read()
         },
         onOpenDiagnostics = onOpenDiagnostics,
+        onOpenPrivacyPolicy = {
+            context.startActivitySafely(Intent(Intent.ACTION_VIEW, AppLinks.PRIVACY_POLICY_URL.toUri()))
+        },
         onClientIdChange = { clientId ->
             preferencesStore.write(preferences.copy(googleWebClientId = clientId.trim()))
             preferences = preferencesStore.read()
@@ -476,7 +506,8 @@ internal fun SettingsContent(
                 }
             }
             AccountCard(state, actions)
-            DiagnosticsLinkCard(actions.onOpenDiagnostics)
+            LinkCard("Diagnóstico técnico", "Rota de inserção, permissões e log do serviço", actions.onOpenDiagnostics)
+            LinkCard("Política de privacidade", "O que o FlowVoice envia, guarda e lê", actions.onOpenPrivacyPolicy)
             Spacer(Modifier.height(8.dp))
         }
     }
@@ -715,12 +746,12 @@ private fun AccountCard(state: SettingsUiState, actions: SettingsActions) {
 }
 
 @Composable
-private fun DiagnosticsLinkCard(onOpenDiagnostics: () -> Unit) {
+private fun LinkCard(title: String, subtitle: String, onClick: () -> Unit) {
     val colors = FlowVoiceTheme.colors
     val typography = FlowVoiceTheme.typography
     FvCard(
         modifier = Modifier.fillMaxWidth(),
-        onClick = onOpenDiagnostics,
+        onClick = onClick,
         contentPadding = PaddingValues(14.dp)
     ) {
         Row(
@@ -729,10 +760,10 @@ private fun DiagnosticsLinkCard(onOpenDiagnostics: () -> Unit) {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(Modifier.weight(1f)) {
-                Text("Diagnóstico técnico", style = typography.rowLabel, color = colors.textPrimary)
+                Text(title, style = typography.rowLabel, color = colors.textPrimary)
                 Spacer(Modifier.height(3.dp))
                 Text(
-                    text = "Rota de inserção, permissões e log do serviço",
+                    text = subtitle,
                     style = typography.bodySmall,
                     color = colors.textTertiary
                 )
@@ -760,13 +791,6 @@ private fun overlayDecision(context: Context, running: Boolean, permissionsReque
             context.isGranted(OverlayToggle.POST_NOTIFICATIONS),
         permissionsRequested = permissionsRequested
     )
-
-private fun openOverlayPermissionSettings(context: Context) {
-    val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, "package:${context.packageName}".toUri())
-    if (!context.startActivitySafely(intent)) {
-        context.startActivitySafely(Intent(Settings.ACTION_SETTINGS))
-    }
-}
 
 private fun Context.isGranted(permission: String): Boolean =
     ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
@@ -805,7 +829,7 @@ private fun SettingsContentPreview(@PreviewParameter(ThemePreviewParameter::clas
                 syncing = false,
                 accountMessage = null
             ),
-            actions = SettingsActions({}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {})
+            actions = SettingsActions({}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {})
         )
     }
 }
