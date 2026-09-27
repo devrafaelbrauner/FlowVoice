@@ -14,8 +14,8 @@ android {
         applicationId = "dev.rafaelbrauner.flowvoice"
         minSdk = 24
         targetSdk = 36
-        versionCode = 15
-        versionName = "0.5.1"
+        versionCode = 16
+        versionName = "0.6.0"
     }
 
     // Chave de release fora do repositório: keystore.properties na raiz (ignorado pelo git) ou
