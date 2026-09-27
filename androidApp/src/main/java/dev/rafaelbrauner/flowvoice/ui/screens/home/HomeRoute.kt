@@ -61,8 +61,10 @@ import dev.rafaelbrauner.flowvoice.shared.notes.NoteDictationCoordinator
 import dev.rafaelbrauner.flowvoice.shared.notes.NoteStore
 import dev.rafaelbrauner.flowvoice.shared.pipeline.DictationPipeline
 import dev.rafaelbrauner.flowvoice.shared.pipeline.DictationPipelineStatus
+import dev.rafaelbrauner.flowvoice.shared.transcription.SecretStore
 import dev.rafaelbrauner.flowvoice.ui.components.FvCard
 import dev.rafaelbrauner.flowvoice.ui.components.MicButton
+import dev.rafaelbrauner.flowvoice.ui.components.MissingKeyNotice
 import dev.rafaelbrauner.flowvoice.ui.components.MonoLabel
 import dev.rafaelbrauner.flowvoice.ui.components.StatusPill
 import dev.rafaelbrauner.flowvoice.ui.components.ThemePreviewParameter
@@ -98,21 +100,26 @@ fun HomeRoute(
     onOpenNote: (String) -> Unit,
     onOpenDiagnostics: () -> Unit,
     onOpenOnboarding: () -> Unit,
+    onOpenKeySetup: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val noteStore = rememberKoin<NoteStore>()
     val pipeline = rememberKoin<DictationPipeline>()
+    val secretStore = rememberKoin<SecretStore>()
     val scope = rememberCoroutineScope()
     var accessibilityActive by remember { mutableStateOf(FlowVoiceAccessibilityService.isRunning) }
     var notes by remember { mutableStateOf(noteStore.list().take(RECENT_NOTES)) }
     var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
     var askedNotifications by rememberSaveable { mutableStateOf(false) }
+    var keyNotice by rememberSaveable { mutableStateOf(false) }
+    fun keyConfigured(): Boolean = !secretStore.readOpenRouterKey().isNullOrBlank()
 
     LifecycleResumeEffect(Unit) {
         accessibilityActive = FlowVoiceAccessibilityService.isRunning
         notes = noteStore.list().take(RECENT_NOTES)
         nowMs = System.currentTimeMillis()
+        if (keyNotice && keyConfigured()) keyNotice = false
         onPauseOrDispose { }
     }
 
@@ -135,16 +142,19 @@ fun HomeRoute(
                 time = RelativeTime.format(note.updatedAtMs, nowMs)
             )
         },
+        keyNotice = keyNotice,
         onStatus = { if (accessibilityActive) onOpenDiagnostics() else onOpenOnboarding() },
         onMic = {
             val action = micAction(
                 accessibilityRunning = FlowVoiceAccessibilityService.isRunning,
                 microphoneGranted = context.hasPermission(Manifest.permission.RECORD_AUDIO),
+                keyConfigured = keyConfigured(),
                 sdkInt = Build.VERSION.SDK_INT,
                 canDrawOverlays = Settings.canDrawOverlays(context)
             )
             when (action) {
                 MicAction.OpenOnboarding -> onOpenOnboarding()
+                MicAction.ConfigureKey -> keyNotice = true
                 MicAction.OverlayUnsupported ->
                     context.toast("O ditado sobre outros apps requer Android 8 ou superior.")
                 MicAction.RequestOverlayPermission -> {
@@ -166,6 +176,8 @@ fun HomeRoute(
                 }
             }
         },
+        onConfigureKey = onOpenKeySetup,
+        onDismissKeyNotice = { keyNotice = false },
         onOpenNotes = onOpenNotes,
         onOpenNote = onOpenNote,
         modifier = modifier
@@ -241,8 +253,11 @@ private fun Context.toast(message: String) {
 internal fun HomeScreen(
     accessibilityActive: Boolean,
     notes: List<RecentNote>,
+    keyNotice: Boolean,
     onStatus: () -> Unit,
     onMic: () -> Unit,
+    onConfigureKey: () -> Unit,
+    onDismissKeyNotice: () -> Unit,
     onOpenNotes: () -> Unit,
     onOpenNote: (String) -> Unit,
     modifier: Modifier = Modifier
@@ -268,6 +283,13 @@ internal fun HomeScreen(
             onMic = onMic,
             modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp)
         )
+        if (keyNotice) {
+            MissingKeyNotice(
+                onConfigureKey = onConfigureKey,
+                onDismiss = onDismissKeyNotice,
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 10.dp)
+            )
+        }
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -393,8 +415,11 @@ private fun HomeScreenPreview(@PreviewParameter(ThemePreviewParameter::class) da
                 RecentNote("1", "Reunião de orçamento", "Fechamos o escopo da fase 2 com a Marina.", "09:41"),
                 RecentNote("2", "Ideias para o F05", "Rodar o corpus pt-BR", "ontem")
             ),
+            keyNotice = !dark,
             onStatus = {},
             onMic = {},
+            onConfigureKey = {},
+            onDismissKeyNotice = {},
             onOpenNotes = {},
             onOpenNote = {},
             modifier = Modifier.fillMaxSize()
