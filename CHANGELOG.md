@@ -6,6 +6,30 @@ estão em [`docs/tasks/`](docs/tasks/README.md).
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-09-27
+
+Release assinado e ícone do app, contra o aviso de malware no S26 (P161).
+
+### Security
+
+- P161: **o app instalado passa a ser o release assinado com chave própria.** O
+  APK debug que o README e o CI produziam é depurável e assinado pela chave
+  genérica `CN=Android Debug` (no CI, certificado novo a cada build). Somado a
+  acessibilidade, sobreposição e microfone, é a causa provável do aviso de
+  malware no S26 — hipótese: o aviso não foi observado no aparelho, nem qual
+  proteção o deu. O release lê a chave de `keystore.properties` (fora do git) ou
+  das variáveis `FLOWVOICE_*`, não é depurável e não leva o receiver de teste do
+  adb. Sem chave, sai sem assinatura como antes.
+- P161 / SEG-2: o CI não publica mais o APK debug; em `main`, com os segredos da
+  chave, publica `flowvoice-release` (APK assinado + `.sha256`) e confere a
+  assinatura com `apksigner`.
+
+### Added
+
+- P19: **ícone do app**, provisório: microfone laranja sobre fundo escuro, com as
+  cores do tema. Ícone adaptativo no Android 8+ e o mesmo desenho num círculo no
+  Android 7.
+
 ### Fixed
 
 - P149: **dois-pontos ou aspas na revisão não descartam mais a pontuação.** No S26

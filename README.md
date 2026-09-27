@@ -49,11 +49,64 @@ runtime empacotado do desktop inclui `java.net.http`.
 
 ## Instalação no Android
 
-```bash
-adb install -r androidApp/build/outputs/apk/debug/androidApp-debug.apk
-```
+Instale o **release assinado**, não o APK debug. A assinatura fixa e o app não
+depurável reduzem a chance de o Play Protect ou a proteção da Samsung acusarem o
+FlowVoice (P161).
 
-`install -r` preserva os dados do app, inclusive a chave salva.
+1. **Chave de release** (uma vez por máquina): um keystore fora do repositório,
+   por exemplo `~/.android/flowvoice-release.jks`, e um `keystore.properties` na
+   raiz (ignorado pelo git):
+
+   ```properties
+   storeFile=/Users/<você>/.android/flowvoice-release.jks
+   storePassword=...
+   keyAlias=flowvoice
+   keyPassword=...
+   ```
+
+   No lugar do arquivo valem as variáveis `FLOWVOICE_KEYSTORE_FILE`,
+   `FLOWVOICE_KEYSTORE_PASSWORD`, `FLOWVOICE_KEY_ALIAS` e `FLOWVOICE_KEY_PASSWORD`.
+   Sem nenhum dos dois, o release sai sem assinatura e não instala.
+2. **Build e instalação:**
+
+   ```bash
+   ./gradlew :androidApp:assembleRelease
+   adb install -r androidApp/build/outputs/apk/release/androidApp-release.apk
+   ```
+
+   `install -r` preserva os dados do app, inclusive a chave salva.
+
+- **Guarde uma cópia do keystore e da senha** fora do computador. Sem eles não há
+  atualização: um APK com outra chave só entra desinstalando e perdendo os dados.
+- **Troca de debug para release (uma vez):** o Android recusa atualizar um app com
+  certificado diferente. Rode `adb uninstall dev.rafaelbrauner.flowvoice` antes do
+  primeiro `install`. Isso apaga a chave OpenRouter salva, as notas e o dicionário:
+  salve de novo a chave em Ajustes e religue a acessibilidade.
+- **Instale pelo `adb`, não abrindo o APK** no navegador, no Arquivos, no Drive ou
+  no WhatsApp. Isso é "Internet-sideloading": no Brasil, a proteção reforçada contra
+  fraude do Play Protect bloqueia por esse caminho apps que pedem acessibilidade
+  ([guia do Play Protect](https://developers.google.com/android/play-protect/warning-dev-guidance),
+  [anúncio do piloto](https://security.googleblog.com/2024/02/piloting-new-ways-to-protect-Android-users-from%20financial-fraud.html)).
+- O CI publica o artefato `flowvoice-release` (APK assinado + `.sha256`) em `main`
+  quando os segredos `FLOWVOICE_KEYSTORE_BASE64` (keystore em Base64),
+  `FLOWVOICE_KEYSTORE_PASSWORD`, `FLOWVOICE_KEY_ALIAS` e `FLOWVOICE_KEY_PASSWORD`
+  estão configurados. O APK debug não é mais publicado.
+
+### Se o Play Protect ou a Samsung acusarem
+
+1. Anote qual proteção avisou (Play Protect ou "Proteção do dispositivo" da
+   Samsung) e a mensagem exata.
+2. Calcule o SHA-256 do APK instalado (`shasum -a 256 androidApp-release.apk`),
+   envie o APK ao VirusTotal e peça revisão no
+   [formulário de apelação do Play Protect](https://support.google.com/googleplay/android-developer/contact/protectappeals),
+   com o pacote `dev.rafaelbrauner.flowvoice` e esse SHA-256.
+3. Alternativa: distribuir pela Play Console em teste interno ou pelo
+   [compartilhamento interno de apps](https://play.google.com/console/about/internalappsharing/);
+   a instalação pela Play não é sideloading.
+4. [Verificação de desenvolvedor](https://developer.android.com/developer-verification):
+   a partir de 2026-09-30, no Brasil, apps vindos de lojas participantes exigem
+   desenvolvedor verificado. `adb install` continua funcionando; registrar o pacote
+   com esta chave garante a instalação fora do `adb` no futuro.
 
 ## Primeiro uso
 
