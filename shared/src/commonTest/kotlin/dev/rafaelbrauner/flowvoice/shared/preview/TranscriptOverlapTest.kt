@@ -155,6 +155,32 @@ class TranscriptOverlapTest {
         assertEquals("Tá muito bonito, por isso iremos para a praia pela manhã.", match.text)
     }
 
+    // N11: o casamento exato (degrau 1) também respeita o que o contexto comporta. 1 s de contexto
+    // explica umas quatro palavras; dez palavras iguais na emenda são o médico repetindo a frase de
+    // propósito, e apagá-las comeria fala que ele disse.
+    @Test
+    fun theExactRuleNeverRemovesMoreThanTheContextCouldHold() {
+        val match = TranscriptOverlap.match(
+            "Paciente relata dor abdominal intensa há três dias com febre alta.",
+            "Relata dor abdominal intensa há três dias com febre alta, sem vômitos.",
+            contextDurationMs = 1_000
+        )
+
+        assertEquals("Relata dor abdominal intensa há três dias com febre alta, sem vômitos.", match.text)
+    }
+
+    // O limite não tira a repetição que cabe no contexto.
+    @Test
+    fun theExactRuleStillRemovesTheRepetitionTheContextExplains() {
+        val match = TranscriptOverlap.match(
+            "Paciente relata dor abdominal com febre alta.",
+            "Com febre alta, sem vômitos.",
+            contextDurationMs = 1_000
+        )
+
+        assertEquals("sem vômitos.", match.text)
+    }
+
     // Uma palavra curta e diferente é palpite, não prova: sem duas palavras casando atrás dela, a
     // frase nova entra inteira.
     @Test
