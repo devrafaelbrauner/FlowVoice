@@ -36,6 +36,7 @@ fun FlowVoiceDesktopScreen(controller: DesktopDictationController, hideWindow: (
     val finalizing by controller.finalizing.collectAsState()
     val sessionState by controller.sessionState.collectAsState()
     val segments by controller.segments.collectAsState()
+    val warning by controller.warning.collectAsState()
     var keyDraft by remember { mutableStateOf("") }
     val preview = LivePreviewAssembler.assemble(
         segments = segments,
@@ -118,6 +119,8 @@ fun FlowVoiceDesktopScreen(controller: DesktopDictationController, hideWindow: (
                 if (preview.full.isBlank()) {
                     Text("(vazia)", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
+                // A prévia só mostra os trechos que saíram; o que falhou aparece aqui, antes do Inserir (Y6).
+                warning?.let { Text(it, color = MaterialTheme.colorScheme.error) }
 
                 Button(
                     onClick = { controller.insertIntoActiveApp(hideWindow) },

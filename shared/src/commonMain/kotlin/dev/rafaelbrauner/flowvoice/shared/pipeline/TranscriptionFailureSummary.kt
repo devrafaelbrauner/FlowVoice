@@ -3,7 +3,8 @@ package dev.rafaelbrauner.flowvoice.shared.pipeline
 import dev.rafaelbrauner.flowvoice.shared.transcription.IncrementalTranscriptionController
 import dev.rafaelbrauner.flowvoice.shared.transcription.TranscriptionSegment
 
-internal class TranscriptionFailureSummary private constructor(
+// Público para o desktop avisar do trecho que falhou como o Android (Y6).
+class TranscriptionFailureSummary private constructor(
     val failedCount: Int,
     private val failedWindows: List<Int>,
     private val totalWindows: Int,
