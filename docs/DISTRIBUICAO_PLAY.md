@@ -9,13 +9,36 @@ formulários). **[REPO]** = já feito ou feito por comando neste repositório.
 
 ## 0. Bloqueios antes do primeiro envio
 
-- [ ] **[REPO — pendente] `targetSdk` 36.** Desde 31/08/2026, apps novos e
-  atualizações precisam mirar o Android 16 (API 36); a página não abre exceção para
-  faixas de teste, só para apps privados permanentes. O `androidApp` hoje está com
-  `compileSdk = 35` / `targetSdk = 35`: o Play Console deve recusar o `.aab` até isso
-  subir para 36 (com teste no aparelho, porque o Android 16 muda comportamento).
-  Dá para pedir prorrogação até 01/11/2026 no Console.
+- [x] **[REPO] `targetSdk` 36.** Desde 31/08/2026, apps novos e atualizações
+  precisam mirar o Android 16 (API 36). A página não abre exceção para faixas de
+  teste, só para apps privados permanentes.
   [Target API level requirements](https://support.google.com/googleplay/android-developer/answer/11926878)
+  `androidApp` passou para `compileSdk = 36` / `targetSdk = 36`, e `shared` para
+  `compileSdk = 36`. O AGP 8.10.1 já suporta, sem troca de versão. As mudanças do
+  Android 16 para quem mira a API 36 foram conferidas contra o código
+  ([Behavior changes: apps targeting Android 16](https://developer.android.com/about/versions/16/behavior-changes-16)):
+  - edge-to-edge sem opt-out: o app não usa `windowOptOutEdgeToEdgeEnforcement`,
+    `MainActivity` chama `enableEdgeToEdge()` e `FlowVoiceRoot` aplica os insets
+    (`safeDrawing`, `imePadding`, `navigationBars`). Nada muda;
+  - voltar preditivo ligado por padrão: o único tratamento de voltar é o
+    `BackHandler` do `FlowVoiceRoot`, que usa o `OnBackPressedDispatcher` do
+    AndroidX, já compatível. Não há `onBackPressed` nem `KEYCODE_BACK`;
+  - orientação e redimensionamento ignorados em telas ≥ 600dp: o manifesto não
+    restringe nenhum dos dois;
+  - `elegantTextHeight`, `scheduleAtFixedRate`, Bluetooth, sensores de saúde,
+    MediaStore e `intentMatchingFlags`: não são usados.
+
+  As mudanças para todos os apps no Android 16 (cotas de JobScheduler,
+  redirecionamento de intent, anúncios de acessibilidade) também não atingem o
+  app: ele não agenda jobs, não relança intent recebida em extra e não chama
+  `announceForAccessibility`. A página não traz mudança em serviço de
+  acessibilidade, sobreposição, foreground service ou `AudioRecord`.
+  [Behavior changes: all apps](https://developer.android.com/about/versions/16/behavior-changes-all)
+  Falta o teste no aparelho ou no emulador com Android 16 (AVD `flowvoice_api36`).
+- [x] **[REPO] Páginas de 16 KB.** O Play exige suporte a páginas de 16 KB para
+  apps que miram a API 35+ ([Support 16 KB page sizes](https://developer.android.com/guide/practices/page-sizes)).
+  A única biblioteca nativa, `libandroidx.graphics.path.so`, tem segmentos LOAD
+  alinhados em 16 KB, e `zipalign -c -P 16` passa no APK de release.
 - [ ] **[REPO — pendente] Divulgação em destaque da acessibilidade** dentro do app
   (ver §5.3). O onboarding atual só diz "É o que permite escrever no campo ativo sem
   trocar seu teclado": não tem consentimento afirmativo nem descreve os dados.
