@@ -32,6 +32,13 @@ class DictionaryScreenState(private val dictionary: PersonalDictionary) {
         refresh()
     }
 
+    // Só termos aprovados: o pendente tem o "descartar" dele.
+    fun remove(surface: String) {
+        if (surface !in approved) return
+        dictionary.reject(surface)
+        refresh()
+    }
+
     fun updateDraft(value: String) {
         draft = value
     }

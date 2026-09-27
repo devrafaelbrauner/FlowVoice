@@ -71,4 +71,29 @@ class DictionaryScreenStateTest {
         assertFalse(state.addDraft())
         assertTrue(state.approved.isEmpty())
     }
+
+    @Test
+    fun removingAnApprovedTermStopsItFromRewritingDictations() {
+        val dictionary = InMemoryPersonalDictionary()
+        val state = DictionaryScreenState(dictionary)
+        state.updateDraft("Espinéia")
+        state.addDraft()
+        assertEquals("Paciente com Espinéia", dictionary.apply("Paciente com espinéia"))
+
+        state.remove("Espinéia")
+
+        assertTrue(state.approved.isEmpty())
+        assertEquals("Paciente com espinéia", dictionary.apply("Paciente com espinéia"))
+    }
+
+    @Test
+    fun removeDoesNotTouchAPendingSuggestion() {
+        val dictionary = InMemoryPersonalDictionary()
+        dictionary.suggestFrom("mando pro Brauner hoje")
+        val state = DictionaryScreenState(dictionary)
+
+        state.remove("Brauner")
+
+        assertTrue("Brauner" in state.pending)
+    }
 }
