@@ -38,6 +38,8 @@ import dev.rafaelbrauner.flowvoice.ui.overlay.OverlayLifecycleOwner
 import dev.rafaelbrauner.flowvoice.ui.overlay.OverlayMode
 import dev.rafaelbrauner.flowvoice.ui.overlay.OverlaySessionPolicy
 import dev.rafaelbrauner.flowvoice.ui.overlay.OverlayStartRequests
+import dev.rafaelbrauner.flowvoice.ui.overlay.OverlayWindow
+import dev.rafaelbrauner.flowvoice.ui.overlay.OverlayWindowFlags
 import dev.rafaelbrauner.flowvoice.ui.overlay.PreviewActions
 import dev.rafaelbrauner.flowvoice.ui.overlay.PreviewCardOverlay
 import dev.rafaelbrauner.flowvoice.ui.overlay.PreviewCardUi
@@ -415,7 +417,7 @@ class FlowVoiceOverlayService : Service(), KoinComponent, BubbleHost {
             gap = gap,
             maxWidth = dp(PREVIEW_MAX_WIDTH_DP)
         )
-        val params = screenParams(span.width).apply {
+        val params = screenParams(span.width, OverlayWindow.Card).apply {
             gravity = (if (placement.fromBottom) Gravity.BOTTOM else Gravity.TOP) or Gravity.START
             x = span.x
             y = if (placement.fromBottom) screenHeight - placement.edge else placement.edge
@@ -509,7 +511,7 @@ class FlowVoiceOverlayService : Service(), KoinComponent, BubbleHost {
     private fun bubbleParams(manager: WindowManager): WindowManager.LayoutParams {
         val area = safeArea(manager)
         val point = dragPoint ?: BubblePlacement.pointOf(position, area, bubbleSize())
-        return screenParams(WindowManager.LayoutParams.WRAP_CONTENT).apply {
+        return screenParams(WindowManager.LayoutParams.WRAP_CONTENT, OverlayWindow.Bubble).apply {
             gravity = Gravity.TOP or Gravity.START
             x = point.x
             y = point.y
@@ -517,30 +519,24 @@ class FlowVoiceOverlayService : Service(), KoinComponent, BubbleHost {
     }
 
     // x/y em pixels da tela: sem encaixe automático nas barras do sistema, que a SafeArea já desconta.
-    private fun screenParams(width: Int) = overlayParams(
-        width = width,
-        flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
-    ).apply {
+    private fun screenParams(width: Int, window: OverlayWindow) = overlayParams(width, window).apply {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             setFitInsetsTypes(0)
             layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
         }
     }
 
-    private fun barParams(offset: Int) = overlayParams(
-        width = WindowManager.LayoutParams.MATCH_PARENT,
-        flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
-    ).apply {
+    private fun barParams(offset: Int) = overlayParams(WindowManager.LayoutParams.MATCH_PARENT, OverlayWindow.Bubble).apply {
         gravity = Gravity.BOTTOM or Gravity.START
         x = 0
         y = offset
     }
 
-    private fun overlayParams(width: Int, flags: Int) = WindowManager.LayoutParams(
+    private fun overlayParams(width: Int, window: OverlayWindow) = WindowManager.LayoutParams(
         width,
         WindowManager.LayoutParams.WRAP_CONTENT,
         WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-        if (windowShown) flags else flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
+        OverlayWindowFlags.flags(window, bubbleWindowShown = windowShown),
         PixelFormat.TRANSLUCENT
     )
 
