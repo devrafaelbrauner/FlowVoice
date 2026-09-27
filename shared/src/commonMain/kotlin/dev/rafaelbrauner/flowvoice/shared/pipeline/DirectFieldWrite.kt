@@ -61,7 +61,12 @@ object DirectFieldWrite {
         return if (before.endsWith(wanted)) deleteBefore else 0
     }
 
-    fun verdict(before: String?, after: String?, erased: Int, written: String): Verdict {
+    // `typed` é a conta do próprio app — o que ele escreveu na sessão até antes deste pedaço. O
+    // `before` pode ser leitura velha (Y4): o pedaço anterior já comitado e ainda não aplicado pelo
+    // editor fica fora dele, e um refazer ancorado só no `before` apagaria esse pedaço junto. Por
+    // isso o campo que termina como a conta do app mais o pedaço está certo, o que termina só na
+    // conta do app é escrita ainda não aplicada, e nenhum refazer começa fora da conta do app.
+    fun verdict(before: String?, after: String?, erased: Int, written: String, typed: String): Verdict {
         if (before == null || after == null) return Verdict.Unknown(REASON_UNREADABLE)
         if (written.isEmpty()) return Verdict.Unknown(REASON_UNREADABLE)
         // Nada mudou no campo, nem o que apagamos nem o que escrevemos: é a leitura que está velha.
@@ -71,12 +76,22 @@ object DirectFieldWrite {
         // As duas leituras têm o mesmo teto, e depois de escrever o campo cresceu: basta uma ser
         // sufixo da outra para o que foi pedido estar lá.
         if (expected.endsWith(after) || after.endsWith(expected)) return Verdict.Ok
+        val own = typed.dropLast(erased)
+        if (own.isNotEmpty()) {
+            val ownExpected = own + written
+            if (ownExpected.endsWith(after) || after.endsWith(ownExpected)) return Verdict.Ok
+            // O campo acaba no que o app já tinha escrito e sem nada do pedaço novo: o editor ainda
+            // não aplicou a escrita, como na leitura velha de logo abaixo.
+            if (after.endsWith(own)) return Verdict.Unknown(REASON_STALE)
+        }
         val reach = written.length + erased + SLACK
         // Menor pedaço do fim do campo que não estava lá antes de escrever: é o que o nosso write
-        // deixou. O que vem antes dele tem de bater com o campo de antes, senão não é âncora.
+        // deixou. O que vem antes dele tem de bater com o campo de antes e com a conta do app, senão
+        // não é âncora.
         for (k in 0..minOf(reach, after.length)) {
             val anchor = after.dropLast(k)
             if (!head.endsWith(anchor)) continue
+            if (!endsAlike(anchor, own)) continue
             if (after.takeLast(k) == written) return Verdict.Ok
             // Nada do que acabamos de escrever está no campo. Medido no S26 (2026-09-16 14:55):
             // `antes=O exame de sangue. depois=O exame de sangue` — o apagar já tinha entrado, o
@@ -89,5 +104,12 @@ object DirectFieldWrite {
             return Verdict.Repair(deleteBefore = k, text = written)
         }
         return Verdict.Mismatch(REASON_UNANCHORED)
+    }
+
+    // A âncora e a conta do app terminam iguais no trecho que as duas cobrem. Sem conta (primeiro
+    // pedaço da sessão) não há o que conferir além do `before`.
+    private fun endsAlike(anchor: String, own: String): Boolean {
+        val span = minOf(anchor.length, own.length)
+        return anchor.takeLast(span) == own.takeLast(span)
     }
 }

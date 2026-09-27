@@ -1,6 +1,7 @@
 package dev.rafaelbrauner.flowvoice.shared.pipeline
 
 import dev.rafaelbrauner.flowvoice.shared.dictation.AudioCaptureEngine
+import dev.rafaelbrauner.flowvoice.shared.dictation.AudioCaptureException
 import dev.rafaelbrauner.flowvoice.shared.dictation.AudioFormat
 import dev.rafaelbrauner.flowvoice.shared.dictation.AudioFrame
 import dev.rafaelbrauner.flowvoice.shared.dictation.DictationSessionController
@@ -35,6 +36,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.currentTime
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
@@ -443,6 +445,94 @@ class DictationPipelineTest {
         assertTrue(failed.message.contains("frame does not match capture format"), failed.message)
         assertFalse(manual.isRunning)
         assertTrue(env.inserter.inserted.isEmpty())
+    }
+
+    // R3: o microfone caiu no meio do ditado. O que já foi transcrito — e o áudio que ainda estava no
+    // agregador — chega à revisão com aviso, como na chave recusada (P111), em vez de sumir.
+    @Test
+    fun captureErrorMidReviewSessionKeepsTheTranscribedTextWithAWarning() = runTest {
+        val manual = ManualAudioCaptureEngine()
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = emptyList(),
+            texts = mapOf(0 to "paciente relata", 1 to "dor torácica", 2 to "há dois dias"),
+            captureEngine = manual
+        )
+
+        env.pipeline.start()
+        manual.push(frame(100L))
+        manual.push(frame(100L))
+        manual.push(frame(50L))
+        runCurrent()
+        manual.fail("dead object")
+        runCurrent()
+
+        val ready = assertIs<DictationPipelineStatus.Ready>(env.pipeline.status.value)
+        assertEquals("paciente relata dor torácica há dois dias", ready.text)
+        assertEquals("Captura do microfone interrompida aos 0:00: texto só até ali", ready.warning)
+        assertFalse(manual.isRunning)
+        assertTrue(env.inserter.inserted.isEmpty())
+    }
+
+    @Test
+    fun captureErrorMidNoteSessionAppendsTheTranscribedTextToTheNoteWithWarning() = runTest {
+        val manual = ManualAudioCaptureEngine()
+        val inserter = CallRecordingInserter()
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = emptyList(),
+            texts = mapOf(0 to "paciente relata", 1 to "dor torácica", 2 to "há dois dias"),
+            captureEngine = manual,
+            textInserter = inserter
+        )
+        val note = NoteHarness(env.pipeline, backgroundScope)
+
+        env.pipeline.start(DictationTarget.Note)
+        manual.push(frame(100L))
+        manual.push(frame(100L))
+        manual.push(frame(50L))
+        runCurrent()
+        manual.fail("dead object")
+        runCurrent()
+
+        assertIs<DictationPipelineStatus.Completed>(env.pipeline.status.value)
+        assertEquals("paciente relata dor torácica há dois dias", note.body())
+        assertTrue(note.message().orEmpty().contains("Captura do microfone interrompida"), note.message())
+        assertEquals(emptyList(), inserter.calls)
+    }
+
+    // No ditado direto, a janela que estava na rede quando o microfone caiu ainda é digitada, e o áudio
+    // que estava no agregador vira a última janela.
+    @Test
+    fun captureErrorMidDirectSessionStillTypesTheWindowsInFlightAndTheBufferedAudio() = runTest {
+        val manual = ManualAudioCaptureEngine()
+        val inserter = DirectInserter()
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = emptyList(),
+            texts = mapOf(0 to "Paciente relata dor.", 1 to "Nega febre.", 2 to "Sem tosse."),
+            preferences = AppPreferences(),
+            textInserter = inserter,
+            captureEngine = manual,
+            transcriptionDelayMs = 1_000L
+        )
+
+        env.pipeline.start()
+        manual.push(frame(100L))
+        advanceTimeBy(1_001L)
+        assertEquals("Paciente relata dor.", inserter.field.toString())
+        manual.push(frame(100L))
+        manual.push(frame(50L))
+        runCurrent()
+        manual.fail("dead object")
+        runCurrent()
+        assertEquals(DictationPipelineStatus.Transcribing, env.pipeline.status.value)
+        advanceTimeBy(2_001L)
+
+        val completed = assertIs<DictationPipelineStatus.Completed>(env.pipeline.status.value)
+        assertEquals("Paciente relata dor. Nega febre. Sem tosse.", inserter.field.toString())
+        assertEquals("Paciente relata dor. Nega febre. Sem tosse.", completed.text)
+        assertEquals("Captura do microfone interrompida aos 0:00: texto só até ali", completed.warning)
     }
 
     @Test
@@ -1893,6 +1983,190 @@ class DictationPipelineTest {
         assertEquals(DictationProofread.REASON_PENDING, proofreadSkipReason(env))
     }
 
+    // Y2: "Inserir aqui" levou o resto do ditado para o campo B, que não se deixa ler. A revisão final
+    // apagava `typed.length` caracteres de B — o texto do usuário ali — e escrevia nele o trecho do
+    // campo A. Depois de uma retomada noutro campo, a revisão não troca mais nada.
+    @Test
+    fun afterInsertHereInAnUnreadableFieldTheFinalRevisionNeverErasesTheUserTextThere() = runTest {
+        val clock = TestTimeSource()
+        val manual = ManualAudioCaptureEngine()
+        val inserter = DirectInserter()
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = emptyList(),
+            texts = mapOf(0 to "Paciente estável.", 1 to "Sem queixas.", 2 to "Pressão controlada."),
+            preferences = AppPreferences(proofreadingEnabled = true),
+            textInserter = inserter,
+            captureEngine = manual,
+            timeSource = clock,
+            proofreadingOutput = { it.replace(". Sem", ", sem") }
+        )
+
+        env.pipeline.start()
+        manual.push(frame(100L))
+        runCurrent()
+        inserter.focused = WHATSAPP
+        manual.push(frame(100L))
+        runCurrent()
+        assertEquals(" Sem queixas.", env.pipeline.directInsertion.value.pending)
+
+        clock += 1.seconds
+        inserter.field.setLength(0)
+        inserter.field.append("Nota anterior do usuário.")
+        inserter.unreadable = true
+        env.pipeline.insertPending()
+        manual.push(frame(100L))
+        runCurrent()
+        assertEquals("Nota anterior do usuário. Sem queixas. Pressão controlada.", inserter.field.toString())
+
+        assertIs<DictationPipelineStatus.Completed>(env.pipeline.finalize())
+
+        assertEquals("Nota anterior do usuário. Sem queixas. Pressão controlada.", inserter.field.toString())
+        assertTrue(env.proofreader.received.isEmpty())
+        assertEquals(DictationProofread.REASON_NOT_CONTIGUOUS, proofreadSkipReason(env))
+    }
+
+    // Y4: o editor aplicou o pedaço " Sim." atrasado — a leitura "antes" do pedaço seguinte ainda não o
+    // tinha, a "depois" já tinha os dois. Ancorado só no "antes", o refazer apagava " Sim." junto.
+    @Test
+    fun aPieceTheEditorAppliesLateIsNotErasedByTheCheckOfTheNextPiece() = runTest {
+        val manual = ManualAudioCaptureEngine()
+        val inserter = DirectInserter()
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = emptyList(),
+            texts = mapOf(0 to "Paciente relata dor.", 1 to "Sim.", 2 to "Nega febre."),
+            preferences = AppPreferences(),
+            textInserter = inserter,
+            captureEngine = manual
+        )
+
+        env.pipeline.start()
+        manual.push(frame(100L))
+        runCurrent()
+        inserter.lagsNextWrite = true
+        manual.push(frame(100L))
+        runCurrent()
+        manual.push(frame(100L))
+        runCurrent()
+
+        assertEquals("Paciente relata dor. Sim. Nega febre.", inserter.field.toString())
+        assertTrue(inserter.rewrites.isEmpty())
+        assertEquals("Paciente relata dor. Sim. Nega febre.", env.pipeline.directInsertion.value.typed)
+    }
+
+    // Y5: uma janela presa na rede não segura o fim do ditado por minutos. No prazo, sai o que voltou,
+    // com aviso de qual trecho ficou sem resposta.
+    @Test
+    fun aWindowThatNeverAnswersEndsTheReviewAtTheDeadlineWithWhatCameBack() = runTest {
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = listOf(frame(100L), frame(100L), frame(50L)),
+            texts = mapOf(0 to "o médico", 1 to "pediu o exame", 2 to "de sangue"),
+            windowDelaysMs = mapOf(2 to 600_000L)
+        )
+
+        env.pipeline.start()
+        runCurrent()
+        val stoppedAt = currentTime
+        val ready = assertIs<DictationPipelineStatus.Ready>(env.pipeline.finalizeForReview())
+
+        assertEquals(15_000L, currentTime - stoppedAt)
+        assertEquals("o médico pediu o exame", ready.text)
+        assertEquals("Trecho 3 de 3 falhou (sem resposta a tempo): texto incompleto", ready.warning)
+    }
+
+    @Test
+    fun aWindowThatNeverAnswersEndsTheDirectDictationAtTheDeadlineAndNothingIsTypedAfterwards() = runTest {
+        val inserter = DirectInserter()
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = listOf(frame(100L), frame(100L), frame(50L)),
+            texts = mapOf(0 to "Paciente relata dor.", 1 to "Nega febre.", 2 to "Sem tosse."),
+            preferences = AppPreferences(),
+            textInserter = inserter,
+            windowDelaysMs = mapOf(1 to 600_000L)
+        )
+
+        env.pipeline.start()
+        runCurrent()
+        assertEquals("Paciente relata dor.", inserter.field.toString())
+        val stoppedAt = currentTime
+        val completed = assertIs<DictationPipelineStatus.Completed>(env.pipeline.finalize())
+
+        assertEquals(15_000L, currentTime - stoppedAt)
+        assertEquals("Paciente relata dor.", completed.text)
+        assertEquals("Trechos 2, 3 de 3 falharam (sem resposta a tempo): texto incompleto", completed.warning)
+        advanceTimeBy(600_000L)
+        assertEquals("Paciente relata dor.", inserter.field.toString())
+    }
+
+    // N2: a revisão final do ditado direto não pode desfazer um termo aprovado do vocabulário.
+    @Test
+    fun theDirectFinalRevisionKeepsTheUserVocabulary() = runTest {
+        val inserter = DirectInserter()
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = listOf(frame(50L)),
+            texts = mapOf(0 to "tomar dipirona"),
+            preferences = AppPreferences(proofreadingEnabled = true),
+            textInserter = inserter,
+            proofreadingOutput = { "Tomar dipirona." }
+        )
+        env.dictionary.approve("Dipirona")
+
+        env.pipeline.start()
+        runCurrent()
+        val completed = assertIs<DictationPipelineStatus.Completed>(env.pipeline.finalize())
+
+        assertEquals(listOf("tomar Dipirona"), env.proofreader.received)
+        assertEquals("Tomar Dipirona.", inserter.field.toString())
+        assertEquals("Tomar Dipirona.", completed.text)
+    }
+
+    // N8: o teto de 5 s da revisão (P152) vale também para a revisão antes de inserir e para a nota.
+    @Test
+    fun aHangingRevisionBeforeInsertGivesUpAtTheCapAndKeepsTheDictation() = runTest {
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = listOf(frame(50L)),
+            texts = mapOf(0 to "tomar dipirona"),
+            preferences = AppPreferences(proofreadingEnabled = true, reviewBeforeInsert = true),
+            proofreadingDelayMs = 60_000L
+        )
+
+        env.pipeline.start()
+        runCurrent()
+        val stoppedAt = currentTime
+        val ready = assertIs<DictationPipelineStatus.Ready>(env.pipeline.finalizeForReview())
+
+        assertEquals(DictationProofread.TIMEOUT_MS, currentTime - stoppedAt)
+        assertEquals("tomar dipirona", ready.text)
+    }
+
+    @Test
+    fun aHangingRevisionOfANoteGivesUpAtTheCapAndKeepsTheDictation() = runTest {
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = listOf(frame(50L)),
+            texts = mapOf(0 to "tomar dipirona"),
+            preferences = AppPreferences(proofreadingEnabled = true),
+            proofreadingDelayMs = 60_000L,
+            textInserter = CallRecordingInserter()
+        )
+        val note = NoteHarness(env.pipeline, backgroundScope)
+
+        env.pipeline.start(DictationTarget.Note)
+        runCurrent()
+        val stoppedAt = currentTime
+        assertIs<DictationPipelineStatus.Completed>(env.pipeline.finalize())
+        val elapsed = currentTime - stoppedAt
+        runCurrent()
+
+        assertEquals(DictationProofread.TIMEOUT_MS, elapsed)
+        assertEquals("tomar dipirona", note.body())
+    }
+
     private fun proofreadSkipReason(env: PipelineEnv): String? =
         env.log.events.single { it.event == "dictation_proofread_skipped" }.metadata["reason"]
 
@@ -1927,6 +2201,14 @@ class DictationPipelineTest {
         var atomicRoute = true
         val rewrites = mutableListOf<String>()
 
+        // Campo que não se deixa ler (`getSurroundingText` nulo: API < 33, alguns editores).
+        var unreadable = false
+
+        // Editor atrasado (Y4): a próxima escrita é aceita, mas só aparece no campo junto com a
+        // seguinte — o pedaço já comitado ainda não está lá quando o app lê o campo de novo.
+        var lagsNextWrite = false
+        private var held: String? = null
+
         override val isAvailable: Boolean = true
 
         override fun captureTarget() {
@@ -1949,14 +2231,22 @@ class DictationPipelineTest {
             DirectInsertionGuard.refusal(target, focused, OWN, pinnedInput, input)?.let {
                 return TextInsertionResult(success = false, route = it.reason.route, message = it.message)
             }
+            applyHeld()
             if (deleteBefore > 0 && !swallowsErase) field.setLength((field.length - deleteBefore).coerceAtLeast(0))
             // O que a leitura velha devolve: o campo com o apagar já aplicado e sem o texto novo.
             if (staleReadAfterWrite) staleRead = field.toString()
             val landed = if (swallowsSeparator && field.lastOrNull() == '.' && text.startsWith(" ")) text.drop(1) else text
+            if (lagsNextWrite) {
+                lagsNextWrite = false
+                held = landed
+                pinnedInput = input
+                return TextInsertionResult(success = true, route = "teste", message = "ok")
+            }
             return written(landed)
         }
 
         override fun readBeforeCursor(limit: Int): String? {
+            if (unreadable) return null
             staleRead?.let { stale ->
                 staleRead = null
                 return stale.takeLast(limit)
@@ -1972,10 +2262,16 @@ class DictationPipelineTest {
             DirectInsertionGuard.refusal(target, focused, OWN, pinnedInput, input)?.let {
                 return TextInsertionResult(success = false, route = it.reason.route, message = it.message)
             }
+            applyHeld()
             field.setLength((field.length - deleteBefore).coerceAtLeast(0))
             field.append(text)
             pinnedInput = input
             return TextInsertionResult(success = true, route = "teste_atomico", message = "ok")
+        }
+
+        private fun applyHeld() {
+            held?.let(field::append)
+            held = null
         }
 
         private fun written(text: String): TextInsertionResult {
@@ -2070,6 +2366,8 @@ private class PipelineEnv(
     proofreadingFails: Boolean = false,
     proofreadingDelayMs: Long = 0L,
     transcriptionDelayMs: Long = 0L,
+    // Janela que demora mais que as outras: a rede presa numa requisição só (Y5).
+    windowDelaysMs: Map<Int, Long> = emptyMap(),
     startError: Throwable? = null,
     failures: Map<Int, Throwable> = emptyMap(),
     apiKey: String? = "sk-or-v1-testkey123456",
@@ -2088,7 +2386,7 @@ private class PipelineEnv(
     val inserter = RecordingInserter(inserterSucceeds)
     val proofreader = FakeProofreader(proofreadingFails, proofreadingOutput, proofreadingDelayMs)
     val proofreaderCalls: MutableList<String> get() = proofreader.received
-    val client = ScriptedTranscriptionClient(texts, transcriptionDelayMs, failures)
+    val client = ScriptedTranscriptionClient(texts, transcriptionDelayMs, failures, windowDelaysMs)
     val secrets = secretStore ?: InMemorySecretStore().apply { apiKey?.let { writeOpenRouterKey(it) } }
     val pipeline = DictationPipeline(
         controller = DictationSessionController(captureEngine ?: engine, windowTargetDurationMs = 100L),
@@ -2215,13 +2513,15 @@ private class FakeProofreader(
 private class ScriptedTranscriptionClient(
     var texts: Map<Int, String>,
     private val delayMs: Long,
-    private val failures: Map<Int, Throwable> = emptyMap()
+    private val failures: Map<Int, Throwable> = emptyMap(),
+    private val windowDelaysMs: Map<Int, Long> = emptyMap()
 ) : TranscriptionClient {
     val requested = mutableListOf<Int>()
 
     override suspend fun transcribe(window: DictationWindow, apiKey: String, model: String?): TranscriptionResult {
         requested += window.index
-        if (delayMs > 0L) delay(delayMs)
+        val wait = windowDelaysMs[window.index] ?: delayMs
+        if (wait > 0L) delay(wait)
         failures[window.index]?.let { throw it }
         return TranscriptionResult(texts[window.index] ?: "w${window.index}", "fake")
     }
@@ -2287,13 +2587,20 @@ private class GatedAudioCaptureEngine : AudioCaptureEngine {
 private class ManualAudioCaptureEngine : AudioCaptureEngine {
     override val format: AudioFormat = AudioFormat.DEFAULT
     private var sink: (suspend (AudioFrame) -> Unit)? = null
+    private var errorSink: (suspend (AudioCaptureException) -> Unit)? = null
     private var running = false
 
     override val isRunning: Boolean
         get() = running
 
-    override suspend fun start(onFrame: suspend (AudioFrame) -> Unit) {
+    override suspend fun start(onFrame: suspend (AudioFrame) -> Unit) = start(onFrame, onError = {})
+
+    override suspend fun start(
+        onFrame: suspend (AudioFrame) -> Unit,
+        onError: suspend (AudioCaptureException) -> Unit
+    ) {
         sink = onFrame
+        errorSink = onError
         running = true
     }
 
@@ -2303,6 +2610,11 @@ private class ManualAudioCaptureEngine : AudioCaptureEngine {
 
     suspend fun push(frame: AudioFrame) {
         checkNotNull(sink) { "engine not started" }.invoke(frame)
+    }
+
+    // O microfone cai no meio do ditado (objeto morto, reabertura que falhou, linha fechada).
+    suspend fun fail(message: String) {
+        checkNotNull(errorSink) { "engine not started" }.invoke(AudioCaptureException(message))
     }
 }
 

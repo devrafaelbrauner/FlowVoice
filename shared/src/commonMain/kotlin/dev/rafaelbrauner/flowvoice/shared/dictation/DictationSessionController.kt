@@ -70,10 +70,10 @@ class DictationSessionController(
         try {
             engine.start(
                 onFrame = { frame -> handleFrame(frame) },
-                onError = { error -> failSession("audio capture failed: ${error.message}") }
+                onError = { error -> failSession("audio capture failed: ${error.message}", keepAudio = true) }
             )
         } catch (error: Throwable) {
-            failSession("failed to start audio capture: ${error.message}")
+            failSession("failed to start audio capture: ${error.message}", keepAudio = false)
             throw error
         }
     }
@@ -116,15 +116,19 @@ class DictationSessionController(
         }
     }
 
+    // O frame que o `stop()` destrava ainda é fala do usuário (Y3): enquanto a sessão está em
+    // Finalizing — do toque de parar até o `engine.stop()` voltar —, ele entra na última janela.
     private suspend fun handleFrame(frame: AudioFrame) {
         var failureMessage: String? = null
         var silenceTimedOut = false
         sessionMutex.withLock {
-            if (session.state is DictationSessionState.Capturing) {
+            val capturing = session.state is DictationSessionState.Capturing
+            if (capturing || session.state is DictationSessionState.Finalizing) {
                 try {
                     windowAggregator.onFrame(frame).forEach { emitWindow(it) }
                     capturedDurationMs += frame.durationMs
-                    silenceTimedOut = updateSilenceState(frame)
+                    // A cauda não conta silêncio: a sessão já está encerrando.
+                    if (capturing) silenceTimedOut = updateSilenceState(frame)
                 } catch (error: IllegalArgumentException) {
                     failureMessage = "frame does not match capture format: ${error.message}"
                 }
@@ -132,19 +136,23 @@ class DictationSessionController(
         }
         val failure = failureMessage
         when {
-            failure != null -> failSession(failure)
+            failure != null -> failSession(failure, keepAudio = true)
             silenceTimedOut -> finalize()
         }
     }
 
-    private suspend fun failSession(message: String) {
+    // Falha no meio da captura (R3): o áudio que já estava no agregador é fala do usuário e sai
+    // como última janela antes do erro, para quem ouve a sessão entregar o que foi dito até ali.
+    // Na falha ao abrir o microfone não há o que guardar. A duração captada fica: é ela que diz até
+    // onde o texto vai.
+    private suspend fun failSession(message: String, keepAudio: Boolean) {
         sessionMutex.withLock {
             if (session.state.isTerminal) {
                 return
             }
+            if (keepAudio) windowAggregator.flush()?.let { emitWindow(it) }
             session.fail(message)
             windowAggregator.clear()
-            capturedDurationMs = 0L
             lastVoiceAtMs = 0L
             observedState.value = session.state
         }
