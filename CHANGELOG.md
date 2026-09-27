@@ -8,8 +8,10 @@ estão em [`docs/tasks/`](docs/tasks/README.md).
 
 ## [0.6.0] - 2026-09-27
 
-Primeiro uso sem abandono e preparação para o teste interno do Google Play. Nada
-desta versão foi conferido num aparelho ou emulador ainda.
+Primeiro uso sem abandono e preparação para o teste interno do Google Play. Um
+smoke num emulador Android 16 (AVD `flowvoice_api36`, 2026-09-27) passou pelo
+fluxo novo e achou os dois defeitos de P163 e P164, corrigidos e conferidos no mesmo
+emulador. Nada desta versão foi conferido num aparelho real.
 
 ### Distribuição
 
@@ -69,6 +71,32 @@ desta versão foi conferido num aparelho ou emulador ainda.
   - Com a barra de ditado, nada muda: a barra já substitui a bolha.
   - Assim, nenhum ditado da bolha é cancelado nem perde os controles. "Ocultar botão" e as regras P40/P159/P160 continuam iguais.
   - Ao ligar o botão nos Ajustes, a mensagem agora avisa que ele aparece quando você sai do FlowVoice.
+- **P163: a validação da chave aceitava qualquer chave.** Ela consultava o
+  `/api/v1/models`, que responde 200 com chave falsa e até sem chave (curl,
+  2026-09-27). No smoke, `sk-or-v1-FAKE-0000000000000000` foi salva e o passo 3 ficou
+  "ok". Agora a validação vai ao `/api/v1/key`, que devolve 401 para chave inválida ou
+  ausente ([documentação](https://openrouter.ai/docs/api/api-reference/api-keys/get-current-key)).
+  A classificação não mudou: 401/403 recusa, e rede ou 5xx dá "não foi possível
+  validar agora", sem apagar a chave salva. **Conferido no emulador:** a mesma chave
+  falsa agora dá "A OpenRouter recusou esta chave." e não é salva. O caminho de chave
+  válida (200) segue a documentação e os testes, mas não foi exercido, por falta de uma
+  chave real. A lista de modelos continua no `/api/v1/models`, que é público; o
+  `INVALID_KEY` dela só aparece se a OpenRouter passar a autenticar a lista.
+- **P163: a mensagem de formato diz a regra que falhou.** `sk-or-v1-FAKE-000` recebia
+  "Formato inválido: a chave começa com sk- e não tem espaços.", sendo que ela começa
+  com sk-. Agora a mensagem é "Chave curta demais: tem 17 caracteres, e uma chave da
+  OpenRouter tem pelo menos 20. Copie a chave inteira." (e há mensagens próprias para
+  prefixo e espaços). O Windows usa as mesmas mensagens.
+- **P164: a bolha escondida reaparecia sobre o FlowVoice.** Depois de sair para o
+  launcher e voltar ao app, a bolha continuava desenhada sobre o Início e o
+  Diagnóstico, mesmo 10 s depois. O WindowManager dava a janela como 0×0
+  (`frame=[850,749][850,749]`), mas o SurfaceFlinger seguia compondo o último quadro
+  (`displayFrame=[850 749 1049 948]`). Esvaziar o conteúdo não bastava: agora a
+  janela do overlay fica `GONE` e com `FLAG_NOT_TOUCHABLE` sempre que não teria nada a
+  mostrar. **Conferido no emulador:** a sequência do smoke (repetida duas vezes e
+  também com o app em paisagem) deixa a janela `mViewVisibility=0x8`, fora das camadas
+  compostas e da lista de janelas de toque. A bolha volta no launcher, e numa prévia de
+  ditado direto (Mensagens) a bolha continua visível e encerra o ditado ao toque.
 
 
 ### Removido
