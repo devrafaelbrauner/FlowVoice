@@ -31,10 +31,14 @@ class TranscriptionModelCatalog(
         } catch (error: Exception) {
             return mapFailure(error) ?: TranscriptionCatalogResult.Failed(CatalogFailure.UNAVAILABLE)
         }
+        val result = wrap(models)
+        // Lista vazia não se guarda (Y9): é mais provável um soluço do serviço do que a OpenRouter sem
+        // modelo de transcrição nenhum, e guardada ela esconderia os modelos por 24 h.
+        if (result is TranscriptionCatalogResult.Empty) return result
         cached = models
         cachedAt = timeSource.markNow()
         keyFingerprint = keyFingerprintOf(key)
-        return wrap(models)
+        return result
     }
 
     fun cached(): TranscriptionCatalogResult? =
