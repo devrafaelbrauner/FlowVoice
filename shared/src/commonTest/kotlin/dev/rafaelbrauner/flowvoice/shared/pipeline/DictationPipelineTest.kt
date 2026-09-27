@@ -1983,6 +1983,49 @@ class DictationPipelineTest {
         assertEquals(DictationProofread.REASON_PENDING, proofreadSkipReason(env))
     }
 
+    // Y2: "Inserir aqui" levou o resto do ditado para o campo B, que não se deixa ler. A revisão final
+    // apagava `typed.length` caracteres de B — o texto do usuário ali — e escrevia nele o trecho do
+    // campo A. Depois de uma retomada noutro campo, a revisão não troca mais nada.
+    @Test
+    fun afterInsertHereInAnUnreadableFieldTheFinalRevisionNeverErasesTheUserTextThere() = runTest {
+        val clock = TestTimeSource()
+        val manual = ManualAudioCaptureEngine()
+        val inserter = DirectInserter()
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = emptyList(),
+            texts = mapOf(0 to "Paciente estável.", 1 to "Sem queixas.", 2 to "Pressão controlada."),
+            preferences = AppPreferences(proofreadingEnabled = true),
+            textInserter = inserter,
+            captureEngine = manual,
+            timeSource = clock,
+            proofreadingOutput = { it.replace(". Sem", ", sem") }
+        )
+
+        env.pipeline.start()
+        manual.push(frame(100L))
+        runCurrent()
+        inserter.focused = WHATSAPP
+        manual.push(frame(100L))
+        runCurrent()
+        assertEquals(" Sem queixas.", env.pipeline.directInsertion.value.pending)
+
+        clock += 1.seconds
+        inserter.field.setLength(0)
+        inserter.field.append("Nota anterior do usuário.")
+        inserter.unreadable = true
+        env.pipeline.insertPending()
+        manual.push(frame(100L))
+        runCurrent()
+        assertEquals("Nota anterior do usuário. Sem queixas. Pressão controlada.", inserter.field.toString())
+
+        assertIs<DictationPipelineStatus.Completed>(env.pipeline.finalize())
+
+        assertEquals("Nota anterior do usuário. Sem queixas. Pressão controlada.", inserter.field.toString())
+        assertTrue(env.proofreader.received.isEmpty())
+        assertEquals(DictationProofread.REASON_NOT_CONTIGUOUS, proofreadSkipReason(env))
+    }
+
     // Y5: uma janela presa na rede não segura o fim do ditado por minutos. No prazo, sai o que voltou,
     // com aviso de qual trecho ficou sem resposta.
     @Test
@@ -2106,6 +2149,9 @@ class DictationPipelineTest {
         var atomicRoute = true
         val rewrites = mutableListOf<String>()
 
+        // Campo que não se deixa ler (`getSurroundingText` nulo: API < 33, alguns editores).
+        var unreadable = false
+
         override val isAvailable: Boolean = true
 
         override fun captureTarget() {
@@ -2136,6 +2182,7 @@ class DictationPipelineTest {
         }
 
         override fun readBeforeCursor(limit: Int): String? {
+            if (unreadable) return null
             staleRead?.let { stale ->
                 staleRead = null
                 return stale.takeLast(limit)

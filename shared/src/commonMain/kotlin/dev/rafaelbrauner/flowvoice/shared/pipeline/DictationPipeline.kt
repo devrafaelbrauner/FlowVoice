@@ -75,6 +75,9 @@ class DictationPipeline(
     )
     private val directState = MutableStateFlow(DirectInsertionProgress())
     private var directPlan = DirectInsertionPlan()
+    // "Inserir aqui" levou o ditado para outro campo (Y2): o que o app escreveu já não está inteiro
+    // antes do cursor, e a revisão final não pode mais apagar o ditado para reescrevê-lo.
+    private var dictationSplitAcrossFields = false
     // Microfone que caiu no meio do ditado (R3): o texto até ali é entregue com este aviso.
     private var captureInterruption: CaptureInterruption? = null
     // O fim do ditado passou do prazo (Y5): as janelas ainda sem resposta contam como falha.
@@ -175,6 +178,7 @@ class DictationPipeline(
         sessionId++
         targetState.value = target
         directPlan = DirectInsertionPlan()
+        dictationSplitAcrossFields = false
         captureInterruption = null
         finalizeDeadlinePassed = false
         directState.value = DirectInsertionProgress(
@@ -400,8 +404,11 @@ class DictationPipeline(
         log("dictation_direct_resumed", mapOf("chars" to progress.pending.length.toString()))
         val resumed = progress.copy(typed = progress.typed + progress.pending, pending = "", pausedReason = null)
         directState.value = resumed
-        // "Inserir aqui" pode ter escrito noutro campo: o próximo pedaço não apaga nada (P144).
+        // "Inserir aqui" pode ter escrito noutro campo: o próximo pedaço não apaga nada (P144), e a
+        // revisão final não troca mais o ditado nesta sessão (Y2) — o pedaço seguinte volta a ser
+        // contíguo ao anterior, mas o ditado inteiro nunca mais está todo antes do cursor.
         directPlan = directPlan.copy(contiguous = false)
+        dictationSplitAcrossFields = true
         if (status is DictationPipelineStatus.Ready) {
             val outcome = completed(resumed.typed, directDelivery(resumed.typed), status.warning, status.latencyMs, failedWindows = null)
             publish(outcome)
@@ -606,7 +613,7 @@ class DictationPipeline(
         val request = DictationProofread.request(
             typed = before.typed,
             pending = before.pending,
-            contiguous = directPlan.contiguous,
+            contiguous = wholeDictationBeforeCursor(),
             enabled = prefs.proofreadingEnabled
         )
         val text = when (request) {
@@ -664,7 +671,7 @@ class DictationPipeline(
     // fim do ditado, pega o campo já estável. Se o que está lá não é o que foi ditado, o ditado volta.
     private fun restoreDictation(sent: String) {
         val current = directState.value
-        if (current.typed != sent || current.pending.isNotBlank() || !directPlan.contiguous) {
+        if (current.typed != sent || current.pending.isNotBlank() || !wholeDictationBeforeCursor()) {
             return skipProofread(DictationProofread.REASON_UNCHANGED)
         }
         val before = inserter.readBeforeCursor(sent.length + DictationFieldTail.SLACK)
@@ -684,10 +691,12 @@ class DictationPipeline(
         )
     }
 
-    // A troca só acontece se nada mexeu no campo enquanto a revisão ia e voltava (~1 s).
+    // A troca só acontece se nada mexeu no campo enquanto a revisão ia e voltava (~1 s). Depois de um
+    // "Inserir aqui" noutro campo nunca há troca (Y2): o apagar pela conta do app, quando o campo não
+    // se deixa ler, comeria o texto do usuário daquele campo.
     private fun replaceDictation(sent: String, outcome: DictationProofread.Outcome.Replace) {
         val current = directState.value
-        if (current.typed != sent || current.pending.isNotBlank() || !directPlan.contiguous) {
+        if (current.typed != sent || current.pending.isNotBlank() || !wholeDictationBeforeCursor()) {
             return skipProofread(DictationProofread.REASON_NOT_CONTIGUOUS)
         }
         // O campo é a verdade, não a conta do app (P148): no S26 a conta saiu um caractere menor que o
@@ -721,6 +730,8 @@ class DictationPipeline(
     private fun skipProofread(reason: String) {
         log("dictation_proofread_skipped", mapOf("reason" to reason))
     }
+
+    private fun wholeDictationBeforeCursor(): Boolean = directPlan.contiguous && !dictationSplitAcrossFields
 
     private fun directDelivery(typed: String): TextInsertionResult =
         if (typed.isBlank()) {
