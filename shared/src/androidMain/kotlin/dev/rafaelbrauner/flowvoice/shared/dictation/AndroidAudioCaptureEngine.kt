@@ -31,6 +31,10 @@ class AndroidAudioCaptureEngine(
     private val runCounter = AtomicLong(0L)
     private val activeRun = AtomicLong(NO_RUN)
 
+    // Captura cuja cauda ainda é esperada (Y3): só enquanto o `stop()` dela aguarda a thread. Uma
+    // thread que passou do join não entrega a cauda para a sessão seguinte.
+    private val tailRun = AtomicLong(NO_RUN)
+
     @Volatile
     private var recordingHandle: RecordingHandle? = null
     private var captureThread: Thread? = null
@@ -196,6 +200,8 @@ class AndroidAudioCaptureEngine(
                     }
                 }
             }
+            // Parada normal: o que o AudioRecord parado ainda guarda é o fim da última palavra (Y3).
+            if (failure == null) drainTail(run, handle, readBuffer, recordBufferBytes, onFrame)
         } catch (error: InterruptedException) {
             Thread.currentThread().interrupt()
             markRunFinished(run)
@@ -235,6 +241,26 @@ class AndroidAudioCaptureEngine(
         activeRun.compareAndSet(run, NO_RUN)
     }
 
+    // Leitura sem bloqueio (API 23+) do que ficou no buffer depois do `stop()`, com teto no tamanho
+    // do buffer do sistema. Nada disso derruba a sessão: a cauda é o que der para salvar.
+    private fun drainTail(
+        run: Long,
+        handle: RecordingHandle,
+        readBuffer: ByteArray,
+        recordBufferBytes: Int,
+        onFrame: suspend (AudioFrame) -> Unit
+    ) {
+        runCatching {
+            val drained = CaptureTail.drain(
+                maxBytes = recordBufferBytes,
+                read = { handle.readNonBlocking(readBuffer) },
+                deliver = { bytes -> runBlocking { onFrame(AudioFrame(readBuffer.copyOf(bytes), format)) } },
+                waiting = { tailRun.get() == run }
+            )
+            if (drained > 0) Log.i(TAG, "audio capture tail drained: bytes=$drained")
+        }.onFailure { Log.w(TAG, "audio capture tail drain failed", it) }
+    }
+
     // Diagnóstico do achado P154: diz se o objeto morreu, se a gravação foi tomada, ou se foi só um
     // buffer vazio. Nunca carrega áudio nem texto ditado — só números de estado.
     private fun diagnose(
@@ -272,7 +298,7 @@ class AndroidAudioCaptureEngine(
 
     override fun stop() {
         val wasActive = captureActive.getAndSet(false)
-        activeRun.set(NO_RUN)
+        tailRun.set(activeRun.getAndSet(NO_RUN))
         recordingHandle?.stop()
         captureThread?.let { thread ->
             if (thread !== Thread.currentThread()) {
@@ -280,6 +306,7 @@ class AndroidAudioCaptureEngine(
                     .onFailure { Log.w(TAG, "timed out waiting for audio capture thread", it) }
             }
         }
+        tailRun.set(NO_RUN)
         recordingHandle?.release()
         recordingHandle = null
         captureThread = null
@@ -307,6 +334,9 @@ class AndroidAudioCaptureEngine(
         }
 
         fun read(buffer: ByteArray): Int = audioRecord.read(buffer, 0, buffer.size)
+
+        fun readNonBlocking(buffer: ByteArray): Int =
+            audioRecord.read(buffer, 0, buffer.size, AudioRecord.READ_NON_BLOCKING)
 
         fun recordingStateName(): String = when (runCatching { audioRecord.recordingState }.getOrNull()) {
             AudioRecord.RECORDSTATE_RECORDING -> "recording"

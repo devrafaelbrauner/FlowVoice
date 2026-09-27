@@ -75,6 +75,8 @@ class DictationPipeline(
     )
     private val directState = MutableStateFlow(DirectInsertionProgress())
     private var directPlan = DirectInsertionPlan()
+    // Microfone que caiu no meio do ditado (R3): o texto até ali é entregue com este aviso.
+    private var captureInterruption: CaptureInterruption? = null
 
     val status: StateFlow<DictationPipelineStatus> = statusState.asStateFlow()
     val target: StateFlow<DictationTarget> = targetState.asStateFlow()
@@ -120,12 +122,14 @@ class DictationPipeline(
         }
         scope.launch(start = CoroutineStart.UNDISPATCHED) {
             controller.state.collect { state ->
-                val active = statusState.value
-                val capturing = active == DictationPipelineStatus.Starting ||
-                    active == DictationPipelineStatus.Recording
-                if (state is DictationSessionState.Error && capturing) {
-                    publish(DictationPipelineStatus.Failed(state.message))
-                    log("dictation_failed", mapOf("stage" to "capture"))
+                if (state !is DictationSessionState.Error) return@collect
+                when (statusState.value) {
+                    DictationPipelineStatus.Starting -> {
+                        publish(DictationPipelineStatus.Failed(state.message))
+                        log("dictation_failed", mapOf("stage" to "capture"))
+                    }
+                    DictationPipelineStatus.Recording -> stopOnCaptureError(state.message)
+                    else -> Unit
                 }
             }
         }
@@ -169,6 +173,7 @@ class DictationPipeline(
         sessionId++
         targetState.value = target
         directPlan = DirectInsertionPlan()
+        captureInterruption = null
         directState.value = DirectInsertionProgress(
             sessionId = sessionId,
             active = target == DictationTarget.ActiveField && !preferences.read().reviewBeforeInsert
@@ -212,6 +217,14 @@ class DictationPipeline(
 
     private fun stopAtRequestBudget() = stopEarly("dictation_budget_stop")
 
+    // O microfone caiu com o ditado em curso (R3): é uma parada antecipada como a da chave (P111). O
+    // controlador já soltou o áudio que tinha como última janela; aqui o fim segue o caminho normal —
+    // espera as janelas em voo e entrega o texto até ali, com aviso.
+    private fun stopOnCaptureError(message: String) {
+        captureInterruption = CaptureInterruption(message, controller.capturedDurationMs)
+        stopEarly("dictation_capture_stop")
+    }
+
     private fun stopEarly(event: String) {
         if (statusState.value != DictationPipelineStatus.Recording) return
         log(event, mapOf("target" to targetState.value.name))
@@ -230,13 +243,13 @@ class DictationPipeline(
             val final = transcribeFinalText()
             if (token != sessionToken) {
                 DictationPipelineStatus.Cancelled
-            } else if (final.text.isBlank() && final.failures != null) {
-                noTextFailure(final.failures)
+            } else if (final.text.isBlank() && failsWithoutText(final.failures)) {
+                noTextOutcome(final.failures)
             } else {
                 dictionary.suggestFrom(final.text)
                 insert(
                     text = final.text,
-                    warning = final.failures?.partialMessage,
+                    warning = warningFor(final.failures),
                     latencyMs = null,
                     failedWindows = final.failures?.failedCount ?: 0
                 )
@@ -267,8 +280,8 @@ class DictationPipeline(
             val final = transcribeFinalText()
             if (token != sessionToken || statusState.value == DictationPipelineStatus.Cancelled) {
                 DictationPipelineStatus.Cancelled
-            } else if (final.text.isBlank() && final.failures != null) {
-                noTextFailure(final.failures)
+            } else if (final.text.isBlank() && failsWithoutText(final.failures)) {
+                noTextOutcome(final.failures)
             } else {
                 dictionary.suggestFrom(final.text)
                 val latencyMs = mark.elapsedNow().inWholeMilliseconds
@@ -280,7 +293,7 @@ class DictationPipeline(
                         "failedWindows" to (final.failures?.failedCount ?: 0).toString()
                     )
                 )
-                DictationPipelineStatus.Ready(final.text, final.failures?.partialMessage, latencyMs)
+                DictationPipelineStatus.Ready(final.text, warningFor(final.failures), latencyMs)
             }
         } catch (error: CancellationException) {
             throw error
@@ -565,13 +578,13 @@ class DictationPipeline(
                         "failedWindows" to (failures?.failedCount ?: 0).toString()
                     )
                 )
-                DictationPipelineStatus.Ready(progress.pending, failures?.partialMessage, latencyMs, progress.pausedReason)
+                DictationPipelineStatus.Ready(progress.pending, warningFor(failures), latencyMs, progress.pausedReason)
             }
-            progress.typed.isBlank() && failures != null -> noTextFailure(failures)
+            progress.typed.isBlank() && failsWithoutText(failures) -> noTextOutcome(failures)
             else -> completed(
                 progress.typed,
                 directDelivery(progress.typed),
-                failures?.partialMessage,
+                warningFor(failures),
                 latencyMs,
                 failedWindows = failures?.failedCount ?: 0
             )
@@ -750,6 +763,24 @@ class DictationPipeline(
         return DictationPipelineStatus.Failed(failures.noTextMessage)
     }
 
+    private fun failsWithoutText(failures: TranscriptionFailureSummary?): Boolean =
+        captureInterruption != null || failures != null
+
+    // Sem texto nenhum, o motivo que vale é o microfone que caiu (R3); sem queda, o das janelas.
+    private fun noTextOutcome(failures: TranscriptionFailureSummary?): DictationPipelineStatus {
+        val interruption = captureInterruption
+        if (interruption != null || failures == null) {
+            log("dictation_failed", mapOf("stage" to "capture"))
+            return DictationPipelineStatus.Failed(interruption?.message ?: "erro desconhecido")
+        }
+        return noTextFailure(failures)
+    }
+
+    private fun warningFor(failures: TranscriptionFailureSummary?): String? =
+        listOfNotNull(captureInterruption?.warning, failures?.partialMessage)
+            .joinToString("; ")
+            .ifEmpty { null }
+
     private fun insert(
         text: String,
         warning: String?,
@@ -836,6 +867,17 @@ class DictationPipeline(
     }
 
     private class FinalText(val text: String, val failures: TranscriptionFailureSummary?)
+
+    // Onde o microfone caiu (R3). O aviso diz até que ponto do ditado o texto vai, no mesmo molde do
+    // aviso de janela que falhou.
+    private class CaptureInterruption(val message: String, capturedMs: Long) {
+        val warning: String = "Captura do microfone interrompida aos ${clock(capturedMs)}: texto só até ali"
+
+        private fun clock(ms: Long): String {
+            val seconds = ms / 1_000L
+            return "${seconds / 60}:${(seconds % 60).toString().padStart(2, '0')}"
+        }
+    }
 
     private companion object {
         const val EVENT_BUFFER = 64

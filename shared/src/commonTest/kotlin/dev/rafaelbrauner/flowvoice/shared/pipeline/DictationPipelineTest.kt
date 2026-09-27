@@ -1,6 +1,7 @@
 package dev.rafaelbrauner.flowvoice.shared.pipeline
 
 import dev.rafaelbrauner.flowvoice.shared.dictation.AudioCaptureEngine
+import dev.rafaelbrauner.flowvoice.shared.dictation.AudioCaptureException
 import dev.rafaelbrauner.flowvoice.shared.dictation.AudioFormat
 import dev.rafaelbrauner.flowvoice.shared.dictation.AudioFrame
 import dev.rafaelbrauner.flowvoice.shared.dictation.DictationSessionController
@@ -443,6 +444,94 @@ class DictationPipelineTest {
         assertTrue(failed.message.contains("frame does not match capture format"), failed.message)
         assertFalse(manual.isRunning)
         assertTrue(env.inserter.inserted.isEmpty())
+    }
+
+    // R3: o microfone caiu no meio do ditado. O que já foi transcrito — e o áudio que ainda estava no
+    // agregador — chega à revisão com aviso, como na chave recusada (P111), em vez de sumir.
+    @Test
+    fun captureErrorMidReviewSessionKeepsTheTranscribedTextWithAWarning() = runTest {
+        val manual = ManualAudioCaptureEngine()
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = emptyList(),
+            texts = mapOf(0 to "paciente relata", 1 to "dor torácica", 2 to "há dois dias"),
+            captureEngine = manual
+        )
+
+        env.pipeline.start()
+        manual.push(frame(100L))
+        manual.push(frame(100L))
+        manual.push(frame(50L))
+        runCurrent()
+        manual.fail("dead object")
+        runCurrent()
+
+        val ready = assertIs<DictationPipelineStatus.Ready>(env.pipeline.status.value)
+        assertEquals("paciente relata dor torácica há dois dias", ready.text)
+        assertEquals("Captura do microfone interrompida aos 0:00: texto só até ali", ready.warning)
+        assertFalse(manual.isRunning)
+        assertTrue(env.inserter.inserted.isEmpty())
+    }
+
+    @Test
+    fun captureErrorMidNoteSessionAppendsTheTranscribedTextToTheNoteWithWarning() = runTest {
+        val manual = ManualAudioCaptureEngine()
+        val inserter = CallRecordingInserter()
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = emptyList(),
+            texts = mapOf(0 to "paciente relata", 1 to "dor torácica", 2 to "há dois dias"),
+            captureEngine = manual,
+            textInserter = inserter
+        )
+        val note = NoteHarness(env.pipeline, backgroundScope)
+
+        env.pipeline.start(DictationTarget.Note)
+        manual.push(frame(100L))
+        manual.push(frame(100L))
+        manual.push(frame(50L))
+        runCurrent()
+        manual.fail("dead object")
+        runCurrent()
+
+        assertIs<DictationPipelineStatus.Completed>(env.pipeline.status.value)
+        assertEquals("paciente relata dor torácica há dois dias", note.body())
+        assertTrue(note.message().orEmpty().contains("Captura do microfone interrompida"), note.message())
+        assertEquals(emptyList(), inserter.calls)
+    }
+
+    // No ditado direto, a janela que estava na rede quando o microfone caiu ainda é digitada, e o áudio
+    // que estava no agregador vira a última janela.
+    @Test
+    fun captureErrorMidDirectSessionStillTypesTheWindowsInFlightAndTheBufferedAudio() = runTest {
+        val manual = ManualAudioCaptureEngine()
+        val inserter = DirectInserter()
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = emptyList(),
+            texts = mapOf(0 to "Paciente relata dor.", 1 to "Nega febre.", 2 to "Sem tosse."),
+            preferences = AppPreferences(),
+            textInserter = inserter,
+            captureEngine = manual,
+            transcriptionDelayMs = 1_000L
+        )
+
+        env.pipeline.start()
+        manual.push(frame(100L))
+        advanceTimeBy(1_001L)
+        assertEquals("Paciente relata dor.", inserter.field.toString())
+        manual.push(frame(100L))
+        manual.push(frame(50L))
+        runCurrent()
+        manual.fail("dead object")
+        runCurrent()
+        assertEquals(DictationPipelineStatus.Transcribing, env.pipeline.status.value)
+        advanceTimeBy(2_001L)
+
+        val completed = assertIs<DictationPipelineStatus.Completed>(env.pipeline.status.value)
+        assertEquals("Paciente relata dor. Nega febre. Sem tosse.", inserter.field.toString())
+        assertEquals("Paciente relata dor. Nega febre. Sem tosse.", completed.text)
+        assertEquals("Captura do microfone interrompida aos 0:00: texto só até ali", completed.warning)
     }
 
     @Test
@@ -2287,13 +2376,20 @@ private class GatedAudioCaptureEngine : AudioCaptureEngine {
 private class ManualAudioCaptureEngine : AudioCaptureEngine {
     override val format: AudioFormat = AudioFormat.DEFAULT
     private var sink: (suspend (AudioFrame) -> Unit)? = null
+    private var errorSink: (suspend (AudioCaptureException) -> Unit)? = null
     private var running = false
 
     override val isRunning: Boolean
         get() = running
 
-    override suspend fun start(onFrame: suspend (AudioFrame) -> Unit) {
+    override suspend fun start(onFrame: suspend (AudioFrame) -> Unit) = start(onFrame, onError = {})
+
+    override suspend fun start(
+        onFrame: suspend (AudioFrame) -> Unit,
+        onError: suspend (AudioCaptureException) -> Unit
+    ) {
         sink = onFrame
+        errorSink = onError
         running = true
     }
 
@@ -2303,6 +2399,11 @@ private class ManualAudioCaptureEngine : AudioCaptureEngine {
 
     suspend fun push(frame: AudioFrame) {
         checkNotNull(sink) { "engine not started" }.invoke(frame)
+    }
+
+    // O microfone cai no meio do ditado (objeto morto, reabertura que falhou, linha fechada).
+    suspend fun fail(message: String) {
+        checkNotNull(errorSink) { "engine not started" }.invoke(AudioCaptureException(message))
     }
 }
 
