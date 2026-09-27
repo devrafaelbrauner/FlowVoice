@@ -13,6 +13,9 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.utils.io.ByteReadChannel
+import kotlin.coroutines.Continuation
+import kotlin.coroutines.resume
+import kotlin.coroutines.suspendCoroutine
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
@@ -457,6 +460,28 @@ class IncrementalTranscriptionControllerTest {
         assertEquals("texto do benchmark", benchmark.await().text)
     }
 
+    // P53: um pedido que termina depois do reset (a resposta já chegava quando o novo ditado começou)
+    // não pode escrever na sessão nova: o texto do ditado anterior entraria no seguinte.
+    @Test
+    fun aRequestThatEndsAfterResetDoesNotWriteIntoTheNewSession() = runTest {
+        val client = LateTranscriptionClient()
+        val controller = IncrementalTranscriptionController(
+            client = client,
+            config = OpenRouterConfig(),
+            scope = this,
+            apiKeyProvider = { "sk-or-v1-testkey123456" }
+        )
+
+        controller.submit(testWindow(0))
+        runCurrent()
+        controller.reset()
+        client.finish("texto do ditado anterior")
+        advanceUntilIdle()
+
+        assertEquals(emptyList(), controller.segments.value)
+        assertEquals("", controller.provisionalText.value)
+    }
+
     private fun quietWindow(index: Int, cut: WindowCut) = DictationWindow(
         index = index,
         pcm = ByteArray(32_000) { if (it % 2 == 0) 100.toByte() else 0.toByte() },
@@ -513,4 +538,19 @@ class IncrementalTranscriptionControllerTest {
         }
     }
 
+    // Pedido que não reage ao cancelamento: a resposta já estava chegando, e só termina quando o
+    // teste manda.
+    private class LateTranscriptionClient : TranscriptionClient {
+        private var pending: Continuation<String>? = null
+
+        fun finish(text: String) {
+            pending?.resume(text)
+        }
+
+        override suspend fun transcribe(
+            window: DictationWindow,
+            apiKey: String,
+            model: String?
+        ): TranscriptionResult = TranscriptionResult(suspendCoroutine { pending = it }, "fake")
+    }
 }
