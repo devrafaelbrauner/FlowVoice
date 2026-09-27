@@ -10,13 +10,17 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.core.content.ContextCompat
+import dev.rafaelbrauner.flowvoice.notes.DebouncedNotePersist
 import dev.rafaelbrauner.flowvoice.service.BubblePositionStore
 import dev.rafaelbrauner.flowvoice.service.FlowVoiceOverlayService
 import dev.rafaelbrauner.flowvoice.service.OverlayAutoStart
 import dev.rafaelbrauner.flowvoice.ui.FlowVoiceRoot
 import dev.rafaelbrauner.flowvoice.ui.theme.FlowVoiceTheme
+import org.koin.core.component.KoinComponent
+import org.koin.core.component.inject
 
-class MainActivity : ComponentActivity() {
+class MainActivity : ComponentActivity(), KoinComponent {
+    private val notesPersist by inject<DebouncedNotePersist>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
@@ -43,5 +47,11 @@ class MainActivity : ComponentActivity() {
         if (restart) {
             ContextCompat.startForegroundService(this, Intent(this, FlowVoiceOverlayService::class.java))
         }
+    }
+
+    // A nota em edição grava com atraso (Y6); saindo da tela, grava já o que falta.
+    override fun onPause() {
+        notesPersist.flush()
+        super.onPause()
     }
 }

@@ -6,6 +6,7 @@ import android.content.pm.ApplicationInfo
 import android.util.Log
 import dev.rafaelbrauner.flowvoice.logging.LogChunks
 import dev.rafaelbrauner.flowvoice.logging.TranscriptTextLogging
+import dev.rafaelbrauner.flowvoice.notes.DebouncedNotePersist
 import dev.rafaelbrauner.flowvoice.service.AccessibilityTextInserter
 import dev.rafaelbrauner.flowvoice.service.AppForeground
 import dev.rafaelbrauner.flowvoice.shared.dictation.AndroidAudioCaptureEngine
@@ -85,9 +86,12 @@ private val dictationModule = module {
     }
     single<SecretStore> { EncryptedSecretStore(androidContext()) }
     single<PersonalDictionary> { InMemoryPersonalDictionary(PrefsDictionaryPersist(androidContext())) }
+    single {
+        DebouncedNotePersist(PrefsNotePersist(androidContext()), CoroutineScope(SupervisorJob() + Dispatchers.IO))
+    }
     single<NoteStore> {
         InMemoryNoteStore(
-            persist = PrefsNotePersist(androidContext()),
+            persist = get<DebouncedNotePersist>(),
             clock = { System.currentTimeMillis() }
         )
     }
