@@ -29,9 +29,12 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.tooling.preview.PreviewParameter
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
+import androidx.core.net.toUri
 import dev.rafaelbrauner.flowvoice.ui.components.FvCard
 import dev.rafaelbrauner.flowvoice.ui.components.MonoLabel
 import dev.rafaelbrauner.flowvoice.ui.components.ThemePreviewParameter
+import dev.rafaelbrauner.flowvoice.ui.screens.settings.FvTextAction
+import dev.rafaelbrauner.flowvoice.ui.shell.AppLinks
 import dev.rafaelbrauner.flowvoice.ui.shell.startActivitySafely
 import dev.rafaelbrauner.flowvoice.ui.theme.FlowVoiceSpacing
 import dev.rafaelbrauner.flowvoice.ui.theme.FlowVoiceTheme
@@ -69,6 +72,7 @@ object AccessibilityDisclosure {
     const val HOW_TO = "Na próxima tela, procure FlowVoice na lista de apps, ligue a chave e confirme."
     const val ACCEPT = "Entendi, abrir Acessibilidade"
     const val DECLINE = "Agora não"
+    const val PRIVACY = "Política de privacidade"
 }
 
 @Composable
@@ -80,12 +84,20 @@ fun AccessibilityDisclosureRoute(onBack: () -> Unit, modifier: Modifier = Modifi
             context.startActivitySafely(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
         },
         onDecline = onBack,
+        onOpenPrivacyPolicy = {
+            context.startActivitySafely(Intent(Intent.ACTION_VIEW, AppLinks.PRIVACY_POLICY_URL.toUri()))
+        },
         modifier = modifier
     )
 }
 
 @Composable
-internal fun AccessibilityDisclosureScreen(onAccept: () -> Unit, onDecline: () -> Unit, modifier: Modifier = Modifier) {
+internal fun AccessibilityDisclosureScreen(
+    onAccept: () -> Unit,
+    onDecline: () -> Unit,
+    onOpenPrivacyPolicy: () -> Unit,
+    modifier: Modifier = Modifier
+) {
     val colors = FlowVoiceTheme.colors
     val typography = FlowVoiceTheme.typography
     Column(
@@ -130,7 +142,13 @@ internal fun AccessibilityDisclosureScreen(onAccept: () -> Unit, onDecline: () -
                     color = colors.textMuted
                 )
             }
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(4.dp))
+            FvTextAction(
+                text = AccessibilityDisclosure.PRIVACY,
+                onClick = onOpenPrivacyPolicy,
+                color = colors.accentText
+            )
+            Spacer(Modifier.height(8.dp))
         }
         OnboardingCta(label = AccessibilityDisclosure.ACCEPT, onClick = onAccept)
         Box(
@@ -170,6 +188,6 @@ private fun DisclosureSection(title: String, items: List<String>) {
 @Composable
 private fun AccessibilityDisclosurePreview(@PreviewParameter(ThemePreviewParameter::class) dark: Boolean) {
     FlowVoiceTheme(darkTheme = dark) {
-        AccessibilityDisclosureScreen(onAccept = {}, onDecline = {}, modifier = Modifier.fillMaxSize())
+        AccessibilityDisclosureScreen(onAccept = {}, onDecline = {}, onOpenPrivacyPolicy = {}, modifier = Modifier.fillMaxSize())
     }
 }
