@@ -1,28 +1,17 @@
 package dev.rafaelbrauner.flowvoice.shared.notes
 
 import android.content.Context
-import kotlinx.serialization.builtins.ListSerializer
-import kotlinx.serialization.json.Json
+import android.util.Log
+import dev.rafaelbrauner.flowvoice.shared.persist.SharedPrefsRawKeyValue
 
-class PrefsNotePersist(context: Context) : NotePersist {
-    private val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-    private val json = Json { ignoreUnknownKeys = true }
-
-    override fun load(): List<Note> {
-        val raw = prefs.getString(KEY, null) ?: return emptyList()
-        return runCatching {
-            json.decodeFromString(ListSerializer(Note.serializer()), raw)
-        }.getOrDefault(emptyList())
-    }
-
-    override fun save(notes: List<Note>) {
-        prefs.edit()
-            .putString(KEY, json.encodeToString(ListSerializer(Note.serializer()), notes))
-            .apply()
-    }
-
-    companion object {
-        private const val PREFS = "flowvoice_notes"
-        private const val KEY = "notes_json"
+class PrefsNotePersist(context: Context) : NotePersist by GuardedNotePersist(
+    store = SharedPrefsRawKeyValue(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)),
+    key = KEY,
+    log = { Log.w(TAG, it) }
+) {
+    private companion object {
+        const val PREFS = "flowvoice_notes"
+        const val KEY = "notes_json"
+        const val TAG = "FlowVoiceNotes"
     }
 }
