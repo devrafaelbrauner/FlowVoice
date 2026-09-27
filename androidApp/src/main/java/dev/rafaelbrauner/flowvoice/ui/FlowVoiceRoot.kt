@@ -51,7 +51,7 @@ fun FlowVoiceRoot(modifier: Modifier = Modifier) {
     val current = stack.current
     val tab = current.tab()
     // Único destino de "Configurar chave" no Início e nas Notas: hoje a aba Ajustes.
-    val openKeySetup: () -> Unit = { stack = stack.selectTab(FvTab.Settings) }
+    val openKeySetup: () -> Unit = { stack = stack.push(FvDestination.OpenRouterKey) }
 
     BackHandler(enabled = stack.canPop) { stack = stack.pop() }
 
@@ -90,7 +90,7 @@ fun FlowVoiceRoot(modifier: Modifier = Modifier) {
                         stack = if (stack.canPop) stack.pop() else BackStack.of(FvDestination.Home)
                     },
                     onOpenAccessibilityDisclosure = { stack = stack.push(FvDestination.AccessibilityDisclosure) },
-                    onOpenKey = { stack = stack.push(FvDestination.OpenRouterKey) },
+                    onOpenKey = openKeySetup,
                     modifier = screen
                 )
 
