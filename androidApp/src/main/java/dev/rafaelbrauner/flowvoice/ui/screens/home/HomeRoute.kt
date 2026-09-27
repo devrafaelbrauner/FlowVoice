@@ -33,7 +33,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -78,6 +77,8 @@ import dev.rafaelbrauner.flowvoice.ui.theme.FlowVoiceRadius
 import dev.rafaelbrauner.flowvoice.ui.theme.FlowVoiceSpacing
 import dev.rafaelbrauner.flowvoice.ui.theme.FlowVoiceTheme
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.launch
@@ -86,6 +87,10 @@ import kotlinx.coroutines.withTimeoutOrNull
 private const val RECENT_NOTES = 2
 private const val START_TIMEOUT_MS = 4_000L
 private const val LATE_START_GRACE_MS = 10_000L
+
+// O vigia do começo do ditado (P133) não morre com a tela: trocar de aba ou girar o aparelho nos 4 s
+// cancelava o escopo da composição, e um Recording atrasado nunca era abandonado (N10).
+private val startWatchdogScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
 @Immutable
 data class RecentNote(
@@ -108,7 +113,6 @@ fun HomeRoute(
     val noteStore = rememberKoin<NoteStore>()
     val pipeline = rememberKoin<DictationPipeline>()
     val secretStore = rememberKoin<SecretStore>()
-    val scope = rememberCoroutineScope()
     var accessibilityActive by remember { mutableStateOf(FlowVoiceAccessibilityService.isRunning) }
     var notes by remember { mutableStateOf(noteStore.list().take(RECENT_NOTES)) }
     var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
@@ -127,8 +131,8 @@ fun HomeRoute(
 
     val coordinator = rememberKoin<NoteDictationCoordinator>()
     val latestOpenNote by rememberUpdatedState(onOpenNote)
-    val starter = remember(context, pipeline, scope, coordinator) {
-        DictationStarter(context, pipeline, scope, coordinator) { latestOpenNote(it) }
+    val starter = remember(context, pipeline, coordinator) {
+        DictationStarter(context, pipeline, coordinator) { latestOpenNote(it) }
     }
     val notificationLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
         starter.start()
@@ -206,7 +210,6 @@ fun HomeRoute(
 private class DictationStarter(
     private val context: Context,
     private val pipeline: DictationPipeline,
-    private val scope: CoroutineScope,
     private val notes: NoteDictationCoordinator,
     private val openNote: (String) -> Unit
 ) {
@@ -228,7 +231,7 @@ private class DictationStarter(
             Intent(context, FlowVoiceOverlayService::class.java)
                 .setAction(OverlayStartRequests.ACTION_START_DICTATION)
         )
-        scope.launch {
+        startWatchdogScope.launch {
             val status = withTimeoutOrNull(START_TIMEOUT_MS) {
                 pipeline.session.mapNotNull { startOutcome(previous, it) }.first()
             }

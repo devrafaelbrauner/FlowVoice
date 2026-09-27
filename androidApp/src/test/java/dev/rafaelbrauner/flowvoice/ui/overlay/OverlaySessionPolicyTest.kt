@@ -87,4 +87,27 @@ class OverlaySessionPolicyTest {
         assertFalse(owned)
         assertFalse(OverlaySessionPolicy.cancelOnDestroy(owned, DictationTarget.ActiveField, DictationPipelineStatus.Recording))
     }
+
+    @Test
+    fun homeMicDictationWithTheBubbleOffWaitsForTheDictationThenEndsWithIt() {
+        var awaiting = true
+        awaiting = OverlaySessionPolicy.awaitingAfterMode(awaiting, OverlayMode.Bubble)
+        assertFalse(OverlaySessionPolicy.shouldStopWithHiddenBubble(true, OverlayMode.Bubble, awaiting))
+
+        awaiting = OverlaySessionPolicy.awaitingAfterStatus(awaiting, DictationPipelineStatus.Starting)
+        assertFalse(OverlaySessionPolicy.shouldStopWithHiddenBubble(true, OverlayMode.Bubble, awaiting))
+
+        awaiting = OverlaySessionPolicy.awaitingAfterMode(awaiting, OverlayMode.Preview)
+        assertFalse(OverlaySessionPolicy.shouldStopWithHiddenBubble(true, OverlayMode.Preview, awaiting))
+
+        awaiting = OverlaySessionPolicy.awaitingAfterMode(awaiting, OverlayMode.Bubble)
+        assertTrue(OverlaySessionPolicy.shouldStopWithHiddenBubble(true, OverlayMode.Bubble, awaiting))
+    }
+
+    @Test
+    fun homeMicDictationThatNeverShowsUpStillEndsTheOverlay() {
+        val awaiting = OverlaySessionPolicy.awaitingAfterStatus(true, DictationPipelineStatus.Cancelled)
+
+        assertTrue(OverlaySessionPolicy.shouldStopWithHiddenBubble(true, OverlayMode.Bubble, awaiting))
+    }
 }

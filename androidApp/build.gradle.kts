@@ -30,7 +30,8 @@ android {
     signingConfigs {
         if (releaseStoreFile != null) {
             create("release") {
-                storeFile = file(releaseStoreFile)
+                // Caminho relativo vale a partir da raiz, onde fica o keystore.properties (N15).
+                storeFile = rootProject.file(releaseStoreFile)
                 storePassword = releaseSetting("storePassword", "FLOWVOICE_KEYSTORE_PASSWORD")
                 keyAlias = releaseSetting("keyAlias", "FLOWVOICE_KEY_ALIAS")
                 keyPassword = releaseSetting("keyPassword", "FLOWVOICE_KEY_PASSWORD")
@@ -74,4 +75,5 @@ dependencies {
     implementation(libs.google.id)
     debugImplementation(libs.compose.ui.tooling)
     testImplementation(kotlin("test-junit"))
+    testImplementation(libs.kotlinx.coroutines.test)
 }

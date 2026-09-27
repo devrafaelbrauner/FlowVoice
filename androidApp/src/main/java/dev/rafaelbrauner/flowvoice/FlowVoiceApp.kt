@@ -6,6 +6,7 @@ import android.content.pm.ApplicationInfo
 import android.util.Log
 import dev.rafaelbrauner.flowvoice.logging.LogChunks
 import dev.rafaelbrauner.flowvoice.logging.TranscriptTextLogging
+import dev.rafaelbrauner.flowvoice.notes.DebouncedNotePersist
 import dev.rafaelbrauner.flowvoice.service.AccessibilityTextInserter
 import dev.rafaelbrauner.flowvoice.service.AppForeground
 import dev.rafaelbrauner.flowvoice.shared.dictation.AndroidAudioCaptureEngine
@@ -64,6 +65,8 @@ private fun logcat(event: String, metadata: Map<String, String>) {
 
 private fun transcriptTextLog(context: Context): TranscriptionEventLog {
     val debuggable = context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
+    // Release nem olha o marcador: nada de acesso a disco na thread principal a cada evento (N14).
+    if (!debuggable) return TranscriptionEventLog { _, _ -> }
     val marker = File(context.filesDir, TranscriptTextLogging.MARKER_FILE)
     return TranscriptionEventLog { event, metadata ->
         val modifiedAt = marker.lastModified().takeIf { it > 0L }
@@ -85,9 +88,12 @@ private val dictationModule = module {
     }
     single<SecretStore> { EncryptedSecretStore(androidContext()) }
     single<PersonalDictionary> { InMemoryPersonalDictionary(PrefsDictionaryPersist(androidContext())) }
+    single {
+        DebouncedNotePersist(PrefsNotePersist(androidContext()), CoroutineScope(SupervisorJob() + Dispatchers.IO))
+    }
     single<NoteStore> {
         InMemoryNoteStore(
-            persist = PrefsNotePersist(androidContext()),
+            persist = get<DebouncedNotePersist>(),
             clock = { System.currentTimeMillis() }
         )
     }

@@ -9,6 +9,8 @@ import android.graphics.Rect
 import android.graphics.RectF
 import android.os.Build
 import android.os.Bundle
+import android.os.SystemClock
+import android.text.Spanned
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
@@ -22,7 +24,7 @@ import dev.rafaelbrauner.flowvoice.shared.insertion.FocusedPackage
 import dev.rafaelbrauner.flowvoice.shared.insertion.InsertionGuard
 import dev.rafaelbrauner.flowvoice.shared.insertion.InsertionTarget
 
-class FlowVoiceAccessibilityService : AccessibilityService() {
+class FlowVoiceAccessibilityService : AccessibilityService(), FocusedFieldAccess {
 
     data class InsertResult(
         val success: Boolean,
@@ -49,7 +51,7 @@ class FlowVoiceAccessibilityService : AccessibilityService() {
         Log.i(TAG, "Serviço de acessibilidade conectado (flags=0x${flags.toString(16)})")
     }
 
-    private val previousApps by lazy { PreviousAppTracker(packageName) }
+    private val previousApps by lazy { PreviousAppTracker(packageName) { SystemClock.elapsedRealtime() } }
     private var homePackages: Set<String> = emptySet()
 
     // Muda a cada input novo ou encerrado, nunca num restartInput do mesmo campo: a inserção sem toque
@@ -75,8 +77,19 @@ class FlowVoiceAccessibilityService : AccessibilityService() {
         Log.i(TAG, "input_generation $inputGeneration")
     }
 
-    fun currentInputGeneration(): Int? =
+    override val ownPackage: String
+        get() = packageName
+
+    override fun currentInputGeneration(): Int? =
         inputGeneration.takeIf { Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU }
+
+    // Só o tipo do input que o teclado recebeu (API 33+), sem ler o campo: é o que a leitura antes do
+    // cursor precisa saber antes de ler qualquer coisa (Y1). Abaixo da 33 essa leitura não existe.
+    override fun inputIsPassword(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return false
+        val inputType = runCatching { inputMethod?.currentInputEditorInfo?.inputType }.getOrNull() ?: return false
+        return InsertionGuard.isPasswordInputType(inputType)
+    }
 
     fun previousAppLaunchIntent(): Intent? =
         previousApps.target?.let { packageManager.getLaunchIntentForPackage(it) }
@@ -86,8 +99,13 @@ class FlowVoiceAccessibilityService : AccessibilityService() {
 
     private fun isActiveAppWindow(windowId: Int): Boolean {
         freshAccessibilityData()
-        val active = runCatching { windows }.getOrNull()?.firstOrNull { it.isActive } ?: return false
-        return active.id == windowId && active.type == AccessibilityWindowInfo.TYPE_APPLICATION
+        val windows = runCatching { windows }.getOrNull() ?: return false
+        return try {
+            val active = windows.firstOrNull { it.isActive } ?: return false
+            active.id == windowId && active.type == AccessibilityWindowInfo.TYPE_APPLICATION
+        } finally {
+            releaseWindows(windows)
+        }
     }
 
     private fun resolveHomePackages(): Set<String> = runCatching {
@@ -107,12 +125,15 @@ class FlowVoiceAccessibilityService : AccessibilityService() {
 
     fun inputMethodTopOnScreen(): Int? {
         freshAccessibilityData()
-        val keyboard = runCatching { windows }.getOrNull()
-            ?.firstOrNull { it.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD }
-            ?: return null
-        val bounds = Rect()
-        keyboard.getBoundsInScreen(bounds)
-        return bounds.top.takeIf { bounds.height() > 0 }
+        val windows = runCatching { windows }.getOrNull() ?: return null
+        return try {
+            val keyboard = windows.firstOrNull { it.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD } ?: return null
+            val bounds = Rect()
+            keyboard.getBoundsInScreen(bounds)
+            bounds.top.takeIf { bounds.height() > 0 }
+        } finally {
+            releaseWindows(windows)
+        }
     }
 
     // Só coordenadas, na tela: faixa vertical do campo em foco e da linha do cursor, para a prévia não cobrir o que
@@ -203,7 +224,7 @@ class FlowVoiceAccessibilityService : AccessibilityService() {
         super.onDestroy()
     }
 
-    fun focusedPackage(): String? {
+    override fun focusedPackage(): String? {
         var editorPackage: String? = null
         var inputStarted = false
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -226,7 +247,7 @@ class FlowVoiceAccessibilityService : AccessibilityService() {
         }
     }
 
-    fun insertDirect(text: String, deleteBefore: Int = 0, excludedPackage: String? = null): InsertResult {
+    override fun insertDirect(text: String, deleteBefore: Int, excludedPackage: String?): InsertResult {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
             return InsertResult(false, "commitText", "requer Android 13+ (API 33)")
         }
@@ -270,8 +291,9 @@ class FlowVoiceAccessibilityService : AccessibilityService() {
 
     // Texto que está de fato logo antes do cursor (P148). `getSurroundingText` existe na
     // AccessibilityInputConnection (API 33+) e devolve o trecho junto com a posição da seleção dentro
-    // dele; sem conexão, sem editor ou fora da API, quem chamou fica com a conta do próprio app.
-    fun textBeforeCursor(limit: Int): String? {
+    // dele; sem conexão, sem editor ou fora da API, quem chamou fica com a conta do próprio app. As travas
+    // de destino e de senha ficam no GuardedFieldInserter, que só chama isto depois delas (Y1).
+    override fun textBeforeCursor(limit: Int): String? {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return null
         if (limit <= 0) return null
         val connection = inputMethod?.currentInputConnection ?: return null
@@ -281,26 +303,76 @@ class FlowVoiceAccessibilityService : AccessibilityService() {
         return text.substring(0, cursor)
     }
 
-    fun insertFallback(text: String, deleteBefore: Int = 0, excludedPackage: String? = null): InsertResult {
+    override fun insertFallback(text: String, deleteBefore: Int, excludedPackage: String?): InsertResult =
+        setTextAtCursor(text, deleteBefore, excludedPackage, precondition = null)
+            ?: InsertResult(false, "ACTION_SET_TEXT", "campo não conferido: nada inserido")
+
+    // O reparo automático da P142 pela mesma rota, só quando reescrever o campo inteiro não pode estragar
+    // nada (Y5, regra em AtomicRewrite). Fora disso, null: o pipeline anota o desvio e não mexe no campo.
+    override fun rewriteTail(text: String, deleteBefore: Int, excludedPackage: String): InsertResult? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return null
+        return setTextAtCursor(text, deleteBefore, excludedPackage) { node, current ->
+            val spans = (current as? Spanned)?.let { it.getSpans(0, it.length, Any::class.java).isNotEmpty() } ?: false
+            val skip = AtomicRewrite.skip(
+                className = node.className,
+                nodeText = current,
+                nodeHasSpans = spans,
+                nodeSelectionStart = node.textSelectionStart,
+                nodeSelectionEnd = node.textSelectionEnd,
+                field = current?.takeIf { Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU }
+                    ?.let { wholeFieldFromInput(it.length) }
+            )
+            if (skip != null) Log.i(TAG, "rewrite_skipped motivo=${skip.reason} classe=${node.className}")
+            skip == null
+        }
+    }
+
+    // O campo como o teclado o vê, pedido com folga dos dois lados do cursor: se o nó mostra o campo
+    // inteiro, isto começa na posição 0 e é igual ao texto do nó.
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
+    private fun wholeFieldFromInput(nodeLength: Int): AtomicRewrite.Field? {
+        val connection = inputMethod?.currentInputConnection ?: return null
+        val span = nodeLength + 1
+        val surrounding = runCatching { connection.getSurroundingText(span, span, 0) }.getOrNull() ?: return null
+        val text = surrounding.text?.toString() ?: return null
+        return AtomicRewrite.Field(text, surrounding.offset, surrounding.selectionStart, surrounding.selectionEnd)
+    }
+
+    // ACTION_SET_TEXT no ponto do cursor. O `precondition` roda depois das travas de app e de senha e antes
+    // de escrever; recusado, devolve null sem tocar no campo.
+    private fun setTextAtCursor(
+        text: String,
+        deleteBefore: Int,
+        excludedPackage: String?,
+        precondition: ((AccessibilityNodeInfo, CharSequence?) -> Boolean)?
+    ): InsertResult? {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
             return InsertResult(false, "ACTION_SET_TEXT", "requer Android 8+ para inserir sem apagar o texto do campo")
         }
 
         freshAccessibilityData()
-        val node = rootInActiveWindow?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+        val root = runCatching { rootInActiveWindow }.getOrNull()
             ?: return InsertResult(false, "ACTION_SET_TEXT", "nenhum foco de edição encontrado")
+        val node = runCatching { root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT) }.getOrNull()
+        if (node == null) {
+            releaseNode(root)
+            return InsertResult(false, "ACTION_SET_TEXT", "nenhum foco de edição encontrado")
+        }
 
         try {
             if (excludedPackage != null && InsertionTarget.isOwnApp(node.packageName, excludedPackage)) {
                 return InsertResult(false, "ACTION_SET_TEXT", InsertionTarget.OWN_APP_MESSAGE, blocked = true)
             }
-            if (node.isPassword) {
-                return InsertResult(false, "ACTION_SET_TEXT", "campo de senha: nada inserido")
+            // `isPassword` sozinho não pega "mostrar senha" nem VISIBLE_PASSWORD (P86): o tipo do input
+            // também conta, e nos dois casos o texto do campo nem chega a ser lido.
+            if (node.isPassword || InsertionGuard.isPasswordInputType(node.inputType)) {
+                return InsertResult(false, "ACTION_SET_TEXT", InsertionGuard.PASSWORD_MESSAGE, blocked = true)
             }
             val current = node.text
             if (current == null && !node.isShowingHintText) {
                 return InsertResult(false, "ACTION_SET_TEXT", "texto do campo ilegível: nada inserido para não apagar conteúdo")
             }
+            if (precondition != null && !precondition(node, current)) return null
             val plan = CursorInsertion.plan(
                 current = current?.toString(),
                 showingHint = node.isShowingHintText,
@@ -309,38 +381,50 @@ class FlowVoiceAccessibilityService : AccessibilityService() {
                 insert = text,
                 deleteBefore = deleteBefore
             )
-            val textArgs = Bundle().apply {
-                putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, plan.text)
-            }
-            val performed = node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, textArgs)
-            if (!performed) error("performAction(ACTION_SET_TEXT) retornou false")
+            if (!node.replaceText(plan.text)) error("performAction(ACTION_SET_TEXT) retornou false")
             val selectionArgs = Bundle().apply {
                 putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, plan.cursor)
                 putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, plan.cursor)
             }
             val cursorPlaced = node.performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, selectionArgs)
-            return InsertResult(
-                success = true,
-                route = "ACTION_SET_TEXT",
-                message = if (cursorPlaced) {
-                    "texto inserido no cursor em ${node.className}"
-                } else {
-                    "texto inserido no cursor em ${node.className} (cursor não reposicionado)"
-                },
-            )
+            // O SET_TEXT deixa o cursor no fim. Sem reposicionar, inserir no meio do texto faria cada
+            // trecho seguinte ir para o fim do campo (N2): desfaz a escrita e responde falha, e o trecho
+            // fica pendente. Se nem desfazer der, o texto está no campo, e dizer falha o duplicaria.
+            if (!cursorPlaced && plan.cursor != plan.text.length) {
+                val original = if (node.isShowingHintText) "" else current?.toString().orEmpty()
+                if (node.replaceText(original)) {
+                    return InsertResult(false, "ACTION_SET_TEXT", "cursor não reposicionado: nada inserido")
+                }
+                return InsertResult(true, "ACTION_SET_TEXT", "texto inserido em ${node.className} (cursor não reposicionado)")
+            }
+            return InsertResult(true, "ACTION_SET_TEXT", "texto inserido no cursor em ${node.className}")
         } catch (error: Throwable) {
             return InsertResult(false, "ACTION_SET_TEXT", error.message ?: "erro desconhecido")
         } finally {
             releaseNode(node)
+            releaseNode(root)
         }
+    }
+
+    private fun AccessibilityNodeInfo.replaceText(value: CharSequence): Boolean {
+        val args = Bundle().apply {
+            putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, value)
+        }
+        return performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
     }
 
     fun diagnoseFocusedField(): InsertResult {
         freshAccessibilityData()
-        val node = rootInActiveWindow?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+        val root = runCatching { rootInActiveWindow }.getOrNull()
             ?: return InsertResult(false, "diagnóstico", "nenhum foco de edição encontrado")
+        val node = runCatching { root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT) }.getOrNull()
+        if (node == null) {
+            releaseNode(root)
+            return InsertResult(false, "diagnóstico", "nenhum foco de edição encontrado")
+        }
 
         try {
+            val password = node.isPassword || InsertionGuard.isPasswordInputType(node.inputType)
             return InsertResult(
                 success = true,
                 route = "diagnóstico",
@@ -348,20 +432,27 @@ class FlowVoiceAccessibilityService : AccessibilityService() {
                     className = node.className,
                     editable = node.isEditable,
                     focused = node.isFocused,
-                    password = node.isPassword,
-                    textLength = node.text?.length ?: 0
+                    password = password,
+                    textLength = if (password) 0 else node.text?.length ?: 0
                 ),
             )
         } catch (error: Throwable) {
             return InsertResult(false, "diagnóstico", error.message ?: "erro desconhecido")
         } finally {
             releaseNode(node)
+            releaseNode(root)
         }
     }
 
     private fun releaseNode(node: AccessibilityNodeInfo) {
         @Suppress("DEPRECATION")
         node.recycle()
+    }
+
+    // Abaixo da API 33 as janelas vêm de um pool; da 33 em diante recycle não faz nada.
+    private fun releaseWindows(windows: List<AccessibilityWindowInfo>) {
+        @Suppress("DEPRECATION")
+        windows.forEach { it.recycle() }
     }
 
     private fun clearInstanceIfCurrent() {
