@@ -10,6 +10,36 @@ class ProofreadingGuardTest {
             "nao tem alergia a dipirona e segue estavel sem febre desde ontem prescrevo dipirona 500 mg de 6 em 6 horas " +
             "por cinco dias e retorno em duas semanas com radiografia do joelho para reavaliacao do quadro"
 
+    // R2 (revisão de código): trocas que mudam o sentido clínico e passavam por distância de edição.
+    private val meaningChangingEdits = listOf(
+        "hipertensão" to "hipotensão",
+        "Hiperglicemia" to "Hipoglicemia",
+        "normal" to "anormal",
+        "sintomático" to "assintomático",
+        "regular" to "irregular",
+        "prednisona" to "prednisolona",
+        "amoxicilina" to "ampicilina",
+        "sessenta gotas" to "setenta gotas",
+        "Não tomou a medicação." to "Não, tomou a medicação.",
+        "Nega alergias." to "Nega alergias?"
+    )
+
+    @Test
+    fun meaningChangingEditsAreRejected() {
+        meaningChangingEdits.forEach { (dictated, revised) ->
+            assertFalse(ProofreadingGuard.accepts(dictated, revised), "$dictated → $revised")
+            assertFalse(ProofreadingGuard.accepts("Paciente com $dictated", "Paciente com $revised"), "$dictated → $revised")
+        }
+    }
+
+    @Test
+    fun accentsCasePunctuationAndSpellingAroundClinicalWordsAreAccepted() {
+        assertTrue(ProofreadingGuard.accepts("paciente com hipertensao nega alergias", "Paciente com hipertensão. Nega alergias."))
+        assertTrue(ProofreadingGuard.accepts("nao tomou a medicacao ha sessenta dias", "Não tomou a medicação há sessenta dias."))
+        assertTrue(ProofreadingGuard.accepts("quadro assintomatico, prednisona suspensa", "Quadro assintomático; prednisona suspensa."))
+        assertTrue(ProofreadingGuard.accepts("o paciente tem excessao de peso", "O paciente tem exceção de peso."))
+    }
+
     @Test
     fun punctuationCapitalizationAndAccentsAreAccepted() {
         assertTrue(ProofreadingGuard.accepts("tomar dipirona", "Tomar dipirona."))

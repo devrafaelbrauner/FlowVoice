@@ -20,7 +20,8 @@ object ProofreadingMerge {
                     sanitizedGap(
                         original.substring(originalCursor, source[index].first),
                         revised.substring(revisedCursor, span.first),
-                        original
+                        original,
+                        afterNegation = index > 0 && ProofreadingGuard.isNegation(original.substring(source[index - 1]))
                     )
                 )
                 val dictated = original.substring(source[index].first, source[index].last + 1)
@@ -35,7 +36,8 @@ object ProofreadingMerge {
                 sanitizedGap(
                     original.substring(originalCursor, original.length),
                     revised.substring(revisedCursor, revised.length),
-                    original
+                    original,
+                    afterNegation = false
                 )
             )
         }
@@ -43,7 +45,9 @@ object ProofreadingMerge {
 
     // Sinal novo no vão: fica a pontuação do ditado. Se o ditado não tinha vão (fim do texto) e a
     // revisão só acrescentou aspas em volta de um ponto, o ponto entra.
-    private fun sanitizedGap(originalGap: String, revisedGap: String, original: String): String {
+    // R2: depois de uma negação o vão fica o do ditado se a revisão pôs pontuação nova ("Não, tomou").
+    private fun sanitizedGap(originalGap: String, revisedGap: String, original: String, afterNegation: Boolean): String {
+        if (afterNegation && ProofreadingGuard.addsPunctuation(originalGap, revisedGap)) return originalGap
         val cleaned = ProofreadingGuard.stripForbiddenNewSignals(revisedGap, original)
         if (cleaned == revisedGap) return revisedGap
         return originalGap.ifEmpty { cleaned }

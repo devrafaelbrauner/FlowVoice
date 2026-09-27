@@ -19,18 +19,20 @@ class SyncEngine(
             return SyncResult(pushed = false, pulled = false, mergedNotes = 0, mergedTerms = 0)
         }
         val remoteSnap = remote.pull()
-        val localNotes = notes.list()
+        val localNotes = notes.all()
         val localTerms = dictionary.approved().map { it.surface }
         val localPrefs = preferences.read()
         val mergedNotes = mergeNotes(localNotes, remoteSnap?.notes.orEmpty())
         val mergedTerms = (localTerms + remoteSnap?.approvedTerms.orEmpty())
             .distinctBy { it.lowercase() }
         val mergedPrefs = localPrefs
-        mergedNotes.forEach { notes.upsert(it) }
+        // Y7: sem carimbar a hora de agora e só o que mudou; a edição mais nova vence em qualquer aparelho.
+        val localById = localNotes.associateBy { it.id }
+        mergedNotes.filter { localById[it.id] != it }.forEach { notes.putMerged(it) }
         mergedTerms.forEach { dictionary.approve(it) }
         preferences.write(mergedPrefs)
         val outgoing = SyncSnapshot(
-            notes = notes.list(),
+            notes = notes.all(),
             approvedTerms = dictionary.approved().map { it.surface },
             preferences = preferences.read().copy(),
             updatedAtMs = clock()
@@ -39,7 +41,7 @@ class SyncEngine(
         return SyncResult(
             pushed = true,
             pulled = remoteSnap != null,
-            mergedNotes = mergedNotes.size,
+            mergedNotes = mergedNotes.count { !it.isDeleted },
             mergedTerms = mergedTerms.size
         )
     }
