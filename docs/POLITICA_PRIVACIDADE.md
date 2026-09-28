@@ -19,8 +19,9 @@ Esta política descreve como o aplicativo Android **FlowVoice**
 - Com o modelo no aparelho e a revisão final por IA desligada, o áudio **não sai do
   celular**. Com a revisão ligada, o áudio do ditado inteiro vai uma vez à OpenRouter
   **no fim de cada ditado**, mesmo com o modelo no aparelho. Com a transcrição na
-  nuvem, o áudio sai do aparelho **enquanto você dita**. Em nenhum dos casos o app
-  grava o áudio em arquivo.
+  nuvem, o áudio sai do aparelho **enquanto você dita** e, com a revisão ligada, o
+  áudio do ditado inteiro vai de novo no fim. Em nenhum dos casos o app grava o áudio
+  em arquivo.
 - Notas, dicionário e a chave da OpenRouter ficam **só no seu aparelho** e fora do
   backup do Android.
 - O app não tem anúncios, não usa SDKs de análise ou rastreamento e não tem servidor
@@ -38,11 +39,15 @@ Esta política descreve como o aplicativo Android **FlowVoice**
     reconhecimento de fala. Com a **revisão final por IA** desligada, ele nunca é
     enviado a ninguém. Com ela ligada, ao fim de cada ditado o áudio inteiro (em
     pedaços de até 50 s nos ditados longos) é convertido em WAV e enviado por HTTPS à
-    OpenRouter, que o repassa ao provedor do modelo de transcrição (padrão:
-    `openai/gpt-transcribe`); o texto que volta substitui o do aparelho.
+    OpenRouter, que o repassa ao provedor do modelo de transcrição escolhido em Ajustes
+    (padrão: `deepgram/nova-3`) — ou, se em "Formatação" você escolher **um passo só**,
+    ao provedor do modelo de chat que ouve o áudio (padrão: `thinkingmachines/inkling`);
+    o texto que volta substitui o do aparelho.
   - **Nuvem (OpenRouter):** o áudio é dividido em trechos curtos, convertido em WAV e
     enviado por HTTPS à OpenRouter, que o repassa ao provedor do modelo de
-    transcrição escolhido (padrão: `openai/gpt-transcribe`).
+    transcrição escolhido (padrão: `deepgram/nova-3`). Com a **revisão final por IA**
+    ligada, ao fim de cada ditado o áudio inteiro vai de novo, como no item acima, e o
+    texto que volta substitui o digitado ao vivo.
 - **Armazenamento:** o áudio fica só na memória do app, até o próximo ditado (um
   ditado cancelado é descartado na hora); nada é gravado em arquivo no aparelho. Na
   tela de Diagnóstico, se você pedir um benchmark, o áudio da última sessão é
@@ -53,10 +58,10 @@ Esta política descreve como o aplicativo Android **FlowVoice**
 - O texto transcrito (no aparelho ou devolvido pela OpenRouter) é inserido no campo
   em que você está digitando ou numa nota do FlowVoice.
 - **Revisão final por IA** (desligada por padrão): se você ligar, no fim do ditado o
-  texto é enviado à OpenRouter para correção de pontuação, vírgulas, maiúsculas,
-  acentos e concordância (modelo padrão `anthropic/claude-haiku-4.5`). Na nuvem vai o
-  texto ditado; com o modelo no aparelho vai o texto da transcrição do áudio inteiro
-  (ver 1.1).
+  texto da transcrição do áudio inteiro (ver 1.1) é enviado à OpenRouter para correção
+  de pontuação, vírgulas, maiúsculas, acentos e concordância, pelo modelo de
+  formatação escolhido em Ajustes (padrão `openai/gpt-4.1-mini`). Com "sem
+  formatação" ou "um passo só" em Ajustes, esse envio de texto não acontece.
 - **Dicionário pessoal:** as correções de termos são aplicadas no próprio aparelho.
 
 ### 1.3 Chave de API da OpenRouter
@@ -132,8 +137,8 @@ notificações mostra o aviso do serviço da bolha. Nenhuma das duas coleta dado
 
 - **OpenRouter, Inc.** (<https://openrouter.ai>) e o provedor do modelo que ela
   aciona recebem o áudio quando a transcrição é na nuvem ou quando a revisão final
-  por IA está ligada (com o modelo no aparelho, no fim de cada ditado), e o texto se
-  a revisão estiver ligada, vinculados
+  por IA está ligada (no fim de cada ditado, nos dois motores), e o texto transcrito
+  se a revisão estiver ligada com um modelo de formatação, vinculados
   à **sua** conta e chave da OpenRouter. O tratamento lá segue a política da
   OpenRouter: <https://openrouter.ai/privacy>.
 - **GitHub**, apenas no download do modelo no aparelho: recebe o endereço IP da

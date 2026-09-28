@@ -65,7 +65,7 @@ object AccessibilityDisclosure {
             "revisão final por IA desligada, o áudio é transcrito no próprio celular e não sai dele. Com a " +
             "revisão ligada, o áudio do ditado inteiro vai para a OpenRouter no fim, mesmo com o modelo no " +
             "aparelho, e volta como o texto final. Com a transcrição na nuvem, o áudio vai para a OpenRouter " +
-            "enquanto você dita, e com a revisão ligada o texto ditado também vai.",
+            "enquanto você dita e, com a revisão ligada, o áudio do ditado inteiro vai de novo no fim.",
         "Não lê nem escreve em campos marcados como senha.",
         "Não toca em botões nem navega por você: só escreve e corrige o texto que você ditou e posiciona o cursor."
     )

@@ -154,17 +154,19 @@ FlowVoice (P161).
       sem internet e sem custo, e o áudio não sai do celular (ver "Motor de transcrição").
       Para a nuvem, a mesma tela explica a OpenRouter, abre
       openrouter.ai/keys e avisa dos créditos pré-pagos no cartão (compra mínima
-      de US$ 5). Mostra uma **estimativa** de custo: ≈ R$ 1,90 a 3,30 por hora de
-      ditado (set/2026), calculada com os preços da OpenRouter, as taxas e o câmbio
-      de 2026-09-25, e não medida em uso real. "Validar e salvar" é o mesmo de
+      de US$ 5). Mostra uma **estimativa** de custo: ≈ R$ 1,80 a 4,30 por hora de
+      ditado na nuvem (o teto com a revisão final por IA) e ≈ R$ 1,70 a 1,90 no motor do
+      aparelho com a revisão (set/2026), calculada com os preços e o `usage.cost` medidos
+      da OpenRouter, as taxas e o câmbio de 2026-09-25, e não medida em uso real. "Validar e salvar" é o mesmo de
       Ajustes. A chave fica cifrada no aparelho, fora do backup e da sincronização,
       e só vai à OpenRouter. Ditar sem chave nem modelo mostra o aviso "Falta configurar
       a transcrição", e **Configurar** abre essa mesma tela.
 3. **Ajustes:** ligue o botão flutuante (pede microfone, notificações e "sobrepor a
    outros apps"; na volta da permissão ele liga sozinho) e, se quiser, o Google Web
    Client ID. "Revisar antes de inserir" (desligado por padrão) troca a digitação
-   direta pela barra com Inserir. A revisão por IA vale no fim do ditado pela bolha,
-   nesse modo e nas notas. A política de privacidade também está em Ajustes.
+   direta pela barra com Inserir. A revisão final por IA vale no fim do ditado pela bolha,
+   nesse modo e nas notas, nos dois motores (ver "Motor de transcrição"). A política de
+   privacidade também está em Ajustes.
 
 ## Motor de transcrição
 
@@ -182,13 +184,24 @@ Em **Ajustes → Motor de transcrição**:
   no aparelho dura no máximo 10 min. Se o motor falhar no meio, o texto até ali é entregue com
   aviso, e o app **não** passa sozinho para a nuvem. Sem hotwords: termos médicos saem pior que
   na nuvem.
-- **Nuvem (OpenRouter):** o padrão, como antes; precisa da chave.
-- A **revisão final por IA** (Ajustes) precisa da chave; sem ela, é pulada. No motor do aparelho ela
-  faz **duas passadas**: o Nemotron digita o rascunho ao vivo e, ao parar, o **áudio inteiro** do
-  ditado vai uma vez à OpenRouter (`gpt-transcribe` + formatação por `claude-haiku-4.5`); o texto
-  final troca o rascunho no campo, na nota ou na barra ~3,5–4,5 s depois (cartão "revisando…"). Sem
-  rede, com erro ou passados 8 s, fica o rascunho, com aviso. Custo ≈ US$ 0,0073 por minuto de
-  ditado. Na nuvem ela revisa só o texto já transcrito. Ver `docs/medicao-duas-passadas.md`.
+- **Nuvem (OpenRouter):** o padrão; precisa da chave. O ditado vai em trechos curtos ao **modelo de
+  transcrição** escolhido e é digitado ao vivo.
+- A **revisão final por IA** (Ajustes) precisa da chave; sem ela, é pulada. Nos dois motores ela faz
+  **duas passadas**: o rascunho é digitado ao vivo (Nemotron no aparelho, trechos da nuvem na nuvem) e, ao
+  parar, o **áudio inteiro** do ditado vai uma vez à OpenRouter — transcrição e formatação, ou um passo só
+  — e o texto final troca o rascunho no campo, na nota ou na barra (cartão "revisando…"). Sem rede, com
+  erro ou passados 8 s, fica o rascunho, com aviso ("…ficou o texto do aparelho" / "…ficou o texto ao
+  vivo"). Ver `docs/medicao-modelos-nuvem.md`.
+- **Modelos** (Ajustes, valem para os dois motores; os medidos aparecem primeiro, com a nota de ortografia
+  e pontuação e o tempo de um ditado de 20 s):
+  - **Modelo de transcrição**: padrão `deepgram/nova-3` (ao vivo na nuvem e na passada final).
+  - **Formatação**: um modelo de chat depois da transcrição (padrão `openai/gpt-4.1-mini`, conferido pela
+    guarda contra a transcrição: só pontuação, caixa, acento e concordância); **sem formatação** (fica a
+    transcrição do áudio inteiro, a opção mais rápida, ~1,9 s num ditado de 20 s); ou **um passo só**,
+    em que um modelo que ouve o áudio devolve o texto já formatado (padrão `thinkingmachines/inkling`;
+    sem transcrição para conferir, fica o rascunho se o texto tiver menos de ~1/3 das palavras dele).
+  - Com os padrões: ~3,3 s do toque de parar ao texto final num ditado de 20 s (medido do Mac) e
+    ≈ US$ 0,0050 por minuto de ditado na passada final.
 - "Apagar modelo" volta o motor para a nuvem.
 
 ## Ditando
@@ -202,8 +215,8 @@ Em **Ajustes → Motor de transcrição**:
   palavras entram no campo cerca de 1 s depois de ditas. O trecho é **digitado no campo** assim que é
   transcrito, em ordem e com espaço entre os trechos. Toque na bolha de novo para encerrar: o último trecho
   entra em seguida. Com a **revisão final por IA** ligada (Ajustes), o ditado inteiro é
-  revisto de uma vez no fim — pontuação, vírgulas, maiúsculas, acentos e concordância só pela
-  terminação, sem trocar palavra; no motor do aparelho, a partir do áudio inteiro (ver "Motor de
+  refeito de uma vez no fim a partir do áudio inteiro — transcrição, e na formatação pontuação,
+  vírgulas, maiúsculas, acentos e concordância só pela terminação, sem trocar palavra (ver "Motor de
   transcrição") — e substitui no campo o que o FlowVoice tinha escrito; a prévia mostra "revisando…"
   durante a chamada. Se a revisão falhar, se o texto não estiver mais logo
   antes do cursor ou se o ditado passar de 4000 caracteres, fica como foi digitado.

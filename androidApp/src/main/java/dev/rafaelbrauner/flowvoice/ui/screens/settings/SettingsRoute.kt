@@ -876,7 +876,7 @@ private fun SettingsContentPreview(@PreviewParameter(ThemePreviewParameter::clas
                 keyDraftVisible = false,
                 validatingKey = false,
                 keyMessage = null,
-                modelLabel = "gpt-transcribe",
+                modelLabel = "nova-3",
                 modelOptions = emptyList(),
                 modelLoading = false,
                 modelMessage = null,
