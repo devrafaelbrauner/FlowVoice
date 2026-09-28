@@ -20,38 +20,18 @@ class DirectPreviewModelTest {
         assertEquals(DirectPreviewState.Hidden, state(DictationPipelineStatus.Cancelled))
     }
 
+    // S26, 2026-09-28: o cartão cobria a linha em que se ditava e repetia o que já estava no campo.
     @Test
-    fun startingShowsOnlyTheStateAndCancel() {
-        val live = assertIs<DirectPreviewState.Live>(state(DictationPipelineStatus.Starting, progress = DirectInsertionProgress()))
-
-        assertEquals(DirectPreviewModel.STATUS_STARTING, live.status)
-        assertEquals("", live.typedTail)
-        assertFalse(live.canInsertHere)
-    }
-
-    @Test
-    fun recordingShowsClockListeningHintTextAlreadyInTheFieldAndTranscribing() {
-        val live = assertIs<DirectPreviewState.Live>(
-            state(DictationPipelineStatus.Recording, transcribing = true, elapsedMs = 12_300L)
-        )
-
-        assertEquals(DirectPhase.Recording, live.phase)
-        assertEquals("0:12", live.clock)
-        assertEquals(DirectPreviewModel.STATUS_LISTENING, live.status)
-        assertEquals("Bom dia, Marina.", live.typedTail)
-        assertTrue(live.transcribing)
-        assertEquals("", live.pending)
-        assertNull(live.notice)
-        assertFalse(live.canInsertHere)
-        assertEquals(DirectPreviewModel.CANCEL, live.cancelLabel)
+    fun normalDictationShowsNoCardFromStartToFinish() {
+        assertEquals(DirectPreviewState.Hidden, state(DictationPipelineStatus.Starting, progress = DirectInsertionProgress()))
+        assertEquals(DirectPreviewState.Hidden, state(DictationPipelineStatus.Recording, transcribing = true, elapsedMs = 12_300L))
+        assertEquals(DirectPreviewState.Hidden, state(DictationPipelineStatus.Transcribing, transcribing = true))
     }
 
     @Test
     fun withoutTheBubbleTheCardSaysWhereToFinish() {
-        val shown = assertIs<DirectPreviewState.Live>(state(DictationPipelineStatus.Recording))
         val hidden = assertIs<DirectPreviewState.Live>(state(DictationPipelineStatus.Recording, bubbleHidden = true))
 
-        assertEquals(DirectPreviewModel.STATUS_LISTENING, shown.status)
         assertEquals(DirectPreviewModel.STATUS_LISTENING_WITHOUT_BUBBLE, hidden.status)
     }
 
@@ -74,15 +54,6 @@ class DirectPreviewModelTest {
         )
 
         assertEquals("Trecho 2 de 3 falhou (timeout): texto incompleto", live.warning)
-    }
-
-    @Test
-    fun finishingTypesTheLastPieceWithoutInsertHereUnlessSomethingIsPending() {
-        val live = assertIs<DirectPreviewState.Live>(state(DictationPipelineStatus.Transcribing, transcribing = true))
-
-        assertEquals(DirectPhase.Finishing, live.phase)
-        assertEquals(DirectPreviewModel.STATUS_FINISHING, live.status)
-        assertFalse(live.canInsertHere)
     }
 
     // P147: a revisão final leva ~1 s no fim do ditado, e a prévia diz o que está acontecendo.

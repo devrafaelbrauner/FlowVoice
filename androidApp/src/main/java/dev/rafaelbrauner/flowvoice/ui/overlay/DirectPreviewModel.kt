@@ -61,11 +61,16 @@ object DirectPreviewModel {
     ): DirectPreviewState {
         if (!owned) return DirectPreviewState.Hidden
         val clock = DictationBarModel.clock(elapsedMs)
+        // No ditado normal o texto está no próprio campo e a bolha encerra: o cartão cobria a linha em que
+        // se dita (S26, 2026-09-28). Ele volta para o que só ele mostra: pausa com pendente, aviso,
+        // "revisando…" e o encerrar quando a bolha está oculta (P159).
+        val quiet = !progress.paused && !bubbleHidden && progress.pending.isBlank() &&
+            progress.warning == null && progress.pausedReason == null && !progress.proofreading
         return when (status) {
             DictationPipelineStatus.Idle,
             DictationPipelineStatus.Cancelled -> DirectPreviewState.Hidden
-            DictationPipelineStatus.Starting -> live(DirectPhase.Starting, clock, STATUS_STARTING, progress, transcribing = false, live = live)
-            DictationPipelineStatus.Recording -> live(
+            DictationPipelineStatus.Starting -> if (quiet) DirectPreviewState.Hidden else live(DirectPhase.Starting, clock, STATUS_STARTING, progress, transcribing = false, live = live)
+            DictationPipelineStatus.Recording -> if (quiet) DirectPreviewState.Hidden else live(
                 DirectPhase.Recording,
                 clock,
                 when {
@@ -77,7 +82,7 @@ object DirectPreviewModel {
                 transcribing,
                 live = live
             )
-            DictationPipelineStatus.Transcribing -> live(
+            DictationPipelineStatus.Transcribing -> if (quiet) DirectPreviewState.Hidden else live(
                 DirectPhase.Finishing,
                 clock,
                 if (progress.proofreading) STATUS_PROOFREADING else STATUS_FINISHING,
