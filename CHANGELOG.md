@@ -26,6 +26,10 @@ estão em [`docs/tasks/`](docs/tasks/README.md).
   Agora o fim do ditado confere o campo e o devolve ao que foi ditado quando a diferença é só de espaço e
   linha nova (`dictation_field_restored`). Durante a fala, no Samsung Notes, a emenda ainda pode aparecer.
 
+- **Todas as janelas ao vivo falharam e a passada final nem era tentada** (qwen sem resposta no S26): o
+  ditado acabava em "Nenhum trecho transcrito". Com trecho falho a passada final vai mesmo sem rascunho, e o
+  texto final entra no campo; áudio sem fala continua sem pedido.
+
 ### Alterado
 
 - **Janela ao vivo da nuvem de ~2 s** (`SpeechEndpointing.LIVE`: alvo 2 s, pausa de 250 ms depois de 1 s),
