@@ -63,7 +63,8 @@ object OpenRouterKeyCopy {
         "transcrição; nunca é sincronizada."
 
     fun costDetail(): String =
-        "Conta com o modelo padrão (gpt-transcribe), a taxa da OpenRouter, o IOF e o dólar a R$ " +
+        "Conta com os modelos padrão (deepgram/nova-3 na transcrição, openai/gpt-4.1-mini na formatação), a " +
+            "taxa da OpenRouter, o IOF e o dólar a R$ " +
             String.format(Locale.forLanguageTag("pt-BR"), "%.2f", DictationCostEstimate.USD_TO_BRL) +
             ". O valor real muda com o câmbio e com o seu cartão."
 

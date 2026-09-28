@@ -72,7 +72,12 @@ internal fun TranscriptionEngineSection(state: SettingsUiState, actions: Setting
     FvDivider()
     EngineOption(
         label = "Nuvem (OpenRouter)",
-        hint = if (state.keyConfigured) "Envia o áudio à OpenRouter" else "Envia o áudio à OpenRouter; precisa da chave",
+        hint = when {
+            !state.keyConfigured -> "Envia o áudio à OpenRouter; precisa da chave"
+            // Com a revisão final, o áudio inteiro vai de novo no fim (transcrição e formatação escolhidas abaixo).
+            state.proofreadingEnabled -> "Ao vivo pela OpenRouter; com a revisão final por IA, o áudio inteiro vai de novo no fim"
+            else -> "Envia o áudio à OpenRouter"
+        },
         selected = state.engineChoice == TranscriptionEngine.Cloud,
         enabled = true,
         onClick = { actions.onEngineSelect(TranscriptionEngine.Cloud) }

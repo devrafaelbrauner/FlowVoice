@@ -11,12 +11,12 @@ import kotlin.math.max
 object DictationCostEstimate {
     const val ESTIMATE_LABEL = "estimativa de set/2026"
 
-    // openai/gpt-transcribe (OpenRouterConfig.DEFAULT_MODEL), lido em 2026-09-27 de
+    // deepgram/nova-3 (OpenRouterConfig.DEFAULT_MODEL), lido em 2026-09-28 de
     // https://openrouter.ai/api/v1/models?output_modalities=transcription: pricing.prompt =
-    // 0.000075 por segundo de áudio. Bate com o benchmark F05 (docs/PLAN.md): US$ 0,001125 por
-    // um clipe de 15 s. Premissa: cobrança por segundo, sem mínimo por pedido; janelas mudas não
-    // são enviadas (P124), então a conta é por hora de fala.
-    const val TRANSCRIPTION_USD_PER_AUDIO_SECOND = 0.000075
+    // 0.0000716666666667 por segundo de áudio. Bate com o `usage.cost` medido em
+    // docs/medicao-modelos-nuvem.md (US$ 0,0043 por minuto). Premissa: cobrança por segundo, sem mínimo
+    // por pedido; janelas mudas não são enviadas (P124), então a conta é por hora de fala.
+    const val TRANSCRIPTION_USD_PER_AUDIO_SECOND = 0.0000716666666667
 
     // Cada janela leva 1 s do fim da anterior como contexto (P143). As janelas cortam na pausa
     // entre ~2 s e o alvo de 4 s (P140): quanto mais curtas, mais contexto repetido se paga.
@@ -24,23 +24,10 @@ object DictationCostEstimate {
     val LONG_WINDOW_SECONDS = DictationWindowAggregator.DEFAULT_TARGET_DURATION_MS / 1000.0
     const val SHORT_WINDOW_SECONDS = 2.0
 
-    // Revisão por IA (desligada por padrão; AppPreferences.DEFAULT_PROOFREADING_MODEL =
-    // anthropic/claude-haiku-4.5), lido em 2026-09-28 de https://openrouter.ai/api/v1/models:
-    // US$ 1 por milhão de tokens de entrada e US$ 5 por milhão de saída. Só entra no teto.
-    const val PROOFREADING_INPUT_USD_PER_TOKEN = 0.000001
-    const val PROOFREADING_OUTPUT_USD_PER_TOKEN = 0.000005
-    // Fala contínua de ~150 palavras por minuto, ~1,6 token por palavra em português.
-    const val WORDS_PER_MINUTE = 150.0
-    const val TOKENS_PER_WORD = 1.6
-    // Um ditado a cada 30 s, cada um com o prompt de sistema da formatação: 238 tokens de entrada para
-    // 48 caracteres de texto na medição de 2026-09-28, ~225 do prompt.
-    const val PROOFREADING_CALLS_PER_HOUR = 120.0
-    const val PROOFREADING_PROMPT_TOKENS = 225.0
-
-    // Passada final do motor no aparelho com a revisão por IA ligada: o áudio inteiro no gpt-transcribe
-    // (US$ 0,0047/min) mais a formatação no claude-haiku-4.5 (US$ 0,0026/min), `usage.cost` medido em
-    // docs/medicao-duas-passadas.md (2026-09-28), por minuto de ditado com as pausas.
-    const val FINAL_PASS_USD_PER_MINUTE = 0.0073
+    // Passada final com a revisão por IA ligada (nos dois motores, com os padrões): o áudio inteiro no
+    // deepgram/nova-3 (US$ 0,0043/min) mais a formatação no openai/gpt-4.1-mini (US$ 0,0007/min), `usage.cost`
+    // medido em docs/medicao-modelos-nuvem.md (2026-09-28), por minuto de ditado com as pausas.
+    const val FINAL_PASS_USD_PER_MINUTE = 0.0050
 
     // Créditos pré-pagos: a OpenRouter cobra 5,5% por compra no cartão, mínimo de US$ 0,80
     // (https://openrouter.ai/docs/faq), e a menor compra é US$ 5 (https://openrouter.ai/terms),
@@ -63,31 +50,28 @@ object DictationCostEstimate {
     fun transcriptionUsdPerHour(windowSeconds: Double): Double =
         3600 * TRANSCRIPTION_USD_PER_AUDIO_SECOND * audioOverheadFactor(windowSeconds)
 
-    fun proofreadingUsdPerHour(): Double {
-        val textTokens = WORDS_PER_MINUTE * 60 * TOKENS_PER_WORD
-        val input = textTokens + PROOFREADING_CALLS_PER_HOUR * PROOFREADING_PROMPT_TOKENS
-        return input * PROOFREADING_INPUT_USD_PER_TOKEN + textTokens * PROOFREADING_OUTPUT_USD_PER_TOKEN
-    }
-
     fun purchaseFeeRate(purchaseUsd: Double): Double =
         max(purchaseUsd * OPENROUTER_FEE_RATE, OPENROUTER_MIN_FEE_USD) / purchaseUsd
 
     fun toBrl(usd: Double, purchaseUsd: Double): Double =
         usd * (1 + purchaseFeeRate(purchaseUsd)) * (1 + IOF_RATE) * USD_TO_BRL
 
+    fun finalPassUsdPerHour(): Double = 60 * FINAL_PASS_USD_PER_MINUTE
+
+    // Piso: só o ao vivo, janelas longas, compra grande. Teto: janelas curtas, a passada final (o áudio inteiro
+    // de novo e a formatação) e a compra mínima.
     fun lowBrlPerHour(): Double = toBrl(transcriptionUsdPerHour(LONG_WINDOW_SECONDS), LARGE_PURCHASE_USD)
 
     fun highBrlPerHour(): Double =
-        toBrl(transcriptionUsdPerHour(SHORT_WINDOW_SECONDS) + proofreadingUsdPerHour(), MIN_PURCHASE_USD)
-
-    fun finalPassUsdPerHour(): Double = 60 * FINAL_PASS_USD_PER_MINUTE
+        toBrl(transcriptionUsdPerHour(SHORT_WINDOW_SECONDS) + finalPassUsdPerHour(), MIN_PURCHASE_USD)
 
     fun minPurchaseBrl(): Double = toBrl(MIN_PURCHASE_USD, MIN_PURCHASE_USD)
 
     fun perHourLabel(): String {
         val low = floor(lowBrlPerHour() * 10) / 10
         val high = ceil(highBrlPerHour() * 10) / 10
-        return "≈ R$ ${brl(low)} a ${brl(high)} por hora de ditado, $ESTIMATE_LABEL"
+        return "≈ R$ ${brl(low)} a ${brl(high)} por hora de ditado na nuvem (o teto com a revisão final por IA), " +
+            ESTIMATE_LABEL
     }
 
     fun finalPassPerHourLabel(): String {

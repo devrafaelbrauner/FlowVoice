@@ -60,9 +60,13 @@ import dev.rafaelbrauner.flowvoice.service.FlowVoiceOverlayService
 import dev.rafaelbrauner.flowvoice.shared.auth.AuthGateway
 import dev.rafaelbrauner.flowvoice.shared.localasr.TranscriptionEngine
 import dev.rafaelbrauner.flowvoice.shared.model.CatalogFailure
+import dev.rafaelbrauner.flowvoice.shared.model.CloudModels
+import dev.rafaelbrauner.flowvoice.shared.model.FormattingChoice
+import dev.rafaelbrauner.flowvoice.shared.model.FormattingOption
 import dev.rafaelbrauner.flowvoice.shared.model.TranscriptionCatalogResult
 import dev.rafaelbrauner.flowvoice.shared.model.TranscriptionModelCatalog
 import dev.rafaelbrauner.flowvoice.shared.pipeline.DictationPipeline
+import dev.rafaelbrauner.flowvoice.shared.prefs.AppPreferences
 import dev.rafaelbrauner.flowvoice.shared.prefs.PreferencesStore
 import dev.rafaelbrauner.flowvoice.shared.sync.SyncEngine
 import dev.rafaelbrauner.flowvoice.shared.transcription.OpenRouterConfig
@@ -115,7 +119,9 @@ data class SettingsUiState(
     val engineChoice: TranscriptionEngine,
     val effectiveEngine: TranscriptionEngine,
     val localModel: LocalModelState,
-    val dictationBusy: Boolean
+    val dictationBusy: Boolean,
+    val formatting: FormattingChoice,
+    val formattingOptions: List<FormattingOption>
 )
 
 data class SettingsActions(
@@ -136,7 +142,8 @@ data class SettingsActions(
     val onEngineSelect: (TranscriptionEngine) -> Unit,
     val onModelInstall: () -> Unit,
     val onModelCancel: () -> Unit,
-    val onModelDelete: () -> Unit
+    val onModelDelete: () -> Unit,
+    val onFormattingSelect: (FormattingChoice) -> Unit
 )
 
 @Composable
@@ -204,7 +211,7 @@ fun SettingsRoute(onOpenDiagnostics: () -> Unit, modifier: Modifier = Modifier) 
         scope.launch {
             val message = when (val result = modelCatalog.load(key)) {
                 is TranscriptionCatalogResult.Ready -> {
-                    modelOptions = result.models.map { it.id }
+                    modelOptions = CloudModels.orderedTranscription(result.models.map { it.id })
                     modelsTouched = true
                     val selected = currentModelId()
                     if (selected !in result.models.map { it.id }) {
@@ -370,7 +377,9 @@ fun SettingsRoute(onOpenDiagnostics: () -> Unit, modifier: Modifier = Modifier) 
         engineChoice = preferences.transcriptionEngine,
         effectiveEngine = remember(preferences, localModel) { pipeline.effectiveEngine() },
         localModel = localModel,
-        dictationBusy = pipelineStatus.isBusy
+        dictationBusy = pipelineStatus.isBusy,
+        formatting = CloudModels.formatting(preferences),
+        formattingOptions = CloudModels.formattingOptions()
     )
     val actions = SettingsActions(
         onKeyDraftChange = { keyEntry.draft = it },
@@ -415,6 +424,11 @@ fun SettingsRoute(onOpenDiagnostics: () -> Unit, modifier: Modifier = Modifier) 
         onModelCancel = modelInstaller::cancel,
         onModelDelete = {
             if (!pipeline.status.value.isBusy) modelInstaller.delete()
+        },
+        onFormattingSelect = { choice ->
+            preferencesStore.write(CloudModels.withFormatting(preferencesStore.read(), choice))
+            preferences = preferencesStore.read()
+            diagnosticsLog.add("Formatação: ${CloudModels.label(choice)}.")
         }
     )
     SettingsContent(state = state, actions = actions, modifier = modifier)
@@ -449,6 +463,8 @@ internal fun SettingsContent(
                 TranscriptionEngineSection(state, actions)
                 FvDivider()
                 ModelPickerCard(state, actions)
+                FvDivider()
+                FormattingPickerCard(state, actions)
             }
             SettingsCard {
                 SettingsRow(
@@ -497,8 +513,8 @@ internal fun SettingsContent(
                         state.effectiveEngine == TranscriptionEngine.Local ->
                             "No fim do ditado o áudio vai à OpenRouter, e o texto final (pontuação, vírgulas, " +
                                 "concordância) troca o do aparelho"
-                        else -> "No fim do ditado: pontuação, vírgulas e concordância do texto inteiro, pela bolha, " +
-                            "ao revisar antes de inserir e nas notas"
+                        else -> "No fim do ditado o áudio inteiro vai de novo à OpenRouter, e o texto final " +
+                            "(pontuação, vírgulas, concordância) troca o digitado ao vivo"
                     }
                 ) {
                     FvToggle(
@@ -526,7 +542,7 @@ private fun ModelPickerCard(state: SettingsUiState, actions: SettingsActions) {
     Column {
         Box {
             SettingsRow(
-                label = "Modelo da nuvem",
+                label = "Modelo de transcrição",
                 hint = state.modelMessage ?: when {
                     state.modelLoading -> "Listando os modelos da OpenRouter…"
                     selectable -> "${state.modelOptions.size} modelos · toque para trocar"
@@ -567,13 +583,7 @@ private fun ModelPickerCard(state: SettingsUiState, actions: SettingsActions) {
                 state.modelOptions.forEach { id ->
                     val selected = id == selectedId
                     androidx.compose.material3.DropdownMenuItem(
-                        text = {
-                            Text(
-                                text = id,
-                                style = typography.bodySmall,
-                                color = if (selected) colors.accentText else colors.textPrimary
-                            )
-                        },
+                        text = { ModelMenuText(id, CloudModels.transcriptionSummary(id), selected) },
                         trailingIcon = if (selected) {
                             {
                                 Icon(
@@ -596,12 +606,96 @@ private fun ModelPickerCard(state: SettingsUiState, actions: SettingsActions) {
         }
         if (selectable) {
             Text(
-                text = "Padrão do benchmark F05: openai/gpt-transcribe.",
+                text = "Ao vivo e na passada final. Padrão: ${OpenRouterConfig.DEFAULT_MODEL}; os medidos vêm primeiro, " +
+                    "com a nota (ortografia e pontuação) e o tempo de um ditado de 20 s.",
                 style = typography.bodySmall,
                 color = colors.textTertiary,
                 modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 10.dp)
             )
         }
+    }
+}
+
+// Nome do modelo e, se ele foi medido, a nota e o tempo (docs/medicao-modelos-nuvem.md).
+@Composable
+private fun ModelMenuText(label: String, summary: String?, selected: Boolean) {
+    val colors = FlowVoiceTheme.colors
+    val typography = FlowVoiceTheme.typography
+    Column {
+        Text(
+            text = label,
+            style = typography.bodySmall,
+            color = if (selected) colors.accentText else colors.textPrimary
+        )
+        if (summary != null) {
+            Text(text = summary, style = typography.bodySmall, color = colors.textTertiary)
+        }
+    }
+}
+
+// Como a passada final formata o texto, nos dois motores: um modelo de chat depois da transcrição, só a
+// transcrição, ou um passo só com um modelo que ouve o áudio. A lista é a medida, sem rede.
+@Composable
+private fun FormattingPickerCard(state: SettingsUiState, actions: SettingsActions) {
+    val colors = FlowVoiceTheme.colors
+    val typography = FlowVoiceTheme.typography
+    var expanded by remember { mutableStateOf(false) }
+    Column {
+        Box {
+            SettingsRow(
+                label = "Formatação",
+                hint = when (state.formatting) {
+                    is FormattingChoice.Llm -> "Pontuação, acentos e concordância no fim do ditado · toque para trocar"
+                    FormattingChoice.None -> "Fica a transcrição do áudio inteiro como veio · toque para trocar"
+                    is FormattingChoice.OneStep -> "O modelo ouve o áudio inteiro e já devolve o texto formatado · toque para trocar"
+                },
+                value = CloudModels.label(state.formatting).substringAfterLast('/'),
+                onClick = { expanded = true },
+                trailing = {
+                    Icon(
+                        FlowVoiceIcons.ChevronRight,
+                        contentDescription = null,
+                        tint = colors.textTertiary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            )
+            androidx.compose.material3.DropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false },
+                modifier = Modifier.background(colors.surfaceRaised)
+            ) {
+                state.formattingOptions.forEach { option ->
+                    val selected = option.choice == state.formatting
+                    androidx.compose.material3.DropdownMenuItem(
+                        text = { ModelMenuText(option.label, option.summary, selected) },
+                        trailingIcon = if (selected) {
+                            {
+                                Icon(
+                                    FlowVoiceIcons.Check,
+                                    contentDescription = "Formatação atual",
+                                    tint = colors.accentText,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        } else {
+                            null
+                        },
+                        onClick = {
+                            expanded = false
+                            actions.onFormattingSelect(option.choice)
+                        }
+                    )
+                }
+            }
+        }
+        Text(
+            text = "Vale para a passada final dos dois motores, com a revisão final por IA ligada. " +
+                "Padrão: ${AppPreferences.DEFAULT_PROOFREADING_MODEL}.",
+            style = typography.bodySmall,
+            color = colors.textTertiary,
+            modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 10.dp)
+        )
     }
 }
 
@@ -800,9 +894,11 @@ private fun SettingsContentPreview(@PreviewParameter(ThemePreviewParameter::clas
                 engineChoice = TranscriptionEngine.Local,
                 effectiveEngine = TranscriptionEngine.Local,
                 localModel = LocalModelState.Installed,
-                dictationBusy = false
+                dictationBusy = false,
+                formatting = FormattingChoice.Llm(AppPreferences.DEFAULT_PROOFREADING_MODEL),
+                formattingOptions = CloudModels.formattingOptions()
             ),
-            actions = SettingsActions({}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {})
+            actions = SettingsActions({}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {})
         )
     }
 }
