@@ -8,6 +8,29 @@ estão em [`docs/tasks/`](docs/tasks/README.md).
 
 ### Adicionado
 
+- **Motor Nuvem completo, com os modelos escolhidos.** Com a "Revisão final por IA" ligada, o motor Nuvem
+  segue digitando ao vivo as janelas curtas pelo modelo de transcrição escolhido e, ao parar, reenvia o
+  **áudio inteiro** à OpenRouter pela mesma passada final do motor do aparelho (`FinalPass`: pedaços de até
+  50 s cortados em silêncio, guarda, teto de 8 s, fallback) e troca o que foi digitado pelo caminho da
+  revisão final. Falhou, demorou ou foi recusado: fica o texto ao vivo, com o aviso "Versão final da nuvem
+  não veio: ficou o texto ao vivo". A revisão só de texto da nuvem (DP-nuvem) sai.
+- **"Formatação" em Ajustes** (novo, vale para a passada final dos dois motores): um modelo de chat depois
+  da transcrição (padrão `openai/gpt-4.1-mini`, conferido pela guarda), **sem formatação** (fica a
+  transcrição do áudio inteiro) ou **um passo só**, em que um modelo de chat ouve o áudio e devolve o texto
+  já formatado (`OpenRouterAudioChatClient`, padrão `thinkingmachines/inkling`). Sem transcrição para
+  conferir, o passo único só troca o rascunho se o texto tiver ao menos 35 % das palavras dele
+  (`FinalPass.draftOverlap`, log `final_pass_skipped reason=diverge`): na medição o `gpt-audio-mini`
+  respondeu "Claro, vou avisar assim que chegar." a "Me avisa quando chegar, por favor.". Os seletores de
+  transcrição e de formatação listam primeiro os modelos medidos, com a nota e o tempo de um ditado de
+  20 s (`CloudModels`); o pedido leva o raciocínio mínimo medido de cada modelo (`reasoning`). O log
+  `final_pass_done` ganhou `mode` (`dois_passos`, `so_transcricao`, `um_passo`), `model` e
+  `formattingModel`.
+- **Medição dos modelos da nuvem** (`docs/medicao-modelos-nuvem.md`, US$ 1,81): as 24 transcrições da
+  OpenRouter, 23 modelos de chat com áudio em passo único e 15 formatações sobre as duas melhores
+  transcrições, com erro de palavra sensível a acento, cedilha, hífen e caixa de nome próprio, trocas só de
+  acento, F1 de vírgula, fim de frase, "?" e ":", latência em série e custo; gabaritos com erro conhecido
+  corrigidos à parte (`tools/medicao/gabaritos-corrigidos.txt`).
+
 - **Duas passadas no motor do aparelho.** Com a "Revisão final por IA" ligada (o antigo "Revisão por
   IA", mesma chave, sem ajuste novo), o Nemotron segue digitando o rascunho ao vivo e, ao parar, o
   **áudio inteiro** do ditado vai uma vez à OpenRouter: transcrição (`openai/gpt-transcribe`, o modelo
@@ -21,9 +44,9 @@ estão em [`docs/tasks/`](docs/tasks/README.md).
   ou transcrição com menos de 60 % das palavras do rascunho: fica o rascunho, e o cartão avisa "Versão
   final da nuvem não veio: ficou o texto do aparelho". Se só a formatação falhar ou for recusada, vale
   a transcrição da nuvem como veio. Logs só com contagens e tempos (`final_pass_done`,
-  `final_pass_applied`, `final_pass_kept_draft`, `final_pass_skipped reason=…`). Na nuvem a revisão
-  final continua só de texto (sem reenviar o áudio). Medição e escolha dos modelos em
-  `docs/medicao-duas-passadas.md` (US$ 0,20 gastos); custo da passada final ≈ US$ 0,0073 por minuto.
+  `final_pass_applied`, `final_pass_kept_draft`, `final_pass_skipped reason=…`). Medição em
+  `docs/medicao-duas-passadas.md` (US$ 0,20 gastos); os modelos e o custo mudaram com a medição dos modelos
+  da nuvem (acima).
 - **Concordância só pela terminação** na guarda (`ProofreadingGuard.wordEdit`): radical comum de 4+
   letras e fim de até 3 letras (ou "-ou/-aram", "-eu/-eram"), ou um par da lista fechada de verbos
   (é/são, foi/foram, está/estão…). Número, negação, hiper/hipo, "prednisona"→"prednisolona",
@@ -50,6 +73,17 @@ estão em [`docs/tasks/`](docs/tasks/README.md).
   depois.
 
 ### Alterado
+
+- **Modelos padrão** (medição de modelos da nuvem): transcrição `deepgram/nova-3` no lugar do
+  `openai/gpt-transcribe` (nota 96,2 × 95,6; 1,9 s × 2,0 s num ditado de 20 s), ao vivo e na passada
+  final, e formatação `openai/gpt-4.1-mini` no lugar do `anthropic/claude-haiku-4.5` (empatados na nota
+  sobre o `nova-3`; 3,3 s × 3,5 s). Quem escolheu um modelo em Ajustes continua com ele. Passada final:
+  ≈ 3,3 s do fim do ditado ao texto final num ditado de 20 s (antes ~4,6 s) e ≈ US$ 0,0050 por minuto
+  (antes US$ 0,0073). Estimativa da tela da chave: ≈ R$ 1,80 a 4,30 por hora na nuvem (o teto com a
+  revisão final) e ≈ R$ 1,70 a 1,90 no motor do aparelho com a revisão.
+- **Textos:** Ajustes ("Modelo de transcrição", "Formatação", motor Nuvem, revisão final), README, política
+  de privacidade e "O que o FlowVoice vê": na nuvem com a revisão ligada o áudio do ditado inteiro vai de
+  novo no fim, e o texto só vai a um modelo de formatação quando há um.
 
 - **Formatação:** prompt novo (pontuação, vírgulas, maiúsculas, acentos, concordância só pela terminação,
   listas só onde houve comando), temperatura 0 e modelo padrão `anthropic/claude-haiku-4.5` no lugar do

@@ -329,8 +329,23 @@ Rascunho do Nemotron ao vivo + passada final pela nuvem com o áudio inteiro. Me
 |---|---|---|---|---|
 | DP-latencia | Média | Do toque de parar ao texto final: 3,5–4,6 s no S26 (20–65 s de áudio), acima do alvo de ~2,5 s. Nenhuma combinação medida com transcrição + formatação fica abaixo de ~3,3 s; a transcrição sozinha já leva ~2 s. Opções: pular a formatação (o `gpt-transcribe` já pontua: vírgula F1 0,92, e a formatação não melhorou a métrica), ou dividir o áudio curto em 2 pedaços paralelos | aberta | /decidir |
 | DP-voz | Alta | Conferir com fala ao vivo, em rede móvel e em enfermaria; medir quantas vezes cai no rascunho (`final_pass_skipped`) | aberta: só alto-falante + Wi-Fi | /medir |
-| DP-nuvem | Baixa | Na nuvem a revisão final segue só texto (janelas de 4 s emendadas). Medir se reenviar o áudio inteiro também paga lá (custo 2× na transcrição) | aberta | /medir |
+| DP-nuvem | Baixa | Na nuvem a revisão final segue só texto (janelas de 4 s emendadas). Medir se reenviar o áudio inteiro também paga lá (custo 2× na transcrição) | feita (2026-09-28): o motor Nuvem reenvia o áudio inteiro pela mesma passada final (`docs/medicao-modelos-nuvem.md`) | — |
 | DP-audio | Baixa | O áudio da última sessão fica em memória (as janelas, até o próximo ditado) para o clipe do Diagnóstico; só o cancelar o apaga na hora. Decidir se limpa também no fim | aberta | /decidir |
 | DP-cobertura | Baixa | A trava de cobertura (nuvem com < 60 % das palavras do rascunho fica com o rascunho) conta palavras cruas: um ditado curto só de números ("cento e vinte por oitenta" → "120 por 80") chega perto do limite | aberta | /verificar |
 | DP-uiautomator | Baixa | No teste, um `uiautomator dump` no meio do ditado disparou `trava:campo` no último pedaço (ficou PENDENTE e a passada final foi pulada, `reason=pendente`). É da ferramenta de teste, mas mostra que a trava reage a mudanças de acessibilidade de terceiros | anotada | — |
 | DP-concordancia | Média | "foi solicitado os exames" (pede mudar a ordem) não é corrigido; o corpus de voz é lido e quase não tem deslize de concordância — medido só em texto (`tools/medicao/concordancia.txt`, 11/12) | aberta | /medir |
+
+## Nuvem com modelos escolhidos (2026-09-28)
+
+Motor Nuvem completo (ao vivo + passada final com o áudio inteiro) e seletores de transcrição e de formatação
+em Ajustes. Medição em `docs/medicao-modelos-nuvem.md`. S26: APK instalado, conferência pendente (aparelho travado com PIN em 2026-09-28).
+
+| ID | Prioridade | Descrição | Status | Próximo passo |
+|---|---|---|---|---|
+| NM-latencia | Média | Com os padrões (`deepgram/nova-3` + `openai/gpt-4.1-mini`) o texto final chega ~3,3 s depois de parar num ditado de 20 s (Mac; 4,5 s p95), acima do alvo de ~2,5 s. Só a transcrição sem formatação fica abaixo (1,9 s, nota 0,3 ponto menor) | aberta | /decidir |
+| NM-um-passo | Média | O passo único do `thinkingmachines/inkling` tem a melhor nota (97,0 × 96,5), mas leva 4,2 s nos 20 s, 7,8 s (p95) nos longos — perto do teto de 8 s — e não tem guarda palavra a palavra (só cobertura e sobreposição com o rascunho). Com o gabarito original ele ficaria 0,75 ponto à frente. Conferir com voz real antes de pensar em padrão | aberta | /medir |
+| NM-vivo | Média | O `nova-3` foi medido no áudio inteiro; nas janelas de ~4 s ao vivo (com 1 s de contexto e `verbose_json`) só foi conferido no S26 com alto-falante. Refazer o benchmark F05 das janelas com ele | aberta | /medir |
+| NM-clinico | Alta | O `nova-3` trocou "afebril" por "febril" e "azitromicina" por "trombicina" no longo 3 (o `gpt-transcribe` não). A guarda só confere a formatação, não a transcrição: erro de reconhecimento que inverte sentido passa. Avaliar termos-chave do provedor ou o dicionário pessoal para termos clínicos | aberta | /medir |
+| NM-gabarito | Baixa | Gabaritos corrigidos por consenso dos cinco melhores modelos (11, 13, 15, 19, 20, longo-2/3/6), sem ouvir. Confirmar ouvindo e, se for o caso, corrigir os `.txt` na origem | aberta | /verificar |
+| NM-voz | Alta | Não conferido no S26 ainda (aparelho travado). Falta a sessão com alto-falante (frases de audio-pessoal e contínua de 20 s, capturas, `final_pass_*`, troca de modelo em Ajustes), fala ao vivo, rede móvel e enfermaria; contar `final_pass_skipped` por motivo | aberta | /medir |
+
