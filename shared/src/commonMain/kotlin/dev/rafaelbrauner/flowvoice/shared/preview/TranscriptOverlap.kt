@@ -36,9 +36,11 @@ object TranscriptOverlap {
 
     // `contextDurationMs`: quanto áudio da janela anterior foi repetido à frente desta (P143). Zero
     // significa "esta janela não repetiu nada", e aí os degraus 4 e 5 nem são tentados.
-    fun match(left: String, right: String, contextDurationMs: Long = 0L): Match {
+    // `continuous`: `right` continua `left` num fluxo único, sem repetição possível (motor no
+    // aparelho). Emenda nenhuma é tentada: apagar a palavra que o usuário repetiu seria alterar o ditado.
+    fun match(left: String, right: String, contextDurationMs: Long = 0L, continuous: Boolean = false): Match {
         if (right.isBlank()) return Match("", glued = false)
-        if (left.isBlank()) return Match(right.trim(), glued = false)
+        if (left.isBlank() || continuous) return Match(right.trim(), glued = false)
 
         val leftTokens = tokenize(left)
         val rightTokens = tokenize(right)

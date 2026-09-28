@@ -30,6 +30,8 @@ object DictationProofread {
     const val REASON_GUARD = "guard"
     const val REASON_UNCHANGED = "sem_mudanca"
     const val REASON_ERROR = "erro"
+    // Motor no aparelho sem chave OpenRouter: a revisão por IA precisa dela.
+    const val REASON_NO_KEY = "sem_chave"
     // A trava de destino (P139) recusou a troca na hora de escrever: o campo já não é o mesmo.
     const val REASON_REFUSED = "recusado"
     // O texto que está no campo não confere com o ditado, nem descontando pontuação (P148).

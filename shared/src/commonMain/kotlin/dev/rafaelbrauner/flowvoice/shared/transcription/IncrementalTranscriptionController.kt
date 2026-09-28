@@ -23,7 +23,7 @@ class IncrementalTranscriptionController(
     private val modelProvider: () -> String = { config.model },
     private val eventLog: TranscriptionEventLog = TranscriptionEventLog.NoOp,
     private val textLog: TranscriptionEventLog = TranscriptionEventLog.NoOp
-) {
+) : SessionTranscription {
     private val processMutex = Mutex()
     private val provisional = MutableStateFlow("")
     private val segmentState = MutableStateFlow<List<TranscriptionSegment>>(emptyList())
@@ -43,11 +43,11 @@ class IncrementalTranscriptionController(
     private var sessionApiKey: String? = null
 
     val provisionalText: StateFlow<String> = provisional.asStateFlow()
-    val segments: StateFlow<List<TranscriptionSegment>> = segmentState.asStateFlow()
+    override val segments: StateFlow<List<TranscriptionSegment>> = segmentState.asStateFlow()
     val budgetExhausted: StateFlow<Boolean> = budgetState.asStateFlow()
     val fatalError: StateFlow<TranscriptionError?> = fatalState.asStateFlow()
 
-    fun submit(window: DictationWindow) {
+    override fun submit(window: DictationWindow) {
         val job = locked(lock) {
             if (cancelled) return
             val withinBudget = requestCount < config.maxRequestsPerSession
@@ -72,7 +72,7 @@ class IncrementalTranscriptionController(
         job.start()
     }
 
-    fun cancel() {
+    override fun cancel() {
         val active = locked(lock) {
             cancelled = true
             jobs.toList().also { jobs.clear() }
@@ -100,7 +100,7 @@ class IncrementalTranscriptionController(
         previous.forEach { it.cancel() }
     }
 
-    suspend fun awaitIdle() {
+    override suspend fun awaitIdle() {
         locked(lock) { jobs.toList() }.forEach { it.join() }
     }
 

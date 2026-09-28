@@ -1,5 +1,6 @@
 package dev.rafaelbrauner.flowvoice.shared.prefs
 
+import dev.rafaelbrauner.flowvoice.shared.localasr.TranscriptionEngine
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -13,7 +14,9 @@ data class AppPreferences(
     // Desligado (padrão), a bolha digita cada trecho direto no campo (P139); ligado, mantém a barra com Inserir e a revisão por IA.
     val reviewBeforeInsert: Boolean = false,
     // Modelo de transcrição escolhido em Ajustes (lista da OpenRouter). Vazio mantém o padrão do benchmark F05.
-    val transcriptionModel: String = ""
+    val transcriptionModel: String = "",
+    // "Motor de transcrição" (0.7.0): nuvem por padrão; o local só vale com o modelo no aparelho.
+    val transcriptionEngine: TranscriptionEngine = TranscriptionEngine.Cloud
 ) {
     companion object {
         const val DEFAULT_PROOFREADING_MODEL = "openai/gpt-4o-mini"

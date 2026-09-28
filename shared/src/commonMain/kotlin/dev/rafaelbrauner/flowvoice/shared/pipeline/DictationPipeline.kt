@@ -6,6 +6,11 @@ import dev.rafaelbrauner.flowvoice.shared.dictation.DictationWindow
 import dev.rafaelbrauner.flowvoice.shared.dictionary.PersonalDictionary
 import dev.rafaelbrauner.flowvoice.shared.insertion.TextInserter
 import dev.rafaelbrauner.flowvoice.shared.insertion.TextInsertionResult
+import dev.rafaelbrauner.flowvoice.shared.localasr.LocalSpeechEngines
+import dev.rafaelbrauner.flowvoice.shared.localasr.LocalTranscription
+import dev.rafaelbrauner.flowvoice.shared.localasr.NemotronModel
+import dev.rafaelbrauner.flowvoice.shared.localasr.TranscriptionEngine
+import dev.rafaelbrauner.flowvoice.shared.localasr.TranscriptionEngineSelection
 import dev.rafaelbrauner.flowvoice.shared.prefs.PreferencesStore
 import dev.rafaelbrauner.flowvoice.shared.preview.LivePreview
 import dev.rafaelbrauner.flowvoice.shared.preview.LivePreviewAssembler
@@ -15,6 +20,7 @@ import dev.rafaelbrauner.flowvoice.shared.proofreading.ProofreadingMerge
 import dev.rafaelbrauner.flowvoice.shared.transcription.IncrementalTranscriptionController
 import dev.rafaelbrauner.flowvoice.shared.transcription.OpenRouterConfig
 import dev.rafaelbrauner.flowvoice.shared.transcription.SecretStore
+import dev.rafaelbrauner.flowvoice.shared.transcription.SessionTranscription
 import dev.rafaelbrauner.flowvoice.shared.transcription.TranscriptionClient
 import dev.rafaelbrauner.flowvoice.shared.transcription.TranscriptionEventLog
 import dev.rafaelbrauner.flowvoice.shared.transcription.TranscriptionModels
@@ -23,6 +29,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -32,6 +39,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.TimeMark
 import kotlin.time.TimeSource
@@ -49,10 +57,12 @@ class DictationPipeline(
     private val eventLog: TranscriptionEventLog = TranscriptionEventLog.NoOp,
     private val timeSource: TimeSource = TimeSource.Monotonic,
     // Texto ditado vai só para este log, nunca para eventLog nem para as linhas do Diagnóstico (P135).
-    private val transcriptTextLog: TranscriptionEventLog = TranscriptionEventLog.NoOp
+    private val transcriptTextLog: TranscriptionEventLog = TranscriptionEventLog.NoOp,
+    // Motor no aparelho (Android). Null no desktop: só nuvem.
+    private val localEngines: LocalSpeechEngines? = null
 ) {
     private val eventLines = MutableSharedFlow<String>(extraBufferCapacity = EVENT_BUFFER)
-    private val transcription = IncrementalTranscriptionController(
+    private val cloud = IncrementalTranscriptionController(
         client = client,
         config = config,
         scope = scope,
@@ -61,6 +71,20 @@ class DictationPipeline(
         eventLog = { event, metadata -> log(event, metadata) },
         textLog = transcriptTextLog
     )
+    private val local = localEngines?.let { engines ->
+        LocalTranscription(engines, scope, eventLog = { event, metadata -> log(event, metadata) }, timeSource = timeSource)
+    }
+    // Quem transcreve a sessão em curso, escolhido no início dela e fixo até o fim: uma falha do motor
+    // no aparelho nunca troca de motor no meio do ditado.
+    private var active: SessionTranscription = cloud
+    private var sessionEngine = TranscriptionEngine.Cloud
+    private val segmentsState = MutableStateFlow<List<TranscriptionSegment>>(emptyList())
+    private val partialState = MutableStateFlow("")
+    // O motor no aparelho falhou no meio do ditado: o texto até ali é entregue com este aviso.
+    private var engineInterruption: EngineInterruption? = null
+    // O ditado no aparelho chegou ao teto de duração (LOCAL_SESSION_CAP).
+    private var sessionCapReached = false
+    private var sessionCapJob: Job? = null
     private val statusState = MutableStateFlow<DictationPipelineStatus>(DictationPipelineStatus.Idle)
     private val windowsState = MutableStateFlow<List<DictationWindow>>(emptyList())
     private val submittedWindows = MutableStateFlow(0)
@@ -87,7 +111,10 @@ class DictationPipeline(
     val target: StateFlow<DictationTarget> = targetState.asStateFlow()
     val session: StateFlow<DictationPipelineSession> = pipelineSessionState.asStateFlow()
     val sessionState: StateFlow<DictationSessionState> = controller.state
-    val segments: StateFlow<List<TranscriptionSegment>> = transcription.segments
+    val segments: StateFlow<List<TranscriptionSegment>> = segmentsState.asStateFlow()
+    // Texto do motor no aparelho ainda não fechado em pedaço: só prévia (cartão da sessão direta,
+    // barra de revisão, nota), nunca digitado. Vazio com a nuvem.
+    val livePartial: StateFlow<String> = partialState.asStateFlow()
     val sessionWindows: StateFlow<List<DictationWindow>> = windowsState.asStateFlow()
     val events: SharedFlow<String> = eventLines.asSharedFlow()
     val directInsertion: StateFlow<DirectInsertionProgress> = directState.asStateFlow()
@@ -98,21 +125,32 @@ class DictationPipeline(
     val model: String
         get() = TranscriptionModels.selected(preferences, config)
 
+    // O motor da sessão em curso (ou da última).
+    val sessionTranscriptionEngine: TranscriptionEngine
+        get() = sessionEngine
+
     val proofreadingEnabled: Boolean
         get() = preferences.read().proofreadingEnabled
+
+    // O motor que o próximo ditado usa (`TranscriptionEngineSelection`).
+    fun effectiveEngine(): TranscriptionEngine = TranscriptionEngineSelection.effective(
+        choice = preferences.read().transcriptionEngine,
+        modelInstalled = localEngines?.modelInstalled() == true,
+        platformSupportsLocal = localEngines != null
+    )
 
     init {
         scope.launch(start = CoroutineStart.UNDISPATCHED) {
             controller.windows.collect { window ->
                 windowsState.value = windowsState.value + window
-                transcription.submit(window)
+                active.submit(window)
                 submittedWindows.value += 1
                 log(
                     "dictation_window",
                     buildMap {
                         put("window", (window.index + 1).toString())
                         put("durationMs", window.durationMs.toString())
-                        put("model", TranscriptionModels.selected(preferences, config))
+                        put("model", modelLabel())
                         put("cut", window.cut.name.lowercase())
                         window.noiseFloor?.let { put("noiseFloor", it.toString()) }
                         // Fala medida na janela (P151): é o número que diz, no aparelho, por que a
@@ -139,38 +177,70 @@ class DictationPipeline(
             }
         }
         scope.launch(start = CoroutineStart.UNDISPATCHED) {
-            transcription.budgetExhausted.collect { exhausted ->
+            cloud.budgetExhausted.collect { exhausted ->
                 if (exhausted) stopAtRequestBudget()
             }
         }
         scope.launch(start = CoroutineStart.UNDISPATCHED) {
-            transcription.fatalError.collect { error ->
+            cloud.fatalError.collect { error ->
                 if (error != null) stopOnInvalidKey()
             }
         }
         scope.launch(start = CoroutineStart.UNDISPATCHED) {
-            transcription.segments.collect { advanceDirect() }
+            cloud.segments.collect { segments ->
+                if (active !== cloud) return@collect
+                segmentsState.value = segments
+                advanceDirect()
+            }
+        }
+        local?.let { transcriber ->
+            scope.launch(start = CoroutineStart.UNDISPATCHED) {
+                transcriber.segments.collect { segments ->
+                    if (active !== transcriber) return@collect
+                    segmentsState.value = segments
+                    advanceDirect()
+                }
+            }
+            scope.launch(start = CoroutineStart.UNDISPATCHED) {
+                transcriber.partial.collect { partial -> if (active === transcriber) partialState.value = partial }
+            }
+            scope.launch(start = CoroutineStart.UNDISPATCHED) {
+                transcriber.failure.collect { error -> if (error != null && active === transcriber) stopOnEngineFailure() }
+            }
         }
     }
 
     fun preview(): LivePreview {
         val assembled = LivePreviewAssembler.assemble(
-            segments = segments.value,
+            segments = previewSegments(),
             sessionComplete = sessionState.value is DictationSessionState.Finalized
         )
         return LivePreview(
             finalized = dictionary.apply(assembled.finalized),
-            provisional = dictionary.apply(assembled.provisional)
+            provisional = dictionary.apply(withPartial(assembled.provisional))
         )
     }
 
     fun liveText(): LivePreview {
-        val split = LiveDictationText.split(segments.value)
+        val split = LiveDictationText.split(previewSegments())
         return LivePreview(
             finalized = dictionary.apply(split.finalized),
-            provisional = dictionary.apply(split.provisional)
+            provisional = dictionary.apply(withPartial(split.provisional))
         )
     }
+
+    // No motor local o pedaço em fechamento leva milissegundos e não tem texto próprio: o que está
+    // sendo dito aparece pelo parcial, sem a marca de "transcrevendo".
+    private fun previewSegments(): List<TranscriptionSegment> = segmentsState.value.let { current ->
+        if (sessionEngine == TranscriptionEngine.Local) {
+            current.filter { it.status != TranscriptionSegment.Status.Transcribing }
+        } else {
+            current
+        }
+    }
+
+    private fun withPartial(provisional: String): String =
+        listOf(provisional, partialState.value).filter { it.isNotBlank() }.joinToString(" ")
 
     suspend fun start(target: DictationTarget = DictationTarget.ActiveField) {
         if (statusState.value.isBusy) return
@@ -186,33 +256,49 @@ class DictationPipeline(
             active = target == DictationTarget.ActiveField && !preferences.read().reviewBeforeInsert
         )
         publish(DictationPipelineStatus.Starting)
+        val engine = effectiveEngine()
+        // A chave só é exigida pela nuvem. Com o motor no aparelho ela serve só para a revisão por IA,
+        // se estiver ligada; sem ela a revisão é pulada e o ditado segue.
         sessionApiKey = secrets.readOpenRouterKey()?.takeIf { it.isNotBlank() }
-        transcription.reset(sessionApiKey)
+        cloud.reset(sessionApiKey)
+        local?.cancel()
+        sessionCapJob?.cancel()
+        sessionEngine = engine
+        val localSession = local.takeIf { engine == TranscriptionEngine.Local }
+        active = localSession ?: cloud
+        segmentsState.value = emptyList()
+        partialState.value = ""
+        engineInterruption = null
+        sessionCapReached = false
         windowsState.value = emptyList()
         submittedWindows.value = 0
-        if (sessionApiKey == null) {
+        if (localSession == null && sessionApiKey == null) {
             publish(DictationPipelineStatus.Failed(INVALID_KEY_MESSAGE))
             log("dictation_failed", mapOf("stage" to "key"))
             return
         }
         if (target == DictationTarget.ActiveField) inserter.captureTarget()
         try {
-            controller.start()
+            localSession?.begin(NemotronModel.LANGUAGE)
+            controller.start(tap = localSession)
             if (token != sessionToken) {
                 controller.cancel()
                 return
             }
             if (statusState.value == DictationPipelineStatus.Starting) {
                 publish(DictationPipelineStatus.Recording)
-                log("dictation_started", emptyMap())
+                log("dictation_started", mapOf("engine" to engineLabel(engine)))
+                if (localSession != null) limitLocalSession(token)
                 when {
-                    transcription.fatalError.value != null -> stopOnInvalidKey()
-                    transcription.budgetExhausted.value -> stopAtRequestBudget()
+                    localSession?.failure?.value != null -> stopOnEngineFailure()
+                    cloud.fatalError.value != null -> stopOnInvalidKey()
+                    cloud.budgetExhausted.value -> stopAtRequestBudget()
                 }
             }
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
+            localSession?.cancel()
             if (token == sessionToken) {
                 publish(DictationPipelineStatus.Failed(error.message ?: "erro desconhecido"))
                 log("dictation_failed", mapOf("stage" to "start"))
@@ -221,6 +307,27 @@ class DictationPipeline(
     }
 
     private fun stopOnInvalidKey() = stopEarly("dictation_key_stop")
+
+    // O motor no aparelho falhou (P-local): o que ele já reconheceu é entregue, com aviso. Nunca troca
+    // para a nuvem no meio do ditado — seria mandar áudio para fora sem o usuário ter escolhido.
+    private fun stopOnEngineFailure() {
+        if (!statusState.value.isBusy) return
+        if (engineInterruption == null) engineInterruption = EngineInterruption(controller.capturedDurationMs)
+        stopEarly("dictation_engine_stop")
+    }
+
+    // O microfone nunca fica aberto indefinidamente: sem o teto de requisições da nuvem, o ditado no
+    // aparelho para em LOCAL_SESSION_CAP, com o texto até ali e aviso.
+    private fun limitLocalSession(token: Int) {
+        sessionCapJob?.cancel()
+        sessionCapJob = scope.launch {
+            delay(LOCAL_SESSION_CAP)
+            if (token == sessionToken && statusState.value == DictationPipelineStatus.Recording) {
+                sessionCapReached = true
+                stopEarly("dictation_time_cap_stop")
+            }
+        }
+    }
 
     private fun stopAtRequestBudget() = stopEarly("dictation_budget_stop")
 
@@ -348,7 +455,9 @@ class DictationPipeline(
     suspend fun cancel() {
         if (!statusState.value.isBusy) return
         sessionToken++
-        transcription.cancel()
+        sessionCapJob?.cancel()
+        active.cancel()
+        partialState.value = ""
         try {
             controller.cancel()
         } finally {
@@ -630,8 +739,8 @@ class DictationPipeline(
         if (statusState.value == DictationPipelineStatus.Cancelled) {
             return skipProofread(DictationProofread.REASON_CANCELLED)
         }
-        val apiKey = sessionApiKey.takeIf { transcription.fatalError.value == null }
-            ?: return skipProofread(DictationProofread.REASON_ERROR)
+        val apiKey = sessionApiKey ?: return skipProofread(DictationProofread.REASON_NO_KEY)
+        if (cloud.fatalError.value != null) return skipProofread(DictationProofread.REASON_ERROR)
         directState.value = before.copy(proofreading = true)
         val token = sessionToken
         val revised = try {
@@ -781,10 +890,13 @@ class DictationPipeline(
     // aviso — e nada mais é pedido à OpenRouter nesta sessão.
     private suspend fun awaitTranscriptions() {
         controller.finalize()
+        sessionCapJob?.cancel()
         submittedWindows.first { it >= controller.emittedWindowCount }
-        withTimeoutOrNull(FINALIZE_DEADLINE) { transcription.awaitIdle() } ?: run {
+        // O motor no aparelho fecha o que ainda segura com a cauda, depois da última janela.
+        local?.takeIf { active === it }?.endOfAudio()
+        withTimeoutOrNull(FINALIZE_DEADLINE) { active.awaitIdle() } ?: run {
             finalizeDeadlinePassed = true
-            transcription.cancel()
+            active.cancel()
             log(
                 "dictation_finalize_deadline",
                 mapOf(
@@ -793,12 +905,14 @@ class DictationPipeline(
                 )
             )
         }
+        // Tudo o que o motor reconheceu já fechou em pedaço: não sobra provisório na tela.
+        partialState.value = ""
     }
 
     // As janelas como o fim do ditado as enxerga: depois do prazo (Y5), a que ficou sem resposta — ou
     // nem chegou a ir, presa na fila — vira falha, para o texto sair sem ela e o aviso dizer qual foi.
     private fun resolvedSegments(): List<TranscriptionSegment> {
-        val segments = transcription.segments.value
+        val segments = active.segments.value
         if (!finalizeDeadlinePassed) return segments
         val byWindow = segments.associateBy { it.windowIndex }
         val total = maxOf(controller.emittedWindowCount, (segments.maxOfOrNull { it.windowIndex } ?: -1) + 1)
@@ -825,11 +939,16 @@ class DictationPipeline(
     }
 
     private fun failsWithoutText(failures: TranscriptionFailureSummary?): Boolean =
-        captureInterruption != null || failures != null
+        captureInterruption != null || engineInterruption != null || failures != null
 
     // Sem texto nenhum, o motivo que vale é o microfone que caiu (R3); sem queda, o das janelas.
     private fun noTextOutcome(failures: TranscriptionFailureSummary?): DictationPipelineStatus {
         val interruption = captureInterruption
+        val engineFailure = engineInterruption
+        if (interruption == null && engineFailure != null) {
+            log("dictation_failed", mapOf("stage" to "local_engine"))
+            return DictationPipelineStatus.Failed(engineFailure.message)
+        }
         if (interruption != null || failures == null) {
             log("dictation_failed", mapOf("stage" to "capture"))
             return DictationPipelineStatus.Failed(interruption?.message ?: "erro desconhecido")
@@ -838,7 +957,12 @@ class DictationPipeline(
     }
 
     private fun warningFor(failures: TranscriptionFailureSummary?): String? =
-        listOfNotNull(captureInterruption?.warning, failures?.partialMessage)
+        listOfNotNull(
+            captureInterruption?.warning,
+            engineInterruption?.warning,
+            LOCAL_SESSION_CAP_WARNING.takeIf { sessionCapReached },
+            failures?.partialMessage
+        )
             .joinToString("; ")
             .ifEmpty { null }
 
@@ -881,9 +1005,12 @@ class DictationPipeline(
         )
         val revised = dictionary.apply(assembled.finalized)
         val prefs = preferences.read()
-        if (!prefs.proofreadingEnabled || revised.isBlank() || transcription.fatalError.value != null) return revised
+        if (!prefs.proofreadingEnabled || revised.isBlank() || cloud.fatalError.value != null) return revised
         if (statusState.value == DictationPipelineStatus.Cancelled) return revised
-        val apiKey = sessionApiKey ?: return revised
+        val apiKey = sessionApiKey ?: run {
+            log("proofreading_unavailable", mapOf("reason" to DictationProofread.REASON_NO_KEY))
+            return revised
+        }
         return try {
             // O mesmo teto da revisão do ditado direto (P152, N8): o usuário espera parado pelo texto.
             val proofread = withTimeoutOrNull(DictationProofread.TIMEOUT_MS) {
@@ -914,6 +1041,12 @@ class DictationPipeline(
         }
     }
 
+    private fun modelLabel(): String =
+        if (sessionEngine == TranscriptionEngine.Local) LOCAL_MODEL_LABEL else TranscriptionModels.selected(preferences, config)
+
+    private fun engineLabel(engine: TranscriptionEngine): String =
+        if (engine == TranscriptionEngine.Local) "local" else "cloud"
+
     private fun publish(status: DictationPipelineStatus) {
         statusState.value = status
         pipelineSessionState.value = DictationPipelineSession(sessionId, targetState.value, status)
@@ -940,23 +1073,35 @@ class DictationPipeline(
     // aviso de janela que falhou.
     private class CaptureInterruption(val message: String, capturedMs: Long) {
         val warning: String = "Captura do microfone interrompida aos ${clock(capturedMs)}: texto só até ali"
+    }
+
+    // Onde o motor no aparelho falhou. O aviso diz até que ponto do ditado o texto vai, como o do
+    // microfone que caiu (R3).
+    private class EngineInterruption(capturedMs: Long) {
+        val message: String = "O motor no aparelho falhou e nada foi transcrito"
+        val warning: String = "Motor no aparelho falhou aos ${clock(capturedMs)}: texto só até ali"
+    }
+
+    companion object {
+        // Teto de duração do ditado no aparelho: o microfone nunca fica aberto indefinidamente. Dez
+        // minutos cobrem uma evolução longa e são mais que os ~4–6 min do teto da nuvem.
+        val LOCAL_SESSION_CAP = 10.minutes
+        const val LOCAL_SESSION_CAP_WARNING = "Ditado encerrado no limite de 10 min"
+        private const val LOCAL_MODEL_LABEL = "nemotron-3.5-streaming"
+        private const val EVENT_BUFFER = 64
+        private const val INVALID_KEY_MESSAGE = "chave OpenRouter ausente ou inválida"
+        private const val DIRECT_ROUTE = "direto"
+        private val RETRY_GUARD = 1.seconds
+        private val NOTE_DELIVERY = TextInsertionResult(success = false, route = "nota", message = "texto entregue à nota")
+
+        // Prazo do fim do ditado (Y5), do toque de parar até o texto: uma janela sadia volta em 1–2 s,
+        // e a fila no fim é de uma ou duas janelas. 15 s cobrem uma retentativa com folga sem deixar o
+        // usuário minutos em "Transcrevendo".
+        private val FINALIZE_DEADLINE = 15.seconds
 
         private fun clock(ms: Long): String {
             val seconds = ms / 1_000L
             return "${seconds / 60}:${(seconds % 60).toString().padStart(2, '0')}"
         }
-    }
-
-    private companion object {
-        const val EVENT_BUFFER = 64
-        const val INVALID_KEY_MESSAGE = "chave OpenRouter ausente ou inválida"
-        const val DIRECT_ROUTE = "direto"
-        val RETRY_GUARD = 1.seconds
-        val NOTE_DELIVERY = TextInsertionResult(success = false, route = "nota", message = "texto entregue à nota")
-
-        // Prazo do fim do ditado (Y5), do toque de parar até o texto: uma janela sadia volta em 1–2 s,
-        // e a fila no fim é de uma ou duas janelas. 15 s cobrem uma retentativa com folga sem deixar o
-        // usuário minutos em "Transcrevendo".
-        val FINALIZE_DEADLINE = 15.seconds
     }
 }

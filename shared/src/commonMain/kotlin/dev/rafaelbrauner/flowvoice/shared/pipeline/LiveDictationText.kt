@@ -15,13 +15,14 @@ object LiveDictationText {
             .filter { it.status == TranscriptionSegment.Status.Ok && it.text.isNotBlank() }
         val transcribing = segments.any { it.status == TranscriptionSegment.Status.Transcribing }
         val stable = ok.dropLast(1).fold("") { acc, next ->
-            LivePreviewAssembler.mergeAdjacent(acc, next.text.trim(), next.contextDurationMs)
+            LivePreviewAssembler.mergeAdjacent(acc, next.text.trim(), next.contextDurationMs, next.continuous)
         }
         val latest = ok.lastOrNull()
         val merged = LivePreviewAssembler.mergeAdjacent(
             stable,
             latest?.text?.trim().orEmpty(),
-            latest?.contextDurationMs ?: 0L
+            latest?.contextDurationMs ?: 0L,
+            latest?.continuous ?: false
         )
         val provisional = merged.removePrefix(stable).trim()
         val tail = listOf(provisional, if (transcribing) PENDING_MARK else "")

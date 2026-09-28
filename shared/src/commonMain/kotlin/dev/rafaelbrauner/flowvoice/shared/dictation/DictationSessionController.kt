@@ -11,6 +11,14 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlin.math.sqrt
 
+// Quem ouve o áudio da sessão na ordem exata da captura (motor no aparelho): cada frame antes das
+// janelas que ele fecha, e cada janela no instante do corte. Chamado sob a trava da sessão, na
+// thread da captura: não pode bloquear.
+interface CaptureTap {
+    fun onFrame(frame: AudioFrame)
+    fun onWindow(window: DictationWindow)
+}
+
 class DictationSessionController(
     private val engine: AudioCaptureEngine,
     windowTargetDurationMs: Long = DictationWindowAggregator.DEFAULT_TARGET_DURATION_MS,
@@ -35,6 +43,7 @@ class DictationSessionController(
     private val observedState = MutableStateFlow(session.state)
     private val windowEvents = MutableSharedFlow<DictationWindow>(extraBufferCapacity = Channel.UNLIMITED)
     private var lastVoiceAtMs = 0L
+    private var tap: CaptureTap? = null
 
     val state: StateFlow<DictationSessionState> = observedState.asStateFlow()
     val windows: Flow<DictationWindow> = windowEvents.asSharedFlow()
@@ -45,7 +54,7 @@ class DictationSessionController(
     var emittedWindowCount: Int = 0
         private set
 
-    suspend fun start() {
+    suspend fun start(tap: CaptureTap? = null) {
         sessionMutex.withLock {
             when (session.state) {
                 is DictationSessionState.Idle -> session.start()
@@ -65,6 +74,7 @@ class DictationSessionController(
             capturedDurationMs = 0L
             lastVoiceAtMs = 0L
             emittedWindowCount = 0
+            this.tap = tap
             observedState.value = session.state
         }
         try {
@@ -125,7 +135,9 @@ class DictationSessionController(
             val capturing = session.state is DictationSessionState.Capturing
             if (capturing || session.state is DictationSessionState.Finalizing) {
                 try {
-                    windowAggregator.onFrame(frame).forEach { emitWindow(it) }
+                    val windows = windowAggregator.onFrame(frame)
+                    tap?.onFrame(frame)
+                    windows.forEach { emitWindow(it) }
                     capturedDurationMs += frame.durationMs
                     // A cauda não conta silêncio: a sessão já está encerrando.
                     if (capturing) silenceTimedOut = updateSilenceState(frame)
@@ -171,6 +183,7 @@ class DictationSessionController(
     }
 
     private suspend fun emitWindow(window: DictationWindow) {
+        tap?.onWindow(window)
         emittedWindowCount++
         windowEvents.emit(window)
     }
