@@ -213,22 +213,32 @@ Em **Ajustes → Motor de transcrição**:
   Com o FlowVoice aberto na tela, a bolha ociosa fica escondida e volta quando você
   sai do app. O serviço segue ligado.
 - **Pela bolha flutuante:** toque na bolha no app em que está digitando. Na nuvem, cada
-  trecho vai até uma pausa natural da fala (depois de ao menos ~2 s de áudio) ou, falando
-  sem pausa, até ~4 s; no motor do aparelho, até ~1,2 s (pausa a partir de ~0,8 s), então as
-  palavras entram no campo cerca de 1 s depois de ditas. O trecho é **digitado no campo** assim que é
-  transcrito, em ordem e com espaço entre os trechos. Toque na bolha de novo para encerrar: o último trecho
+  trecho vai até uma pausa curta da fala (250 ms, depois de ao menos ~1 s de áudio) ou, falando
+  sem pausa, até ~2 s, e até três trechos são transcritos ao mesmo tempo; no motor do aparelho, até
+  ~1,2 s (pausa a partir de ~0,8 s). O trecho é **digitado no campo** assim que é transcrito, em ordem
+  e com espaço entre os trechos: na nuvem, cerca de 1,5 a 3,5 s depois de dito, conforme o modelo. Uma
+  frase que você repete depois de uma pausa entra de novo, inteira. Toque na bolha de novo para encerrar: o último trecho
   entra em seguida. Com a **revisão final por IA** ligada (Ajustes), o ditado inteiro é
   refeito de uma vez no fim a partir do áudio inteiro — transcrição, e na formatação pontuação,
   vírgulas, maiúsculas, acentos e concordância só pela terminação, sem trocar palavra (ver "Motor de
   transcrição") — e substitui no campo o que o FlowVoice tinha escrito; a prévia mostra "revisando…"
-  durante a chamada. Se a revisão falhar, se o texto não estiver mais logo
-  antes do cursor ou se o ditado passar de 4000 caracteres, fica como foi digitado.
+  durante a chamada e a bolha fica em "Revisando o ditado". Um toque na bolha ou no cartão nessa hora é
+  ignorado: a revisão termina e aplica, e o próximo ditado começa com o próximo toque. Se a revisão
+  falhar, se o texto não estiver mais logo antes do cursor ou se o ditado passar de 4000 caracteres,
+  fica como foi digitado, com os espaços entre os trechos conferidos no campo (no Samsung Notes a
+  emenda às vezes perdia o espaço ou virava linha nova).
 - **Cartão da prévia:** no ditado normal não há cartão — o texto aparece no próprio campo
-  e a bolha encerra. Ele só abre quando há algo que só ele mostra: texto **PENDENTE**
-  depois de uma troca de app, aviso de trecho com falha (timeout, sem créditos…),
-  "revisando…" da revisão por IA, ou o encerrar quando a bolha está oculta. Abre acima ou
-  abaixo da linha do cursor, nunca sobre o teclado. Não há "Cancelar" no ditado normal: o
-  que já entrou no campo se apaga pelo teclado.
+  e a bolha encerra; não há "Digitado no campo" nem "Nada transcrito" (um ditado sem texto não
+  perdeu nada: a bolha só volta ao repouso). Ele só abre quando há algo que só ele mostra: texto
+  **PENDENTE** depois de uma troca de app, "revisando…" da revisão por IA, ou o encerrar quando a
+  bolha está oculta. Abre acima ou abaixo da linha do cursor, nunca sobre o teclado. Não há
+  "Cancelar" no ditado normal: o que já entrou no campo se apaga pelo teclado.
+- **Avisos:** só quando algo faltou de fato no texto que ficou. Um trecho que falhou durante o
+  ditado não mostra nada se a revisão final estiver ligada, porque ela retranscreve o áudio inteiro;
+  o aviso aparece no fim só se a revisão não veio (ou foi recusada) e havia trecho falho. Com a
+  revisão final desligada, o trecho falho avisa na hora — é a única rede de segurança. Também avisam
+  o microfone que caiu, o motor do aparelho que falhou e o limite de 10 min. O aviso é uma linha
+  curta, sem título nem botões, e some sozinho em ~4 s ou com um toque.
 - **Troca de app ou de campo:** se o foco for para outro app, outra conversa ou uma
   tela sem campo, nada mais é digitado sozinho, **mesmo que você volte**. O resto
   aparece como **PENDENTE**, e "Inserir aqui" o escreve no app em foco e retoma a

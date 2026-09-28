@@ -6,6 +6,37 @@ estão em [`docs/tasks/`](docs/tasks/README.md).
 
 ## [Unreleased]
 
+### Corrigido (ditado na nuvem ao vivo, 2026-09-28)
+
+- **Frase repetida depois de uma pausa sumia do campo** (S26, qwen/qwen3-asr-1.7b): a emenda entre
+  janelas (`TranscriptOverlap`) tirava do começo da janela o que repetia o fim do texto mesmo sem áudio
+  repetido, ou depois de o corte pelo tempo já ter tirado o contexto — "Amanhã de manhã vamos à praia." (30
+  caracteres, o que 1 s de contexto autoriza) voltou três vezes da nuvem e entrou uma. Agora sem contexto
+  nada é removido (P127), o contexto só vai quando o fim da janela anterior tem fala, e o corte pelo tempo
+  diz quanto do contexto sobrou (`contextInTextMs`, log `contextLeftMs`).
+- **Uma janela lenta segurava as seguintes:** as janelas iam à nuvem uma de cada vez; no S26 a janela 1
+  do nova-3 ficou presa e nada mais entrou até parar (1ª inserção aos 20 s). Agora até 3 em voo, e a
+  janela presa não impede que as seguintes entrem no prazo do fim.
+- **Tocar enquanto a revisão final está a caminho descartava o texto final** (S26 13:56: passada final de
+  150 caracteres descartada, ficou o rascunho de 88). O cartão "revisando…" não tem mais "Cancelar", o
+  cancelar da sessão direta depois do toque de parar é ignorado (`dictation_cancel_ignored`) e a bolha diz
+  "Revisando o ditado".
+- **Emenda no Samsung Notes** ("bem?Consegue", "tarde?\nPaciente", "para\n seis"): o corpo de nota perde o
+  espaço do começo de cada trecho ou o troca por linha nova; a passada final limpava, mas sem ela ficava.
+  Agora o fim do ditado confere o campo e o devolve ao que foi ditado quando a diferença é só de espaço e
+  linha nova (`dictation_field_restored`). Durante a fala, no Samsung Notes, a emenda ainda pode aparecer.
+
+### Alterado
+
+- **Janela ao vivo da nuvem de ~2 s** (`SpeechEndpointing.LIVE`: alvo 2 s, pausa de 250 ms depois de 1 s),
+  no lugar de 4 s / 2 s / 450 ms: na réplica com 6 modelos a 1ª inserção caiu de 3,8–6,3 s para 1,4–3,5 s
+  depois da fala, com 10–13 inserções por ditado de ~22 s em vez de 6–8; números do S26 em
+  `TAREFAS_PENDENTES.md` (Nuvem ao vivo). Teto de janelas por sessão 90 → 180 (~6 min, como antes).
+- **Cartões:** saem "Nada transcrito." e "Digitado no campo · N palavras". Trecho falho só avisa quando o texto
+  que ficou é o ao vivo (revisão desligada, ou ela não veio e havia trecho falho); o aviso "Versão final da
+  nuvem não veio" sozinho sai, porque sem trecho falho nada faltou. O aviso é uma linha curta, sem cabeçalho
+  nem botões, que some em ~4 s ou com um toque.
+
 - **Padrão da passada final: só a transcrição do áudio inteiro, sem formatação**
   (`openai/gpt-4o-mini-transcribe`), por escolha do usuário depois da medição: 0 erros que mudam sentido,
   nota 95,8, 1,9 s no S26 e texto igual ao gabarito. O passo único com `thinkingmachines/inkling` (nota 97,7)

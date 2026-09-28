@@ -349,3 +349,27 @@ em Ajustes. Medição em `docs/medicao-modelos-nuvem.md`. Conferido no S26 em 20
 | NM-gabarito | Baixa | Gabaritos corrigidos por consenso dos cinco melhores modelos (11, 13, 15, 19, 20, longo-2/3/6), sem ouvir. Confirmar ouvindo e, se for o caso, corrigir os `.txt` na origem | aberta | /verificar |
 | NM-voz | Alta | S26 só com alto-falante e Wi-Fi (3 ditados). O inkling falhou no 1º (erro do provedor, ficou o texto ao vivo) e levou 7,4 s no 2º; à tarde passou a raciocinar por padrão, devolver vazio e dar 429 no Mac. Medir a disponibilidade dele por alguns dias; se continuar instável, o padrão da regra passa a ser `gpt-4o-mini-transcribe` sem formatação (0 erros de sentido, 95,8, 1,6 s; no S26 1,9 s e texto igual ao gabarito) | aberta | /decidir |
 
+
+## Nuvem ao vivo (2026-09-28)
+
+Queixa do usuário: cartões "Nada transcrito"/"Digitado no campo", texto só no fim da frase na maioria dos
+modelos e palavras quebradas. Causas e correções no CHANGELOG [Unreleased]. Medido no S26 com alto-falante
+do Mac (s1: 01+11+12+13 com pausas; s2: 11+13+14+17+19 contínua), ao vivo = texto no campo no toque de parar
+(OCR da captura), final = campo depois da revisão; perdidas/repetidas/quebradas/trocadas contra o gabarito.
+
+| modelo | 1ª inserção s1 / s2 (antes → depois) | inserções durante a fala s1 / s2 | final perd./rep./queb./troc. s1 · s2 (antes → depois) |
+|---|---|---|---|
+| qwen/qwen3-asr-1.7b | falhou (provedor sem resposta) / 12,5 s → 3,4 / 3,3 s | 0 / 5 → 13 / 14 | 37/0/0/0 · 2/0/0/7 → 1/0/1/6 · 1/0/0/3 |
+| openai/gpt-4o-mini-transcribe | 4,2 / 8,7 s → 3,2 / 3,7 s | 8 / 8 → 10 / 15 | 0/0/1/2 · 1/0/0/2 → 5/1/4/8 (revisão recusada, `campo_diferente`) · 0/0/0/0 |
+| deepgram/nova-3 | 20,2 / 4,2 s → 1,7 / 1,4 s | 1 / 9 → 12 / 14 | 2/0/0/5 · 0/0/0/1 → 0/0/1/3 · 0/0/1/10 |
+| microsoft/mai-transcribe-2 | 4,8 / 3,6 s → 2,1 / 1,3 s | 8 / 7 → 14 / 15 | 0/0/0/4 · 0/0/0/2 → 0/0/0/0 · 0/0/0/0 |
+| mistralai/voxtral-mini-transcribe | 3,0 / 3,8 s → 2,7 / 1,7 s | 8 / 9 → 11 / 15 | 0/0/0/8 · 0/0/0/4 → 0/0/1/4 · 0/0/0/3 |
+| x-ai/grok-stt-1.0 | 3,6 / 5,2 s → 2,9 / 4,0 s | 8 / 5 → 14 / 12 | 0/0/3/4 · 0/0/0/3 → 0/0/2/4 · 1/0/0/1 |
+
+| ID | Prioridade | Descrição | Status | Próximo passo |
+|---|---|---|---|---|
+| NV-emenda-notes | Alta | No corpo de nota do Samsung Notes a emenda entre trechos perde o espaço ou vira linha nova **durante** a fala (sonda sem texto no S26: depois do commitText de " Consegue…" o campo terminava em "?\n", o espaço da frente sumia e a linha nova ia para o fim). Mandar o espaço como tecla ou reescrever o último caractere junto não resolveu; o título da nota (EditText simples) não tem o problema, e trocar o teclado para o Samsung não mudou nada. O fim do ditado agora limpa (só espaço/linha nova) | aberta: ao vivo ainda aparece no Samsung Notes | /debugar |
+| NV-recusa | Alta | gpt-4o-mini s1 depois da correção: a revisão final foi recusada (`campo_diferente`: as letras do campo não batiam com a conta do app) e ficou o texto ao vivo, com emendas e um trecho fora de ordem aparente ("Paciente do leito doze." antes de "Consegue me ligar…"). Sem log de texto no release, a causa não foi vista | aberta | /debugar com o marcador da P135 num build debuggable |
+| NV-vivo-qualidade | Média | O texto ao vivo pelo alto-falante sai ruim em todos os modelos (gpt-4o-mini chegou a transcrever turco e francês, qwen escreve chinês no ruído do fim); o final (áudio inteiro) sai bom. Janela de 2 s não piorou na réplica, mas no S26 o ao vivo segue com 1–10 perdidas por ditado no toque de parar (parte é a última janela ainda a caminho) | aberta | /medir com voz ao vivo (LOC-voz) |
+| NV-qwen | Média | qwen/qwen3-asr-1.7b ficou sem resposta (timeout) em dois ditados no Mac e um no S26 nesta tarde; com todas as janelas falhas a passada final é pulada (`vazio`) mesmo podendo trazer o texto | aberta | /decidir se a passada final roda com o rascunho vazio |
+| NV-B-cartao | Baixa | Conferido no S26: o toque na bolha e onde ficava o "Cancelar" logo depois de parar não descarta nada (sem `dictation_cancelled`, revisão seguiu). A captura do cartão "revisando…" sem botão não foi feita (o uiautomator não vê a janela do overlay) | anotada | — |
