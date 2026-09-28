@@ -16,10 +16,11 @@ android {
         targetSdk = 36
         versionCode = 17
         versionName = "0.7.0"
-        // O motor no aparelho é nativo (sherpa-onnx): só o S26 (arm64) e o emulador (x86_64). As outras
-        // duas arquiteturas do AAR somariam ~40 MB ao APK para aparelho que o app não mira.
+        // O motor no aparelho é nativo (sherpa-onnx, ~27 MB por arquitetura). Só arm64-v8a: é a do S26 e
+        // a dos emuladores deste projeto (AVDs arm64 no Mac com Apple Silicon). O x86_64 somaria 30,8 MB
+        // ao APK sem ninguém que o use; armeabi-v7a e x86, mais ~50 MB.
         ndk {
-            abiFilters += listOf("arm64-v8a", "x86_64")
+            abiFilters += listOf("arm64-v8a")
         }
     }
 
