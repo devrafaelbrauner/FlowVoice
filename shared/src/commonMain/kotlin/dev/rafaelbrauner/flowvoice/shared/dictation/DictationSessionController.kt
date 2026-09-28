@@ -21,17 +21,17 @@ interface CaptureTap {
 
 class DictationSessionController(
     private val engine: AudioCaptureEngine,
-    windowTargetDurationMs: Long = DictationWindowAggregator.DEFAULT_TARGET_DURATION_MS,
+    private val windowTargetDurationMs: Long = DictationWindowAggregator.DEFAULT_TARGET_DURATION_MS,
     private val autoFinalizeOnSilence: Boolean = false,
     private val silenceThreshold: Float = DEFAULT_SILENCE_THRESHOLD,
     private val silenceTimeoutMs: Long = DEFAULT_SILENCE_TIMEOUT_MS,
-    windowPauseSearchBeforeMs: Long = 0L,
-    windowPauseSearchAfterMs: Long = 0L,
+    private val windowPauseSearchBeforeMs: Long = 0L,
+    private val windowPauseSearchAfterMs: Long = 0L,
     val windowEndpointing: SpeechEndpointing? = null,
     val windowContextDurationMs: Long = 0L
 ) {
     private val session = DictationSession()
-    private val windowAggregator = DictationWindowAggregator(
+    private var windowAggregator = DictationWindowAggregator(
         windowTargetDurationMs,
         engine.format,
         windowPauseSearchBeforeMs,
@@ -54,7 +54,13 @@ class DictationSessionController(
     var emittedWindowCount: Int = 0
         private set
 
-    suspend fun start(tap: CaptureTap? = null) {
+    // O motor no aparelho fecha pedaços mais curtos que a nuvem (o texto entra no campo antes): a sessão
+    // pode pedir outro teto e outro endpointing, e a janela é refeita com eles.
+    suspend fun start(
+        tap: CaptureTap? = null,
+        windowTargetDurationMs: Long = this.windowTargetDurationMs,
+        windowEndpointing: SpeechEndpointing? = this.windowEndpointing
+    ) {
         sessionMutex.withLock {
             when (session.state) {
                 is DictationSessionState.Idle -> session.start()
@@ -70,7 +76,14 @@ class DictationSessionController(
                     session.start()
                 }
             }
-            windowAggregator.clear()
+            windowAggregator = DictationWindowAggregator(
+                windowTargetDurationMs,
+                engine.format,
+                windowPauseSearchBeforeMs,
+                windowPauseSearchAfterMs,
+                windowEndpointing,
+                windowContextDurationMs
+            )
             capturedDurationMs = 0L
             lastVoiceAtMs = 0L
             emittedWindowCount = 0

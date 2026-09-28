@@ -59,7 +59,8 @@ class DictationPipeline(
     // Texto ditado vai só para este log, nunca para eventLog nem para as linhas do Diagnóstico (P135).
     private val transcriptTextLog: TranscriptionEventLog = TranscriptionEventLog.NoOp,
     // Motor no aparelho (Android). Null no desktop: só nuvem.
-    private val localEngines: LocalSpeechEngines? = null
+    private val localEngines: LocalSpeechEngines? = null,
+    private val localWindowTargetDurationMs: Long = LOCAL_WINDOW_TARGET_MS
 ) {
     private val eventLines = MutableSharedFlow<String>(extraBufferCapacity = EVENT_BUFFER)
     private val cloud = IncrementalTranscriptionController(
@@ -280,7 +281,15 @@ class DictationPipeline(
         if (target == DictationTarget.ActiveField) inserter.captureTarget()
         try {
             localSession?.begin(NemotronModel.LANGUAGE)
-            controller.start(tap = localSession)
+            if (localSession == null) {
+                controller.start()
+            } else {
+                controller.start(
+                    tap = localSession,
+                    windowTargetDurationMs = localWindowTargetDurationMs,
+                    windowEndpointing = controller.windowEndpointing?.copy(minBufferedMs = LOCAL_MIN_BUFFERED_MS)
+                )
+            }
             if (token != sessionToken) {
                 controller.cancel()
                 return
@@ -1087,6 +1096,11 @@ class DictationPipeline(
         // minutos cobrem uma evolução longa e são mais que os ~4–6 min do teto da nuvem.
         val LOCAL_SESSION_CAP = 10.minutes
         const val LOCAL_SESSION_CAP_WARNING = "Ditado encerrado no limite de 10 min"
+        // No aparelho cada corte só fecha o texto do fluxo contínuo (não custa requisição): pedaços de até
+        // 1,2 s, e pausa valendo a partir de 0,8 s de áudio, põem as palavras no campo ~1 s depois de
+        // ditas, e o cartão da prévia deixou de ser preciso (S26, 2026-09-28). A nuvem segue com 4 s e 2 s.
+        const val LOCAL_WINDOW_TARGET_MS = 1_200L
+        const val LOCAL_MIN_BUFFERED_MS = 800L
         private const val LOCAL_MODEL_LABEL = "nemotron-3.5-streaming"
         private const val EVENT_BUFFER = 64
         private const val INVALID_KEY_MESSAGE = "chave OpenRouter ausente ou inválida"

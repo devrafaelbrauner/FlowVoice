@@ -188,6 +188,31 @@ class DictationSessionControllerTest {
         runCurrent()
     }
 
+    // O motor no aparelho pede pedaços mais curtos (DictationPipeline.LOCAL_WINDOW_TARGET_MS); a sessão
+    // seguinte, na nuvem, volta ao teto do construtor.
+    @Test
+    fun aSessionCanAskForItsOwnWindowTargetAndTheNextOneGoesBackToTheDefault() = runTest {
+        val engine = FakeAudioCaptureEngine(listOf(pcmFrame(60L), pcmFrame(60L), pcmFrame(60L)))
+        val controller = DictationSessionController(engine, windowTargetDurationMs = 100L)
+        val windows = mutableListOf<DictationWindow>()
+        val collector = backgroundScope.launch { controller.windows.collect { windows += it } }
+        runCurrent()
+
+        controller.start(windowTargetDurationMs = 50L)
+        controller.finalize()
+        runCurrent()
+        val local = windows.map { it.finishedAtMs - it.startedAtMs }
+        windows.clear()
+        controller.start()
+        controller.finalize()
+        runCurrent()
+
+        assertEquals(listOf(60L, 60L, 60L), local)
+        assertEquals(listOf(120L, 60L), windows.map { it.finishedAtMs - it.startedAtMs })
+        collector.cancel()
+        runCurrent()
+    }
+
     @Test
     fun captureErrorAfterStartMovesSessionToError() = runTest {
         val engine = ErrorReportingAudioCaptureEngine()

@@ -295,7 +295,8 @@ private class LocalEnv(
         inserter = inserter,
         scope = scope.backgroundScope,
         eventLog = log,
-        localEngines = engines
+        localEngines = engines,
+        localWindowTargetDurationMs = 100L
     )
 
     // Um trecho de fala de 100 ms: fecha uma janela no teto (sem pausa).
