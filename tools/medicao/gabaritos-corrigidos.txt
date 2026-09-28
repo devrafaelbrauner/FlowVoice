@@ -1,0 +1,16 @@
+# Gabaritos corrigidos (medição de modelos da nuvem, 2026-09-28): `id|texto|motivo` troca o gabarito
+# inteiro; `id|trecho original → trecho corrigido|motivo` troca só o trecho. Os originais
+# (`audio-pessoal/NN.txt` do teclado, `build/medicoes/gravacoes/longo-N.txt`) ficam como estão, e o resumo dá
+# os números com os dois. Critério: a gravação diz outra coisa e os cinco melhores modelos de transcrição, de
+# fornecedores diferentes (deepgram/nova-3, openai/gpt-transcribe, openai/gpt-4o-transcribe,
+# microsoft/mai-transcribe-2, google/gemini-3.5-transcribe), ouvem a mesma divergência. A contínua de 20 s
+# (11+13+14+17+19) usa as frases corrigidas.
+11|Paciente do leito doze segue com dispneia, pedi uma radiografia de tórax.|a gravação diz "uma radiografia de tórax"; o .txt tem "um raio X de tórax"
+13|Ela está eupneica, sem sinais de desconforto respiratório.|a gravação termina em "desconforto respiratório"; o .txt para em "desconforto"
+15|Prescrevi amoxicilina com clavulanato por sete dias.|a gravação diz "amoxicilina com clavulanato" (já anotado em docs/medicao-duas-passadas.md); o .txt tem só "amoxicilina"
+19|Solicitei transferência para a UTI para o paciente que estava na enfermaria.|a gravação diz "transferência para a UTI para o paciente que estava na enfermaria" (já anotado); o .txt tem "avaliação da UTI para o paciente da enfermaria"
+20|Cefaleia melhorou depois da analgesia adequada.|a gravação diz "depois da analgesia adequada"; o .txt tem "depois da medicação"
+longo-2|na sala dois do terceiro andar → na sala do terceiro andar|a leitura pulou o "dois"
+longo-3|oitenta e dois batimentos → oitenta e oito batimentos|a leitura disse "oitenta e oito"
+longo-3|se mantiver a evolução favorável → se mantiver evolução favorável|a leitura pulou o "a"
+longo-6|Bom dia, tudo bem? → Bom dia, pessoal, tudo bem?|a leitura disse "Bom dia, pessoal"
