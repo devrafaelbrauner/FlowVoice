@@ -106,7 +106,7 @@ object CloudModels {
     // Passo único: só os sem erro que muda sentido e sem resposta ao ditado (o gpt-audio-mini respondeu "Claro,
     // vou avisar assim que chegar."; o gpt-audio trocou "cefaleia" por "se falei").
     val oneStep: List<MeasuredModel> = listOf(
-        MeasuredModel("thinkingmachines/inkling", 97.7, 4240, 0.0049, 0),
+        MeasuredModel("thinkingmachines/inkling", 97.7, 4240, 0.0049, 0, Reasoning.Off),
         MeasuredModel("google/gemini-3.5-flash", 95.7, 3060, 0.0073, 0, Reasoning.Minimal),
         MeasuredModel("google/gemini-3-flash-preview", 95.4, 3250, 0.0024, 0, Reasoning.Minimal),
         MeasuredModel("google/gemini-3.1-flash-lite", 95.4, 2630, 0.0012, 0, Reasoning.Off)

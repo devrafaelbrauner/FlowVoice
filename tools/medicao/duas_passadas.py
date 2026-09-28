@@ -699,6 +699,9 @@ ESFORCO = {
     "xiaomi/mimo-v2.6-pro": "off",
     "xiaomi/mimo-v2.6-pro-ultraspeed": "off",
     "xiaomi/mimo-v2.5": "off",
+    # Na medição (manhã de 28/set) raciocinava 0 tokens sem o campo; à tarde passou a raciocinar 100–200 tokens
+    # (11–20 s numa frase) e o app manda desligado (2,6 s).
+    "thinkingmachines/inkling": "off",
 }
 
 
