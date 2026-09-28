@@ -13,6 +13,16 @@ smoke num emulador Android 16 (AVD `flowvoice_api36`, 2026-09-27) passou pelo
 fluxo novo e achou os dois defeitos de P163 e P164, corrigidos e conferidos no mesmo
 emulador. Nada desta versão foi conferido num aparelho real.
 
+### Aviso de malware (P161): causa medida no aparelho
+
+- **O app acusado não era o FlowVoice.** No S26 (2026-09-27), a "Proteção do aplicativo" da
+  Samsung (McAfee) listava como malware o "Intelligent Keyboard" `…latin.benchmark`, um build
+  de depuração de outro projeto assinado com a chave pública do AOSP; o Play Protect não
+  acusava nada. A hipótese da 0.5.1 (FlowVoice debug com acessibilidade) não se confirmou. O
+  release do FlowVoice passou pela verificação do Play Protect na instalação
+  (`VERIFICATION_ALLOW`), e a nova verificação da Samsung, com o teclado trocado, deu "Não há
+  nenhuma ameaça".
+
 ### Distribuição
 
 - **`compileSdk` e `targetSdk` 36**, exigência do Play para apps novos desde
