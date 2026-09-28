@@ -42,10 +42,10 @@ data class OpenRouterConfig(
 
     companion object {
         const val DEFAULT_BASE_URL = "https://openrouter.ai"
-        // Medição de modelos da nuvem (docs/medicao-modelos-nuvem.md, 2026-09-28): a melhor nota de ortografia e
-        // pontuação entre as 24 transcrições da OpenRouter, e a menor latência entre as cinco melhores. Antes,
-        // `openai/gpt-transcribe` (benchmark F05 no S26, P136), agora o 2º.
-        const val DEFAULT_MODEL = "deepgram/nova-3"
+        // Medição de modelos da nuvem (docs/medicao-modelos-nuvem.md, 2026-09-28): sem erro que muda sentido,
+        // empatada na nota com o google/chirp-3 (0,5 ponto) e a mais rápida (1,6 s num ditado de 20 s). Antes,
+        // `openai/gpt-transcribe` (benchmark F05 no S26, P136), que trocou "dipirona" por "de pirona".
+        const val DEFAULT_MODEL = "openai/gpt-4o-mini-transcribe"
         const val DEFAULT_LANGUAGE = "pt"
         // Nem a OpenRouter nem a OpenAI documentam o padrão de temperature na transcrição; 0 é o
         // valor mais determinístico e não depende do padrão de cada provedor (P137).

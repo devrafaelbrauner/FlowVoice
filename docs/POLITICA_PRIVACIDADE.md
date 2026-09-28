@@ -40,12 +40,13 @@ Esta política descreve como o aplicativo Android **FlowVoice**
     enviado a ninguém. Com ela ligada, ao fim de cada ditado o áudio inteiro (em
     pedaços de até 50 s nos ditados longos) é convertido em WAV e enviado por HTTPS à
     OpenRouter, que o repassa ao provedor do modelo de transcrição escolhido em Ajustes
-    (padrão: `deepgram/nova-3`) — ou, se em "Formatação" você escolher **um passo só**,
-    ao provedor do modelo de chat que ouve o áudio (padrão: `thinkingmachines/inkling`);
+    (padrão: `openai/gpt-4o-mini-transcribe`) — ou, com **um passo só** em "Formatação"
+    (o padrão), ao provedor do modelo de chat que ouve o áudio (padrão:
+    `thinkingmachines/inkling`);
     o texto que volta substitui o do aparelho.
   - **Nuvem (OpenRouter):** o áudio é dividido em trechos curtos, convertido em WAV e
     enviado por HTTPS à OpenRouter, que o repassa ao provedor do modelo de
-    transcrição escolhido (padrão: `deepgram/nova-3`). Com a **revisão final por IA**
+    transcrição escolhido (padrão: `openai/gpt-4o-mini-transcribe`). Com a **revisão final por IA**
     ligada, ao fim de cada ditado o áudio inteiro vai de novo, como no item acima, e o
     texto que volta substitui o digitado ao vivo.
 - **Armazenamento:** o áudio fica só na memória do app, até o próximo ditado (um
@@ -60,8 +61,8 @@ Esta política descreve como o aplicativo Android **FlowVoice**
 - **Revisão final por IA** (desligada por padrão): se você ligar, no fim do ditado o
   texto da transcrição do áudio inteiro (ver 1.1) é enviado à OpenRouter para correção
   de pontuação, vírgulas, maiúsculas, acentos e concordância, pelo modelo de
-  formatação escolhido em Ajustes (padrão `openai/gpt-4.1-mini`). Com "sem
-  formatação" ou "um passo só" em Ajustes, esse envio de texto não acontece.
+  formatação escolhido em Ajustes (`openai/gpt-4.1`, se escolhido). Com "um passo só"
+  (o padrão) ou "sem formatação", esse envio de texto não acontece.
 - **Dicionário pessoal:** as correções de termos são aplicadas no próprio aparelho.
 
 ### 1.3 Chave de API da OpenRouter

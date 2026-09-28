@@ -359,9 +359,95 @@ def merge(orig, rev, agreement=True):
 # Métricas
 # ---------------------------------------------------------------------------
 
+# Número por extenso e algarismo, abreviação e forma longa contam igual (convenção de escrita, não erro). A
+# tabela está documentada em docs/medicao-modelos-nuvem.md ("Normalização").
+UNIDADES = {"um": 1, "uma": 1, "dois": 2, "duas": 2, "três": 3, "tres": 3, "quatro": 4, "cinco": 5, "seis": 6,
+            "sete": 7, "oito": 8, "nove": 9}
+DEZ_A_DEZENOVE = {"dez": 10, "onze": 11, "doze": 12, "treze": 13, "catorze": 14, "quatorze": 14, "quinze": 15,
+                  "dezesseis": 16, "dezessete": 17, "dezoito": 18, "dezenove": 19}
+DEZENAS = {"vinte": 20, "trinta": 30, "quarenta": 40, "cinquenta": 50, "sessenta": 60, "setenta": 70,
+           "oitenta": 80, "noventa": 90}
+CENTENAS = {"cem": 100, "cento": 100, "duzentos": 200, "duzentas": 200, "trezentos": 300, "trezentas": 300,
+            "quatrocentos": 400, "quatrocentas": 400, "quinhentos": 500, "quinhentas": 500, "seiscentos": 600,
+            "seiscentas": 600, "setecentos": 700, "setecentas": 700, "oitocentos": 800, "oitocentas": 800,
+            "novecentos": 900, "novecentas": 900}
+ABREVIACOES = {"sra": ["senhora"], "sr": ["senhor"], "dra": ["doutora"], "dr": ["doutor"], "mg": ["miligramas"],
+               "ml": ["mililitros"], "pa": ["pressão", "arterial"], "fc": ["frequência", "cardíaca"],
+               "rx": ["raio", "x"], "h": ["horas"]}
+
+
+def _classe(p):
+    for nome, tab in (("u", UNIDADES), ("t", DEZ_A_DEZENOVE), ("d", DEZENAS), ("c", CENTENAS)):
+        if p in tab:
+            return nome, tab[p]
+    return None
+
+
+def _grupo(ps, i):
+    """Lê um número por extenso até 999 a partir de ps[i] ("cento e vinte e oito"): (valor, próximo i) ou None.
+    Centena, dezena e unidade, nessa ordem e ligadas por "e"; nada se soma depois de 10–19."""
+    valor, ultimo, dez_a_dezenove, j = 0, None, False, i
+    while j < len(ps):
+        k = j
+        if ultimo is not None:
+            if ps[j] != "e" or j + 1 >= len(ps):
+                break
+            k = j + 1
+        c = _classe(ps[k])
+        if c is None:
+            break
+        nome, v = c
+        posicao = {"c": 0, "d": 1, "t": 1, "u": 2}[nome]
+        if ultimo is not None and (posicao <= ultimo or dez_a_dezenove):
+            break
+        valor, ultimo, dez_a_dezenove, j = valor + v, posicao, nome == "t", k + 1
+        if ps[k] == "cem":
+            break
+    return (valor, j) if ultimo is not None else None
+
+
+def canon(texto):
+    """Palavras minúsculas com acento, número por extenso ou em algarismo como um número só ("cento e vinte"
+    = "120", "dezoito mil" = "18 mil" = "18.000" = "18000", "96 por cento" = "96%"), abreviação clínica
+    comum na forma longa ("Sra." = "senhora", "mg" = "miligramas")."""
+    t = unicodedata.normalize("NFC", (texto or "").lower())
+    t = re.sub(r"(\d)\.(\d{3})\b", r"\1\2", t)
+    t = re.sub(r"(\d),(\d)", r"\1.\2", t)
+    t = re.sub(r"%|\bpor cento\b", " porcento ", t)
+    t = re.sub(r"(\d)\s*[/x]\s*(\d)", r"\1 por \2", t)
+    t = re.sub(r"(\d)\s*[h:]\s*00\b", r"\1 horas", t)
+    t = re.sub(r"(\d)\s*[h:]\s*(\d)", r"\1 e \2", t)
+    t = re.sub(r"(\d)h\b", r"\1 horas", t)
+    t = re.sub(r"(\d)(ml|mg)\b", r"\1 \2", t)
+    ps = [p for p in re.findall(r"[^\W_]+(?:[.-][^\W_]+)*", t)]
+    out, i = [], 0
+    while i < len(ps):
+        p = ps[i]
+        g = (int(float(p)), i + 1) if re.fullmatch(r"\d+(\.\d+)?", p) else _grupo(ps, i)
+        if g is not None:
+            v, j = g
+            if j < len(ps) and ps[j] == "mil":
+                v, j = v * 1000, j + 1
+            elif p == "mil":
+                v, j = 1000, i + 1
+            out.append(str(v))
+            i = j
+            continue
+        if p == "mil":
+            out.append("1000")
+        else:
+            out.extend(ABREVIACOES.get(p, [p]))
+        i += 1
+    return out
+
+
 def wer(ref, hip):
-    alvo = normaliza(ref)
-    return distancia(alvo, normaliza(hip or "")), len(alvo)
+    alvo = [norm_caixa(p) for p in canon(ref)]
+    return distancia(alvo, [norm_caixa(p) for p in canon(hip)]), len(alvo)
+
+
+def norm_caixa(p):
+    return p.casefold()
 
 
 PALAVRA = re.compile(r"[^\W_]+(?:-[^\W_]+)*")
@@ -383,13 +469,50 @@ def proprios(ref):
 
 
 def tokens_orto(texto, props):
-    """Palavras com acento, cedilha e hífen como escritos; minúsculas, menos os nomes próprios/siglas do
-    gabarito, que valem com a caixa escrita; número por extenso = algarismo (como `normaliza`)."""
+    """`canon` com a caixa escrita de volta nos nomes próprios/siglas do gabarito ("uti" ≠ "UTI")."""
+    escritos = {w.lower(): w for w in PALAVRA.findall(unicodedata.normalize("NFC", texto or ""))
+                if w.lower() in props}
+    return [escritos.get(p, p) if p in props else p for p in canon(texto)]
+
+
+# Erros que mudam sentido (métrica clínica, não entra na média).
+NEGACOES_SENTIDO = {"não", "nao", "nem", "sem", "nega", "nenhum", "nenhuma", "nunca", "ausência", "ausente"}
+PREFIXOS_NEGACAO = ("a", "an", "in", "im", "ir", "des", "as")
+TERMOS_CLINICOS = set("""dispneia radiografia tórax dipirona eupneica eupneico desconforto respiratório hemograma
+glicemia amoxicilina clavulanato tomografia broncopneumonia benzodiazepínico sonolenta uti enfermaria cefaleia
+analgesia medicação pneumonia afebril saturação murmúrio vesicular estertores crepitantes torácica leucócitos
+ceftriaxona azitromicina antibiótico colecistectomia intercorrências deambulando insuficiência cardíaca
+descompensada furosemida venosa hídrico hipertensiva captopril cardiologia óbito transferência arterial tosse
+pressão frequência leito paciente plantão internado comunidade radiografia raio alta hospitalar
+pós-operatório""".split())
+
+
+def sentido(ref, hip):
+    """Erros que mudam o sentido, contra o gabarito, depois de `canon`: prefixo de negação trocado
+    (afebril/febril), negação perdida ou acrescida, número diferente (ou sumido/acrescido) e termo clínico
+    trocado por outra palavra ou sumido (azitromicina→trombicina). Diferença só de acento não conta."""
+    a, b = canon(ref), canon(hip)
     out = []
-    for w in PALAVRA.findall(unicodedata.normalize("NFC", texto or "")):
-        b = w.lower()
-        out.append(w if b in props else EXTENSO.get(b, b))
-    return junta_numeros(out)
+    for op, i1, i2, j1, j2 in difflib.SequenceMatcher(a=a, b=b, autojunk=False).get_opcodes():
+        if op == "equal":
+            continue
+        ra, hb = a[i1:i2], b[j1:j2]
+        tipos = []
+        for x, y in (zip(ra, hb) if op == "replace" else []):
+            nx, ny = norm(x), norm(y)
+            curto, longo = sorted((nx, ny), key=len)
+            if nx != ny and any(longo == pre + curto for pre in PREFIXOS_NEGACAO):
+                tipos.append("negação no prefixo")
+        if any(p in NEGACOES_SENTIDO for p in ra) != any(p in NEGACOES_SENTIDO for p in hb):
+            tipos.append("negação")
+        # "1" fica de fora: "um"/"uma" é mais artigo que número ("numa intercorrência" → "em uma").
+        if [p for p in ra if p.isdigit() and p != "1"] != [p for p in hb if p.isdigit() and p != "1"]:
+            tipos.append("número")
+        if any(p in TERMOS_CLINICOS and norm(p) not in {norm(q) for q in hb} for p in ra):
+            tipos.append("termo clínico")
+        if tipos:
+            out.append((tipos[0], " ".join(ra), " ".join(hb)))
+    return out
 
 
 def alinha(a, b):
@@ -820,6 +943,7 @@ def agrega_transcricao(linhas, itens, gab="ref"):
                      "orto": o_err / o_pal if o_pal else None,
                      "acento": sum(o["acento"] for o in ortos), "caixa": sum(o["caixa"] for o in ortos),
                      "trocas_acento": [t for o in ortos for t in o["trocas_acento"]],
+                     "sentido": [[l["id"], *e] for l in sel for e in sentido(ref[l["id"]][gab], l["texto"])],
                      "p50_ms": pct([l["ms"] for l in sel], 0.5), "p95_ms": pct([l["ms"] for l in sel], 0.95),
                      "virg_f1": f("virg"), "fim_f1": f("fim"), "interr_f1": f("interr"), "doisp_f1": f("doisp"),
                      "interr_ref": soma.get("interr_ref"), "doisp_ref": soma.get("doisp_ref"),
@@ -931,9 +1055,25 @@ def combinacao(tipo, nome, linhas, itens, lat20, extra=None):
          "nota_original": nota(orig["todos"]) if len(linhas) == len(itens) else None,
          "lat20_p50": pct(lat20, 0.5), "lat20_p95": pct(lat20, 0.95), "lat20_n": len(lat20),
          "longos_p50": pct(longos, 0.5), "longos_p95": pct(longos, 0.95),
-         "custo_min_usd": orig["custo_min_usd"]}
+         "custo_min_usd": orig["custo_min_usd"],
+         "sentido_n": len(corr["todos"]["sentido"]), "sentido_n_original": len(orig["todos"]["sentido"])}
     c.update(extra or {})
     return c
+
+
+def escolha(cs, sufixo=""):
+    """A regra: menos erros que mudam sentido; depois a nota (empate a até 0,5 ponto); depois a latência dos 20 s;
+    depois o custo. `sufixo` "_original" usa o gabarito original. Devolve (escolhido, rápido a até 1 ponto)."""
+    cs = [c for c in cs if c["nota" + sufixo] is not None and c["lat20_p50"] is not None]
+    if not cs:
+        return None, None
+    menos = min(c["sentido_n" + sufixo] for c in cs)
+    elegiveis = [c for c in cs if c["sentido_n" + sufixo] == menos]
+    melhor = max(c["nota" + sufixo] for c in elegiveis)
+    empate = [c for c in elegiveis if c["nota" + sufixo] >= melhor - 0.5]
+    escolhido = min(empate, key=lambda c: (c["lat20_p50"], c["custo_min_usd"]))
+    rapidos = [c for c in elegiveis if c["nota" + sufixo] >= melhor - 1.0]
+    return escolhido, min(rapidos, key=lambda c: (c["lat20_p50"], c["custo_min_usd"]))
 
 
 def cmd_resumo(_):
@@ -995,8 +1135,14 @@ def cmd_resumo(_):
              "palavras_mantidas": mantidas, "concordancia": conc, "formatacao_custo_min_usd": f_min,
              "formatacao_p50_ms": pct([x["f_ms"] for x in fim], 0.5),
              "formatacao_p95_ms": pct([x["f_ms"] for x in fim], 0.95)}))
+    for sufixo in ("", "_original"):
+        for tipo in ("transcricao", "um-passo", "dois-passos", "todas"):
+            cs = [c for c in resumo["combinacoes"] if c["tipo"] != "aparelho" and (tipo == "todas" or c["tipo"] == tipo)]
+            e, r = escolha(cs, sufixo)
+            resumo.setdefault("escolha" + sufixo, {})[tipo] = {"escolhido": e and e["nome"], "rapido": r and r["nome"]}
     (SAIDA / "resumo.json").write_text(json.dumps(resumo, ensure_ascii=False, indent=1))
     (SAIDA / "tabela.md").write_text(tabela(resumo))
+    print(json.dumps({k: resumo[k] for k in ("escolha", "escolha_original")}, ensure_ascii=False, indent=1))
     print(tabela(resumo))
     print("gasto (custo gravado / chave):", resumo["gasto_total_usd"], resumo["gasto_chave_usd"])
     for k, v in resumo["falhas"].items():
@@ -1021,13 +1167,13 @@ def _usd(x):
 
 def tabela(resumo):
     """Uma tabela markdown por tipo, ordenada pela nota (gabarito corrigido)."""
-    cab = ("| # | combinação | nota | erro com acento | erro normalizado | erro clínico | só acento | vírgula F1 | fim F1 "
+    cab = ("| # | combinação | muda sentido | nota | erro com acento | erro normalizado | erro clínico | só acento | vírgula F1 | fim F1 "
            "| ? F1 | : F1 | maiúsc. | 20 s p50 / p95 | longos p50 / p95 | US$/min | nota (gab. original) |\n"
-           "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|\n")
+           "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|\n")
     out = []
     for tipo in ("aparelho", "transcricao", "um-passo", "dois-passos"):
         cs = sorted((c for c in resumo["combinacoes"] if c["tipo"] == tipo),
-                    key=lambda c: -(c["nota"] if c["nota"] is not None else -1))
+                    key=lambda c: (c["nota"] is None, c["sentido_n"], -(c["nota"] or 0)))
         if not cs:
             continue
         out.append(f"\n### {tipo}\n\n" + cab)
@@ -1038,7 +1184,7 @@ def tabela(resumo):
                 extra = f" (recusas {c['final_recusado']}/{c['n']})"
             elif tipo == "um-passo" and c.get("trava_um_passo"):
                 extra = f" (trava {c['trava_um_passo']}/{c['n']})"
-            out.append(f"| {n} | `{c['nome']}`{extra} | {_f(c['nota'])} | {_p(m['orto'])} | {_p(m['erro'])} "
+            out.append(f"| {n} | `{c['nome']}`{extra} | {c['sentido_n']} ({c['sentido_n_original']}) | {_f(c['nota'])} | {_p(m['orto'])} | {_p(m['erro'])} "
                        f"| {_p(c['corrigido']['clinico']['orto'])} | {m['acento']} | {_f(m['virg_f1'])} | {_f(m['fim_f1'])} | {_f(m['interr_f1'])} "
                        f"| {_f(m['doisp_f1'])} | {_f(m['maius'])} | {_s(c['lat20_p50'])} / {_s(c['lat20_p95'])} "
                        f"| {_s(c['longos_p50'])} / {_s(c['longos_p95'])} | {_usd(c['custo_min_usd'])} "

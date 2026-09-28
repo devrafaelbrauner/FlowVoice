@@ -154,8 +154,8 @@ FlowVoice (P161).
       sem internet e sem custo, e o áudio não sai do celular (ver "Motor de transcrição").
       Para a nuvem, a mesma tela explica a OpenRouter, abre
       openrouter.ai/keys e avisa dos créditos pré-pagos no cartão (compra mínima
-      de US$ 5). Mostra uma **estimativa** de custo: ≈ R$ 1,80 a 4,30 por hora de
-      ditado na nuvem (o teto com a revisão final por IA) e ≈ R$ 1,70 a 1,90 no motor do
+      de US$ 5). Mostra uma **estimativa** de custo: ≈ R$ 0,70 a 2,90 por hora de
+      ditado na nuvem (o teto com a revisão final por IA) e ≈ R$ 1,60 a 1,90 no motor do
       aparelho com a revisão (set/2026), calculada com os preços e o `usage.cost` medidos
       da OpenRouter, as taxas e o câmbio de 2026-09-25, e não medida em uso real. "Validar e salvar" é o mesmo de
       Ajustes. A chave fica cifrada no aparelho, fora do backup e da sincronização,
@@ -194,14 +194,16 @@ Em **Ajustes → Motor de transcrição**:
   vivo"). Ver `docs/medicao-modelos-nuvem.md`.
 - **Modelos** (Ajustes, valem para os dois motores; os medidos aparecem primeiro, com a nota de ortografia
   e pontuação e o tempo de um ditado de 20 s):
-  - **Modelo de transcrição**: padrão `deepgram/nova-3` (ao vivo na nuvem e na passada final).
-  - **Formatação**: um modelo de chat depois da transcrição (padrão `openai/gpt-4.1-mini`, conferido pela
-    guarda contra a transcrição: só pontuação, caixa, acento e concordância); **sem formatação** (fica a
-    transcrição do áudio inteiro, a opção mais rápida, ~1,9 s num ditado de 20 s); ou **um passo só**,
-    em que um modelo que ouve o áudio devolve o texto já formatado (padrão `thinkingmachines/inkling`;
-    sem transcrição para conferir, fica o rascunho se o texto tiver menos de ~1/3 das palavras dele).
-  - Com os padrões: ~3,3 s do toque de parar ao texto final num ditado de 20 s (medido do Mac) e
-    ≈ US$ 0,0050 por minuto de ditado na passada final.
+  - **Modelo de transcrição**: padrão `openai/gpt-4o-mini-transcribe` (as janelas ao vivo na nuvem; na
+    passada final só com formatação por LLM ou sem formatação).
+  - **Formatação**: padrão **um passo só**, em que um modelo que ouve o áudio devolve o texto já formatado
+    (`thinkingmachines/inkling`; sem transcrição para conferir, fica o rascunho se o texto tiver menos de ~1/3
+    das palavras dele; teto de 12 s). Ou um modelo de chat depois da transcrição (padrão `openai/gpt-4.1`,
+    conferido pela guarda: só pontuação, caixa, acento e concordância), ou **sem formatação** (fica a
+    transcrição do áudio inteiro, ~1,6 s num ditado de 20 s).
+  - Os padrões são os únicos sem erro que muda sentido na medição (afebril/febril, número, remédio trocado)
+    com a melhor nota. Com eles: ~4,2 s do toque de parar ao texto final num ditado de 20 s (medido do Mac)
+    e ≈ US$ 0,0049 por minuto de ditado na passada final.
 - "Apagar modelo" volta o motor para a nuvem.
 
 ## Ditando

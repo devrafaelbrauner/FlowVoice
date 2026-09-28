@@ -130,7 +130,7 @@ class DictationPipelineTest {
             scope = backgroundScope,
             frames = listOf(frame(50L)),
             texts = mapOf(0 to "tomar dipirona"),
-            preferences = AppPreferences(proofreadingEnabled = true, reviewBeforeInsert = true)
+            preferences = AppPreferences(formattingMode = FormattingMode.Llm, proofreadingEnabled = true, reviewBeforeInsert = true)
         )
         env.dictionary.approve("Dipirona")
 
@@ -148,7 +148,7 @@ class DictationPipelineTest {
             scope = backgroundScope,
             frames = listOf(frame(50L)),
             texts = mapOf(0 to "tomar dipirona"),
-            preferences = AppPreferences(proofreadingEnabled = true, reviewBeforeInsert = true),
+            preferences = AppPreferences(formattingMode = FormattingMode.Llm, proofreadingEnabled = true, reviewBeforeInsert = true),
             proofreadingFails = true
         )
         env.dictionary.approve("Dipirona")
@@ -165,7 +165,7 @@ class DictationPipelineTest {
             scope = backgroundScope,
             frames = listOf(frame(50L)),
             texts = mapOf(0 to "primeiro ditado pelo início"),
-            preferences = AppPreferences(proofreadingEnabled = true, reviewBeforeInsert = true)
+            preferences = AppPreferences(formattingMode = FormattingMode.Llm, proofreadingEnabled = true, reviewBeforeInsert = true)
         )
         val lines = mutableListOf<String>()
         backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { env.pipeline.events.collect { lines += it } }
@@ -193,7 +193,7 @@ class DictationPipelineTest {
             scope = backgroundScope,
             frames = listOf(frame(50L)),
             texts = mapOf(0 to "primeiro ditado pelo início"),
-            preferences = AppPreferences(proofreadingEnabled = true, reviewBeforeInsert = true),
+            preferences = AppPreferences(formattingMode = FormattingMode.Llm, proofreadingEnabled = true, reviewBeforeInsert = true),
             proofreadingOutput = { "Primeiro ditado: \"Pelo início.\"" }
         )
 
@@ -252,7 +252,7 @@ class DictationPipelineTest {
             scope = backgroundScope,
             frames = listOf(frame(100L), frame(100L), frame(50L)),
             texts = mapOf(0 to "o médico", 1 to "pediu o exame", 2 to "de sangue"),
-            preferences = AppPreferences(proofreadingEnabled = true, reviewBeforeInsert = true),
+            preferences = AppPreferences(formattingMode = FormattingMode.Llm, proofreadingEnabled = true, reviewBeforeInsert = true),
             secretStore = vault
         )
 
@@ -322,7 +322,7 @@ class DictationPipelineTest {
             scope = backgroundScope,
             frames = listOf(frame(50L)),
             texts = mapOf(0 to "texto para revisar"),
-            preferences = AppPreferences(
+            preferences = AppPreferences(formattingMode = FormattingMode.Llm,
                 reviewBeforeInsert = true,
                 proofreadingEnabled = true
             ),
@@ -511,7 +511,7 @@ class DictationPipelineTest {
             scope = backgroundScope,
             frames = emptyList(),
             texts = mapOf(0 to "Paciente relata dor.", 1 to "Nega febre.", 2 to "Sem tosse."),
-            preferences = AppPreferences(),
+            preferences = AppPreferences(formattingMode = FormattingMode.Llm),
             textInserter = inserter,
             captureEngine = manual,
             transcriptionDelayMs = 1_000L
@@ -1068,7 +1068,7 @@ class DictationPipelineTest {
             frames = List(4) { frame(100L) },
             texts = mapOf(0 to "um"),
             failures = mapOf(1 to TranscriptionError.InvalidKey()),
-            preferences = AppPreferences(proofreadingEnabled = true, reviewBeforeInsert = true)
+            preferences = AppPreferences(formattingMode = FormattingMode.Llm, proofreadingEnabled = true, reviewBeforeInsert = true)
         )
 
         env.pipeline.start()
@@ -1178,7 +1178,7 @@ class DictationPipelineTest {
             scope = backgroundScope,
             frames = listOf(frame(100L), frame(100L), frame(50L)),
             texts = mapOf(0 to "o médico", 1 to "pediu o exame", 2 to "de sangue"),
-            preferences = AppPreferences(),
+            preferences = AppPreferences(formattingMode = FormattingMode.Llm),
             textInserter = inserter
         )
 
@@ -1208,7 +1208,7 @@ class DictationPipelineTest {
             scope = backgroundScope,
             frames = listOf(frame(100L), frame(50L)),
             texts = mapOf(0 to "tomar dipirona", 1 to "de manhã"),
-            preferences = AppPreferences(proofreadingEnabled = true),
+            preferences = AppPreferences(formattingMode = FormattingMode.Llm, proofreadingEnabled = true),
             textInserter = inserter
         )
 
@@ -1231,7 +1231,7 @@ class DictationPipelineTest {
             scope = backgroundScope,
             frames = listOf(frame(100L), frame(50L)),
             texts = mapOf(0 to "o médico", 1 to "pediu o exame"),
-            preferences = AppPreferences(reviewBeforeInsert = true),
+            preferences = AppPreferences(formattingMode = FormattingMode.Llm, reviewBeforeInsert = true),
             textInserter = inserter
         )
 
@@ -1251,7 +1251,7 @@ class DictationPipelineTest {
             scope = backgroundScope,
             frames = listOf(frame(100L), frame(100L)),
             texts = mapOf(0 to "é muito", 1 to "muito importante"),
-            preferences = AppPreferences(),
+            preferences = AppPreferences(formattingMode = FormattingMode.Llm),
             textInserter = inserter
         )
 
@@ -1268,7 +1268,7 @@ class DictationPipelineTest {
             scope = backgroundScope,
             frames = listOf(frame(100L), frame(100L)),
             texts = mapOf(0 to "tomar", 1 to "dipirona"),
-            preferences = AppPreferences(),
+            preferences = AppPreferences(formattingMode = FormattingMode.Llm),
             textInserter = inserter
         )
         env.dictionary.approve("Dipirona")
@@ -1289,7 +1289,7 @@ class DictationPipelineTest {
             scope = backgroundScope,
             frames = listOf(frame(100L), frame(100L)),
             texts = mapOf(0 to "Paciente com", 1 to "de Espinéia aos esforços"),
-            preferences = AppPreferences(),
+            preferences = AppPreferences(formattingMode = FormattingMode.Llm),
             textInserter = inserter
         )
         env.dictionary.approve("dispneia")
@@ -1314,7 +1314,7 @@ class DictationPipelineTest {
             frames = listOf(frame(100L), frame(100L), frame(100L)),
             texts = mapOf(0 to "um", 2 to "três"),
             failures = mapOf(1 to TranscriptionError.Timeout()),
-            preferences = AppPreferences(),
+            preferences = AppPreferences(formattingMode = FormattingMode.Llm),
             textInserter = inserter
         )
 
@@ -1336,7 +1336,7 @@ class DictationPipelineTest {
             scope = backgroundScope,
             frames = emptyList(),
             texts = mapOf(0 to "um", 1 to "dois", 2 to "três"),
-            preferences = AppPreferences(),
+            preferences = AppPreferences(formattingMode = FormattingMode.Llm),
             textInserter = inserter,
             captureEngine = manual
         )
@@ -1372,7 +1372,7 @@ class DictationPipelineTest {
             scope = backgroundScope,
             frames = emptyList(),
             texts = mapOf(0 to "um", 1 to "dois"),
-            preferences = AppPreferences(),
+            preferences = AppPreferences(formattingMode = FormattingMode.Llm),
             textInserter = inserter,
             captureEngine = manual,
             timeSource = clock
@@ -1405,7 +1405,7 @@ class DictationPipelineTest {
             scope = backgroundScope,
             frames = emptyList(),
             texts = mapOf(0 to "um", 1 to "dois"),
-            preferences = AppPreferences(),
+            preferences = AppPreferences(formattingMode = FormattingMode.Llm),
             textInserter = inserter,
             captureEngine = manual,
             timeSource = clock
@@ -1435,7 +1435,7 @@ class DictationPipelineTest {
             scope = backgroundScope,
             frames = emptyList(),
             texts = mapOf(0 to "um", 1 to "dois", 2 to "três", 3 to "quatro"),
-            preferences = AppPreferences(),
+            preferences = AppPreferences(formattingMode = FormattingMode.Llm),
             textInserter = inserter,
             captureEngine = manual,
             timeSource = clock
@@ -1474,7 +1474,7 @@ class DictationPipelineTest {
             scope = backgroundScope,
             frames = emptyList(),
             texts = mapOf(0 to "um", 1 to "dois"),
-            preferences = AppPreferences(),
+            preferences = AppPreferences(formattingMode = FormattingMode.Llm),
             textInserter = inserter,
             captureEngine = manual,
             timeSource = clock
@@ -1507,7 +1507,7 @@ class DictationPipelineTest {
             scope = backgroundScope,
             frames = emptyList(),
             texts = mapOf(0 to "um", 1 to "dois"),
-            preferences = AppPreferences(),
+            preferences = AppPreferences(formattingMode = FormattingMode.Llm),
             textInserter = inserter,
             captureEngine = manual,
             timeSource = clock
@@ -1540,7 +1540,7 @@ class DictationPipelineTest {
             frames = listOf(frame(100L), frame(50L)),
             texts = mapOf(0 to "o médico", 1 to "pediu o exame"),
             transcriptionDelayMs = 1_000L,
-            preferences = AppPreferences(),
+            preferences = AppPreferences(formattingMode = FormattingMode.Llm),
             textInserter = inserter
         )
 
@@ -1567,7 +1567,7 @@ class DictationPipelineTest {
             scope = backgroundScope,
             frames = List(4) { frame(100L) },
             texts = mapOf(0 to "um", 1 to "dois", 2 to "três", 3 to "quatro"),
-            preferences = AppPreferences(),
+            preferences = AppPreferences(formattingMode = FormattingMode.Llm),
             textInserter = inserter,
             config = OpenRouterConfig(maxRequestsPerSession = 2)
         )
@@ -1589,7 +1589,7 @@ class DictationPipelineTest {
             scope = backgroundScope,
             frames = listOf(frame(50L)),
             failures = mapOf(0 to TranscriptionError.Timeout()),
-            preferences = AppPreferences(),
+            preferences = AppPreferences(formattingMode = FormattingMode.Llm),
             textInserter = inserter
         )
 
@@ -1607,7 +1607,7 @@ class DictationPipelineTest {
             scope = backgroundScope,
             frames = listOf(frame(50L)),
             texts = mapOf(0 to ""),
-            preferences = AppPreferences(),
+            preferences = AppPreferences(formattingMode = FormattingMode.Llm),
             textInserter = inserter
         )
 
@@ -1626,7 +1626,7 @@ class DictationPipelineTest {
             scope = backgroundScope,
             frames = listOf(frame(100L), frame(50L)),
             texts = mapOf(0 to "o médico", 1 to "pediu o exame"),
-            preferences = AppPreferences(),
+            preferences = AppPreferences(formattingMode = FormattingMode.Llm),
             textInserter = inserter
         )
         val note = NoteHarness(env.pipeline, backgroundScope)
@@ -1653,7 +1653,7 @@ class DictationPipelineTest {
             scope = backgroundScope,
             frames = listOf(frame(100L), frame(50L)),
             texts = mapOf(0 to "Hoje o dia está muito bonito.", 1 to "Por isso iremos para a praia."),
-            preferences = AppPreferences(proofreadingEnabled = true),
+            preferences = AppPreferences(formattingMode = FormattingMode.Llm, proofreadingEnabled = true),
             textInserter = inserter,
             proofreadingOutput = { revised }
         )
@@ -1680,7 +1680,7 @@ class DictationPipelineTest {
             scope = backgroundScope,
             frames = listOf(frame(100L), frame(50L)),
             texts = mapOf(0 to "Hoje o dia está muito bonito.", 1 to "Por isso iremos para a praia."),
-            preferences = AppPreferences(proofreadingEnabled = true),
+            preferences = AppPreferences(formattingMode = FormattingMode.Llm, proofreadingEnabled = true),
             textInserter = inserter,
             proofreadingOutput = { revised }
         )
@@ -1704,7 +1704,7 @@ class DictationPipelineTest {
             scope = backgroundScope,
             frames = listOf(frame(100L), frame(50L)),
             texts = mapOf(0 to "O exame de sangue.", 1 to "mostrou leucocitose."),
-            preferences = AppPreferences(),
+            preferences = AppPreferences(formattingMode = FormattingMode.Llm),
             textInserter = inserter
         )
 
@@ -1723,7 +1723,7 @@ class DictationPipelineTest {
             scope = backgroundScope,
             frames = listOf(frame(100L), frame(50L)),
             texts = mapOf(0 to "Avaliado pelo doutor Grandmont.", 1 to "Queda da pressão arterial."),
-            preferences = AppPreferences(),
+            preferences = AppPreferences(formattingMode = FormattingMode.Llm),
             textInserter = inserter
         )
 
@@ -1744,7 +1744,7 @@ class DictationPipelineTest {
             scope = backgroundScope,
             frames = listOf(frame(100L), frame(50L)),
             texts = mapOf(0 to "O exame de sangue.", 1 to "mostrou leucocitose."),
-            preferences = AppPreferences(),
+            preferences = AppPreferences(formattingMode = FormattingMode.Llm),
             textInserter = inserter
         )
 
@@ -1764,7 +1764,7 @@ class DictationPipelineTest {
             scope = backgroundScope,
             frames = listOf(frame(100L), frame(50L)),
             texts = mapOf(0 to "O exame de sangue.", 1 to "mostrou leucocitose."),
-            preferences = AppPreferences(),
+            preferences = AppPreferences(formattingMode = FormattingMode.Llm),
             textInserter = inserter
         )
 
@@ -1787,7 +1787,7 @@ class DictationPipelineTest {
             scope = backgroundScope,
             frames = listOf(frame(100L), frame(50L)),
             texts = mapOf(0 to "Hoje o dia está muito bonito.", 1 to "Por isso iremos para a praia."),
-            preferences = AppPreferences(proofreadingEnabled = true),
+            preferences = AppPreferences(formattingMode = FormattingMode.Llm, proofreadingEnabled = true),
             textInserter = inserter,
             proofreadingOutput = { "Hoje o dia está muito bonito, por isso iremos para a praia." }
         )
@@ -1812,7 +1812,7 @@ class DictationPipelineTest {
             scope = backgroundScope,
             frames = listOf(frame(100L), frame(50L)),
             texts = mapOf(0 to "Estava muito cansado.", 1 to "Tá com dor."),
-            preferences = AppPreferences(proofreadingEnabled = true),
+            preferences = AppPreferences(formattingMode = FormattingMode.Llm, proofreadingEnabled = true),
             textInserter = inserter,
             proofreadingOutput = { "Estava muito cansado, está com dor." }
         )
@@ -1835,7 +1835,7 @@ class DictationPipelineTest {
                 0 to "Hoje o dia está muito bonito.",
                 1 to "por isso iremos para a praia pela manhã."
             ),
-            preferences = AppPreferences(proofreadingEnabled = true),
+            preferences = AppPreferences(formattingMode = FormattingMode.Llm, proofreadingEnabled = true),
             textInserter = inserter,
             proofreadingOutput = { "Hoje o dia está muito bonito, por isso iremos para a praia pela manhã:" }
         )
@@ -1870,7 +1870,7 @@ class DictationPipelineTest {
             scope = backgroundScope,
             frames = listOf(frame(100L), frame(50L)),
             texts = mapOf(0 to "O exame de sangue.", 1 to "Mostrou leucocitose importante."),
-            preferences = AppPreferences(proofreadingEnabled = true),
+            preferences = AppPreferences(formattingMode = FormattingMode.Llm, proofreadingEnabled = true),
             textInserter = inserter,
             proofreadingOutput = { it }
         )
@@ -1891,7 +1891,7 @@ class DictationPipelineTest {
             scope = backgroundScope,
             frames = listOf(frame(100L)),
             texts = mapOf(0 to "Estava muito cansado."),
-            preferences = AppPreferences(proofreadingEnabled = true),
+            preferences = AppPreferences(formattingMode = FormattingMode.Llm, proofreadingEnabled = true),
             textInserter = inserter,
             proofreadingDelayMs = 30_000L,
             proofreadingOutput = { "Estava muito cansado!" }
@@ -1912,7 +1912,7 @@ class DictationPipelineTest {
             scope = backgroundScope,
             frames = listOf(frame(100L)),
             texts = mapOf(0 to "Paciente refere dor no joelho direito."),
-            preferences = AppPreferences(proofreadingEnabled = true),
+            preferences = AppPreferences(formattingMode = FormattingMode.Llm, proofreadingEnabled = true),
             textInserter = inserter,
             proofreadingOutput = { it.replace("direito", "esquerdo") }
         )
@@ -1932,7 +1932,7 @@ class DictationPipelineTest {
             scope = backgroundScope,
             frames = listOf(frame(100L)),
             texts = mapOf(0 to "Estava muito cansado."),
-            preferences = AppPreferences(proofreadingEnabled = true),
+            preferences = AppPreferences(formattingMode = FormattingMode.Llm, proofreadingEnabled = true),
             textInserter = inserter
         )
         env.client.finalFailure = TranscriptionError.Network(RuntimeException("sem rede"))
@@ -1956,7 +1956,7 @@ class DictationPipelineTest {
             scope = backgroundScope,
             frames = listOf(frame(100L), frame(50L)),
             texts = mapOf(0 to "Paciente do leito doze segue com é.", 1 to "Pedi uma radiografia de toques."),
-            preferences = AppPreferences(proofreadingEnabled = true),
+            preferences = AppPreferences(formattingMode = FormattingMode.Llm, proofreadingEnabled = true),
             textInserter = inserter,
             proofreadingOutput = { final }
         )
@@ -2099,7 +2099,7 @@ class DictationPipelineTest {
             scope = backgroundScope,
             frames = listOf(frame(100L)),
             texts = mapOf(0 to "paciente refere dor no joelho direito"),
-            preferences = AppPreferences(proofreadingEnabled = true),
+            preferences = AppPreferences(formattingMode = FormattingMode.Llm, proofreadingEnabled = true),
             textInserter = inserter,
             proofreadingOutput = { "Paciente refere dor no joelho esquerdo." }
         )
@@ -2118,7 +2118,7 @@ class DictationPipelineTest {
             scope = backgroundScope,
             frames = listOf(frame(100L)),
             texts = mapOf(0 to "Estava muito cansado."),
-            preferences = AppPreferences(),
+            preferences = AppPreferences(formattingMode = FormattingMode.Llm),
             textInserter = inserter
         )
 
@@ -2138,7 +2138,7 @@ class DictationPipelineTest {
             scope = backgroundScope,
             frames = listOf(frame(100L), frame(50L)),
             texts = mapOf(0 to "primeiro trecho", 1 to "segundo trecho"),
-            preferences = AppPreferences(proofreadingEnabled = true),
+            preferences = AppPreferences(formattingMode = FormattingMode.Llm, proofreadingEnabled = true),
             textInserter = inserter
         )
 
@@ -2162,7 +2162,7 @@ class DictationPipelineTest {
             scope = backgroundScope,
             frames = emptyList(),
             texts = mapOf(0 to "Paciente estável.", 1 to "Sem queixas.", 2 to "Pressão controlada."),
-            preferences = AppPreferences(proofreadingEnabled = true),
+            preferences = AppPreferences(formattingMode = FormattingMode.Llm, proofreadingEnabled = true),
             textInserter = inserter,
             captureEngine = manual,
             timeSource = clock,
@@ -2203,7 +2203,7 @@ class DictationPipelineTest {
             scope = backgroundScope,
             frames = emptyList(),
             texts = mapOf(0 to "Paciente relata dor.", 1 to "Sim.", 2 to "Nega febre."),
-            preferences = AppPreferences(),
+            preferences = AppPreferences(formattingMode = FormattingMode.Llm),
             textInserter = inserter,
             captureEngine = manual
         )
@@ -2250,7 +2250,7 @@ class DictationPipelineTest {
             scope = backgroundScope,
             frames = listOf(frame(100L), frame(100L), frame(50L)),
             texts = mapOf(0 to "Paciente relata dor.", 1 to "Nega febre.", 2 to "Sem tosse."),
-            preferences = AppPreferences(),
+            preferences = AppPreferences(formattingMode = FormattingMode.Llm),
             textInserter = inserter,
             windowDelaysMs = mapOf(1 to 600_000L)
         )
@@ -2276,7 +2276,7 @@ class DictationPipelineTest {
             scope = backgroundScope,
             frames = listOf(frame(50L)),
             texts = mapOf(0 to "tomar dipirona"),
-            preferences = AppPreferences(proofreadingEnabled = true),
+            preferences = AppPreferences(formattingMode = FormattingMode.Llm, proofreadingEnabled = true),
             textInserter = inserter,
             proofreadingOutput = { "Tomar dipirona." }
         )
@@ -2298,7 +2298,7 @@ class DictationPipelineTest {
             scope = backgroundScope,
             frames = listOf(frame(50L)),
             texts = mapOf(0 to "tomar dipirona"),
-            preferences = AppPreferences(proofreadingEnabled = true, reviewBeforeInsert = true),
+            preferences = AppPreferences(formattingMode = FormattingMode.Llm, proofreadingEnabled = true, reviewBeforeInsert = true),
             proofreadingDelayMs = 60_000L
         )
 
@@ -2317,7 +2317,7 @@ class DictationPipelineTest {
             scope = backgroundScope,
             frames = listOf(frame(50L)),
             texts = mapOf(0 to "tomar dipirona"),
-            preferences = AppPreferences(proofreadingEnabled = true),
+            preferences = AppPreferences(formattingMode = FormattingMode.Llm, proofreadingEnabled = true),
             proofreadingDelayMs = 60_000L,
             textInserter = CallRecordingInserter()
         )
@@ -2528,8 +2528,8 @@ private class PipelineEnv(
     scope: CoroutineScope,
     frames: List<AudioFrame>,
     texts: Map<Int, String> = emptyMap(),
-    // Os testes antigos descrevem o fluxo com revisão; a sessão direta (P139) passa AppPreferences() explícito.
-    preferences: AppPreferences = AppPreferences(reviewBeforeInsert = true),
+    // Os testes antigos descrevem o fluxo com revisão; a sessão direta (P139) passa AppPreferences(formattingMode = FormattingMode.Llm) explícito.
+    preferences: AppPreferences = AppPreferences(formattingMode = FormattingMode.Llm, reviewBeforeInsert = true),
     proofreadingFails: Boolean = false,
     proofreadingDelayMs: Long = 0L,
     transcriptionDelayMs: Long = 0L,

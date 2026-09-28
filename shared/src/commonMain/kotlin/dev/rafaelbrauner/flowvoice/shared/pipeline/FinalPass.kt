@@ -44,7 +44,8 @@ internal class FinalPass(
     private val log: (String, Map<String, String>) -> Unit,
     private val textLog: TranscriptionEventLog,
     private val timeSource: TimeSource,
-    private val timeout: Duration = TIMEOUT
+    private val timeout: Duration = TIMEOUT,
+    private val oneStepTimeout: Duration = ONE_STEP_TIMEOUT
 ) {
     sealed interface Result {
         data class Final(val text: String) : Result
@@ -69,8 +70,9 @@ internal class FinalPass(
         )
         if (chunks.isEmpty()) return kept(REASON_NO_AUDIO, base)
         val started = timeSource.markNow()
+        val limit = if (formatting is FormattingChoice.OneStep) oneStepTimeout else timeout
         val transcripts = try {
-            withTimeoutOrNull(timeout) {
+            withTimeoutOrNull(limit) {
                 coroutineScope {
                     chunks.mapIndexed { index, chunk ->
                         async {
@@ -178,6 +180,8 @@ internal class FinalPass(
         // Teto da passada final inteira, do toque de parar até o texto final (transcrição e formatação). O
         // rascunho já está no campo; passado o teto ele fica.
         val TIMEOUT: Duration = 8_000.milliseconds
+        // O passo único é uma etapa só, mas o melhor (inkling) chegou a 7,8 s (p95) nos longos no Mac: 12 s.
+        val ONE_STEP_TIMEOUT: Duration = 12_000.milliseconds
 
         // A transcrição da nuvem precisa ter ao menos 60 % das palavras do rascunho.
         private const val COVERAGE_NUMERATOR = 3

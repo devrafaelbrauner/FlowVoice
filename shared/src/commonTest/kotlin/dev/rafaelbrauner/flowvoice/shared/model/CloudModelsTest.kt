@@ -9,11 +9,22 @@ import kotlin.test.assertEquals
 // "Formatação" em Ajustes: a escolha grava no JSON das preferências e volta igual ao reabrir o app.
 class CloudModelsTest {
     @Test
-    fun withoutAChoiceTheFinalPassFormatsWithTheMeasuredDefault() {
+    fun withoutAChoiceTheFinalPassIsTheMeasuredOneStepModel() {
         assertEquals(
-            FormattingChoice.Llm(AppPreferences.DEFAULT_PROOFREADING_MODEL),
+            FormattingChoice.OneStep(CloudModels.DEFAULT_ONE_STEP_MODEL),
             CloudModels.formatting(AppPreferences())
         )
+    }
+
+    // O padrão nunca pode ser um modelo com erro que muda sentido na medição.
+    @Test
+    fun noDefaultModelChangedTheMeaningInTheMeasurement() {
+        val defaults = listOf(
+            CloudModels.oneStep.single { it.id == CloudModels.DEFAULT_ONE_STEP_MODEL },
+            CloudModels.transcription.single { it.id == dev.rafaelbrauner.flowvoice.shared.transcription.OpenRouterConfig.DEFAULT_MODEL }
+        )
+
+        defaults.forEach { assertEquals(0, it.meaningErrors, it.id) }
     }
 
     @Test
@@ -47,13 +58,14 @@ class CloudModelsTest {
     // Preferências gravadas antes do seletor não têm `formattingMode`: vale a formatação com o modelo que já
     // estava gravado.
     @Test
-    fun preferencesSavedBeforeTheSelectorKeepTheirFormattingModel() {
+    fun preferencesSavedBeforeTheSelectorMoveToTheMeasuredDefault() {
         val store = GuardedPreferencesStore(
             MapRawKeyValue("prefs_json" to """{"proofreadingEnabled":true,"proofreadingModel":"openai/gpt-4o-mini"}"""),
             "prefs_json"
         )
 
-        assertEquals(FormattingChoice.Llm("openai/gpt-4o-mini"), CloudModels.formatting(store.read()))
+        assertEquals(FormattingChoice.OneStep(CloudModels.DEFAULT_ONE_STEP_MODEL), CloudModels.formatting(store.read()))
+        assertEquals("openai/gpt-4o-mini", store.read().proofreadingModel, "o modelo de formatação escolhido fica guardado")
     }
 
     @Test

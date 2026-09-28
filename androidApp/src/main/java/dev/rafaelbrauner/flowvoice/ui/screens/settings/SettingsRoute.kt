@@ -66,7 +66,6 @@ import dev.rafaelbrauner.flowvoice.shared.model.FormattingOption
 import dev.rafaelbrauner.flowvoice.shared.model.TranscriptionCatalogResult
 import dev.rafaelbrauner.flowvoice.shared.model.TranscriptionModelCatalog
 import dev.rafaelbrauner.flowvoice.shared.pipeline.DictationPipeline
-import dev.rafaelbrauner.flowvoice.shared.prefs.AppPreferences
 import dev.rafaelbrauner.flowvoice.shared.prefs.PreferencesStore
 import dev.rafaelbrauner.flowvoice.shared.sync.SyncEngine
 import dev.rafaelbrauner.flowvoice.shared.transcription.OpenRouterConfig
@@ -691,7 +690,7 @@ private fun FormattingPickerCard(state: SettingsUiState, actions: SettingsAction
         }
         Text(
             text = "Vale para a passada final dos dois motores, com a revisão final por IA ligada. " +
-                "Padrão: ${AppPreferences.DEFAULT_PROOFREADING_MODEL}.",
+                "Padrão: um passo só com ${CloudModels.DEFAULT_ONE_STEP_MODEL}.",
             style = typography.bodySmall,
             color = colors.textTertiary,
             modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 10.dp)
@@ -876,7 +875,7 @@ private fun SettingsContentPreview(@PreviewParameter(ThemePreviewParameter::clas
                 keyDraftVisible = false,
                 validatingKey = false,
                 keyMessage = null,
-                modelLabel = "nova-3",
+                modelLabel = "gpt-4o-mini-transcribe",
                 modelOptions = emptyList(),
                 modelLoading = false,
                 modelMessage = null,
@@ -895,7 +894,7 @@ private fun SettingsContentPreview(@PreviewParameter(ThemePreviewParameter::clas
                 effectiveEngine = TranscriptionEngine.Local,
                 localModel = LocalModelState.Installed,
                 dictationBusy = false,
-                formatting = FormattingChoice.Llm(AppPreferences.DEFAULT_PROOFREADING_MODEL),
+                formatting = FormattingChoice.OneStep(CloudModels.DEFAULT_ONE_STEP_MODEL),
                 formattingOptions = CloudModels.formattingOptions()
             ),
             actions = SettingsActions({}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {})

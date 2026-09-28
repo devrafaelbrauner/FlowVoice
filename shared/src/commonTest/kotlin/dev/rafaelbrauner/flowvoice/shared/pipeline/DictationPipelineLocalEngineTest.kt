@@ -82,7 +82,7 @@ class DictationPipelineLocalEngineTest {
         val env = LocalEnv(
             this,
             FakeSpeechEngine(emitted = mapOf(1 to listOf(" exame", " normal"))),
-            preferences = AppPreferences(transcriptionEngine = TranscriptionEngine.Local, proofreadingEnabled = true),
+            preferences = AppPreferences(formattingMode = FormattingMode.Llm, transcriptionEngine = TranscriptionEngine.Local, proofreadingEnabled = true),
             apiKey = null
         )
 
@@ -360,7 +360,7 @@ class DictationPipelineLocalEngineTest {
         val env = LocalEnv(
             this,
             FakeSpeechEngine(emitted = mapOf(1 to listOf(" Hemograma"), 2 to listOf(" sem", " alterações"))),
-            preferences = AppPreferences(transcriptionEngine = TranscriptionEngine.Local, reviewBeforeInsert = true)
+            preferences = AppPreferences(formattingMode = FormattingMode.Llm, transcriptionEngine = TranscriptionEngine.Local, reviewBeforeInsert = true)
         )
 
         env.pipeline.start(DictationTarget.ActiveField)
@@ -486,7 +486,7 @@ class DictationPipelineLocalEngineTest {
         val env = LocalEnv(
             this,
             FakeSpeechEngine(),
-            preferences = AppPreferences(transcriptionEngine = TranscriptionEngine.Cloud),
+            preferences = AppPreferences(formattingMode = FormattingMode.Llm, transcriptionEngine = TranscriptionEngine.Cloud),
             apiKey = "sk-or-v1-testkey123456"
         )
 
@@ -538,7 +538,7 @@ private fun finalPassEnv(
 private class LocalEnv(
     scope: TestScope,
     engine: FakeSpeechEngine,
-    preferences: AppPreferences = AppPreferences(transcriptionEngine = TranscriptionEngine.Local),
+    preferences: AppPreferences = AppPreferences(formattingMode = FormattingMode.Llm, transcriptionEngine = TranscriptionEngine.Local),
     apiKey: String? = null,
     installed: Boolean = true
 ) {

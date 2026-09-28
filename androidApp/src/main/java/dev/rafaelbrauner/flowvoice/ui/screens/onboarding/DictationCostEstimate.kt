@@ -11,12 +11,11 @@ import kotlin.math.max
 object DictationCostEstimate {
     const val ESTIMATE_LABEL = "estimativa de set/2026"
 
-    // deepgram/nova-3 (OpenRouterConfig.DEFAULT_MODEL), lido em 2026-09-28 de
-    // https://openrouter.ai/api/v1/models?output_modalities=transcription: pricing.prompt =
-    // 0.0000716666666667 por segundo de áudio. Bate com o `usage.cost` medido em
-    // docs/medicao-modelos-nuvem.md (US$ 0,0043 por minuto). Premissa: cobrança por segundo, sem mínimo
-    // por pedido; janelas mudas não são enviadas (P124), então a conta é por hora de fala.
-    const val TRANSCRIPTION_USD_PER_AUDIO_SECOND = 0.0000716666666667
+    // openai/gpt-4o-mini-transcribe (OpenRouterConfig.DEFAULT_MODEL), cobrado por token de áudio: o
+    // `usage.cost` medido em docs/medicao-modelos-nuvem.md (2026-09-28) deu US$ 0,0018 por minuto de áudio,
+    // US$ 0,00003 por segundo. Premissa: sem mínimo por pedido; janelas mudas não são enviadas (P124), então a
+    // conta é por hora de fala.
+    const val TRANSCRIPTION_USD_PER_AUDIO_SECOND = 0.00003
 
     // Cada janela leva 1 s do fim da anterior como contexto (P143). As janelas cortam na pausa
     // entre ~2 s e o alvo de 4 s (P140): quanto mais curtas, mais contexto repetido se paga.
@@ -24,10 +23,10 @@ object DictationCostEstimate {
     val LONG_WINDOW_SECONDS = DictationWindowAggregator.DEFAULT_TARGET_DURATION_MS / 1000.0
     const val SHORT_WINDOW_SECONDS = 2.0
 
-    // Passada final com a revisão por IA ligada (nos dois motores, com os padrões): o áudio inteiro no
-    // deepgram/nova-3 (US$ 0,0043/min) mais a formatação no openai/gpt-4.1-mini (US$ 0,0007/min), `usage.cost`
-    // medido em docs/medicao-modelos-nuvem.md (2026-09-28), por minuto de ditado com as pausas.
-    const val FINAL_PASS_USD_PER_MINUTE = 0.0050
+    // Passada final com a revisão por IA ligada (nos dois motores, com o padrão): o áudio inteiro num passo só
+    // no thinkingmachines/inkling, US$ 0,0049 por minuto (`usage.cost` medido em docs/medicao-modelos-nuvem.md,
+    // 2026-09-28), por minuto de ditado com as pausas.
+    const val FINAL_PASS_USD_PER_MINUTE = 0.0049
 
     // Créditos pré-pagos: a OpenRouter cobra 5,5% por compra no cartão, mínimo de US$ 0,80
     // (https://openrouter.ai/docs/faq), e a menor compra é US$ 5 (https://openrouter.ai/terms),

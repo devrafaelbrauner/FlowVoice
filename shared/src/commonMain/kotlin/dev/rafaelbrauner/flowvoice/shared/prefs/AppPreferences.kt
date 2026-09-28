@@ -19,13 +19,14 @@ data class AppPreferences(
     val transcriptionEngine: TranscriptionEngine = TranscriptionEngine.Cloud,
     // "Formatação" em Ajustes (`CloudModels.formatting`): como a passada final formata, nos dois motores.
     // `proofreadingModel` é o modelo de `Llm`; `oneStepModel` o de `OneStep` (vazio = o padrão medido).
-    val formattingMode: FormattingMode = FormattingMode.Llm,
+    // Padrão: o passo único (`CloudModels.DEFAULT_ONE_STEP_MODEL`), vencedor da medição.
+    val formattingMode: FormattingMode = FormattingMode.OneStep,
     val oneStepModel: String = ""
 ) {
     companion object {
-        // Formatação da passada final: o vencedor da medição de docs/medicao-modelos-nuvem.md (2026-09-28) —
-        // empatado na nota com os melhores sobre o deepgram/nova-3 e o mais rápido deles (3,3 s num ditado de 20 s).
-        const val DEFAULT_PROOFREADING_MODEL = "openai/gpt-4.1-mini"
+        // Formatação por LLM, quando escolhida: a vencedora da transcrição + formatação em
+        // docs/medicao-modelos-nuvem.md (2026-09-28) — empatada na nota e a mais rápida sobre o gpt-transcribe.
+        const val DEFAULT_PROOFREADING_MODEL = "openai/gpt-4.1"
     }
 }
 

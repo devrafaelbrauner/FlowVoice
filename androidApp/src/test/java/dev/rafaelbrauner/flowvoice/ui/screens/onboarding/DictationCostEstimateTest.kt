@@ -15,10 +15,10 @@ class DictationCostEstimateTest {
     }
 
     @Test
-    fun hourOfSpeechAtNova3Price() {
-        // 3600 s × US$ 0,0000717/s = US$ 0,258 de áudio, mais o contexto repetido.
-        assertEquals(0.3225, DictationCostEstimate.transcriptionUsdPerHour(4.0), eps)
-        assertEquals(0.387, DictationCostEstimate.transcriptionUsdPerHour(2.0), eps)
+    fun hourOfSpeechAtTheMeasuredPrice() {
+        // 3600 s × US$ 0,00003/s = US$ 0,108 de áudio, mais o contexto repetido.
+        assertEquals(0.135, DictationCostEstimate.transcriptionUsdPerHour(4.0), eps)
+        assertEquals(0.162, DictationCostEstimate.transcriptionUsdPerHour(2.0), eps)
     }
 
     @Test
@@ -30,8 +30,8 @@ class DictationCostEstimateTest {
 
     @Test
     fun brlRangeAppliesFeeIofAndRate() {
-        assertEquals(1.830841, DictationCostEstimate.lowBrlPerHour(), eps)
-        assertEquals(4.288281, DictationCostEstimate.highBrlPerHour(), eps)
+        assertEquals(0.766399, DictationCostEstimate.lowBrlPerHour(), eps)
+        assertEquals(2.846370, DictationCostEstimate.highBrlPerHour(), eps)
         assertEquals(31.210197, DictationCostEstimate.minPurchaseBrl(), eps)
     }
 
@@ -39,14 +39,14 @@ class DictationCostEstimateTest {
     fun labelRoundsTheRangeOutward() {
         val label = DictationCostEstimate.perHourLabel()
 
-        assertTrue(label.startsWith("≈ R$ 1,80 a 4,30 "), label)
+        assertTrue(label.startsWith("≈ R$ 0,70 a 2,90 "), label)
         assertTrue(DictationCostEstimate.minPurchaseLabel().contains("R$ 32"))
     }
 
-    // Passada final medida: US$ 0,0050 por minuto de ditado, US$ 0,30 por hora.
+    // Passada final medida: US$ 0,0049 por minuto de ditado, US$ 0,294 por hora.
     @Test
     fun theFinalPassOfTheLocalEngineCostsWhatWasMeasured() {
-        assertEquals(0.30, DictationCostEstimate.finalPassUsdPerHour(), eps)
-        assertTrue(DictationCostEstimate.finalPassPerHourLabel().contains("≈ R$ 1,70 a 1,90 por hora"))
+        assertEquals(0.294, DictationCostEstimate.finalPassUsdPerHour(), eps)
+        assertTrue(DictationCostEstimate.finalPassPerHourLabel().contains("≈ R$ 1,60 a 1,90 por hora"))
     }
 }
