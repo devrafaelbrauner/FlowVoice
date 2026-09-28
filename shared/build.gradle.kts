@@ -31,6 +31,9 @@ kotlin {
             implementation(libs.ktor.client.okhttp)
             implementation(libs.koin.android)
             implementation(libs.androidx.security.crypto)
+            // Motor de transcrição no aparelho (Nemotron 3.5 ASR Streaming) — Apache-2.0, traz o
+            // onnxruntime (MIT).
+            implementation(libs.sherpa.onnx)
         }
         val desktopMain by getting
         desktopMain.dependencies {
@@ -43,10 +46,11 @@ kotlin {
 
 android {
     namespace = "dev.rafaelbrauner.flowvoice.shared"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         minSdk = 24
+        consumerProguardFiles("consumer-rules.pro")
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

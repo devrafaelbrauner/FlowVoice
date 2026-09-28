@@ -5,6 +5,8 @@ import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import kotlin.test.fail
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runCurrent
@@ -186,6 +188,31 @@ class DictationSessionControllerTest {
         runCurrent()
     }
 
+    // O motor no aparelho pede pedaços mais curtos (DictationPipeline.LOCAL_WINDOW_TARGET_MS); a sessão
+    // seguinte, na nuvem, volta ao teto do construtor.
+    @Test
+    fun aSessionCanAskForItsOwnWindowTargetAndTheNextOneGoesBackToTheDefault() = runTest {
+        val engine = FakeAudioCaptureEngine(listOf(pcmFrame(60L), pcmFrame(60L), pcmFrame(60L)))
+        val controller = DictationSessionController(engine, windowTargetDurationMs = 100L)
+        val windows = mutableListOf<DictationWindow>()
+        val collector = backgroundScope.launch { controller.windows.collect { windows += it } }
+        runCurrent()
+
+        controller.start(windowTargetDurationMs = 50L)
+        controller.finalize()
+        runCurrent()
+        val local = windows.map { it.finishedAtMs - it.startedAtMs }
+        windows.clear()
+        controller.start()
+        controller.finalize()
+        runCurrent()
+
+        assertEquals(listOf(60L, 60L, 60L), local)
+        assertEquals(listOf(120L, 60L), windows.map { it.finishedAtMs - it.startedAtMs })
+        collector.cancel()
+        runCurrent()
+    }
+
     @Test
     fun captureErrorAfterStartMovesSessionToError() = runTest {
         val engine = ErrorReportingAudioCaptureEngine()
@@ -199,6 +226,59 @@ class DictationSessionControllerTest {
         assertTrue(state is DictationSessionState.Error, "expected Error but was $state")
         assertEquals("audio capture failed: microphone removed", (state as DictationSessionState.Error).message)
         assertEquals(1, engine.stopCount)
+    }
+
+    // R3: o microfone cai com áudio no agregador. Esse áudio é fala do usuário e sai como última
+    // janela antes do erro, em vez de ser descartado.
+    @Test
+    fun captureErrorMidSessionEmitsTheBufferedAudioAsTheLastWindow() = runTest {
+        val engine = ErrorReportingAudioCaptureEngine()
+        val controller = DictationSessionController(engine, windowTargetDurationMs = 1_000L)
+        val windows = mutableListOf<DictationWindow>()
+        backgroundScope.launch { controller.windows.collect { windows += it } }
+        runCurrent()
+
+        controller.start()
+        engine.push(pcmFrame(300L))
+        engine.reportError(AudioCaptureException("dead object"))
+        runCurrent()
+
+        assertTrue(controller.state.value is DictationSessionState.Error)
+        assertEquals(1, controller.emittedWindowCount)
+        assertEquals(300L, windows.single().durationMs)
+    }
+
+    // Y3: o toque de parar destrava a leitura pendente, e o motor entrega o que ela tinha antes de o
+    // stop() voltar. É o fim da última palavra e entra na última janela.
+    @Test
+    fun aFrameDeliveredWhileTheEngineStopsEntersTheLastWindow() = runTest {
+        val engine = TailOnStopAudioCaptureEngine(backgroundScope, first = pcmFrame(1_000L), tail = pcmFrame(100L))
+        val controller = DictationSessionController(engine, windowTargetDurationMs = 4_000L)
+        val windows = mutableListOf<DictationWindow>()
+        backgroundScope.launch { controller.windows.collect { windows += it } }
+        runCurrent()
+
+        controller.start()
+        controller.finalize()
+        runCurrent()
+
+        assertEquals(DictationSessionState.Finalized, controller.state.value)
+        assertEquals(1_100L, windows.single().durationMs)
+        assertEquals(1_100L, controller.capturedDurationMs)
+    }
+
+    // Depois de o stop() voltar a sessão está fechada: um frame atrasado não entra em lugar nenhum.
+    @Test
+    fun aFrameArrivingAfterTheStopReturnedIsDropped() = runTest {
+        val engine = ErrorReportingAudioCaptureEngine()
+        val controller = DictationSessionController(engine, windowTargetDurationMs = 4_000L)
+
+        controller.start()
+        engine.push(pcmFrame(1_000L))
+        controller.finalize()
+        engine.pushAfterStop(pcmFrame(100L))
+
+        assertEquals(1_000L, controller.capturedDurationMs)
     }
 
     private suspend inline fun <reified T : Throwable> assertSuspendFailsWith(block: suspend () -> Unit): T {
@@ -261,7 +341,9 @@ private class ErrorReportingAudioCaptureEngine : AudioCaptureEngine {
     var stopCount = 0
         private set
 
+    private var onFrame: (suspend (AudioFrame) -> Unit)? = null
     private var onError: (suspend (AudioCaptureException) -> Unit)? = null
+    private var lastSink: (suspend (AudioFrame) -> Unit)? = null
 
     override val format: AudioFormat = AudioFormat.DEFAULT
     override val isRunning: Boolean
@@ -273,7 +355,18 @@ private class ErrorReportingAudioCaptureEngine : AudioCaptureEngine {
         onFrame: suspend (AudioFrame) -> Unit,
         onError: suspend (AudioCaptureException) -> Unit
     ) {
+        this.onFrame = onFrame
         this.onError = onError
+        lastSink = onFrame
+    }
+
+    suspend fun push(frame: AudioFrame) {
+        checkNotNull(onFrame) { "engine was not started" }.invoke(frame)
+    }
+
+    // Uma thread de captura que passou do stop() e ainda entrega um frame.
+    suspend fun pushAfterStop(frame: AudioFrame) {
+        checkNotNull(lastSink) { "engine was never started" }.invoke(frame)
     }
 
     suspend fun reportError(error: AudioCaptureException) {
@@ -282,6 +375,32 @@ private class ErrorReportingAudioCaptureEngine : AudioCaptureEngine {
 
     override fun stop() {
         stopCount++
+        onFrame = null
         onError = null
+    }
+}
+
+// Como os motores reais (Y3): o stop() destrava a leitura pendente, e o que ela tinha é entregue antes
+// de o stop() voltar.
+private class TailOnStopAudioCaptureEngine(
+    private val scope: CoroutineScope,
+    private val first: AudioFrame,
+    private val tail: AudioFrame
+) : AudioCaptureEngine {
+    private var sink: (suspend (AudioFrame) -> Unit)? = null
+
+    override val format: AudioFormat = AudioFormat.DEFAULT
+    override val isRunning: Boolean
+        get() = sink != null
+
+    override suspend fun start(onFrame: suspend (AudioFrame) -> Unit) {
+        sink = onFrame
+        onFrame(first)
+    }
+
+    override fun stop() {
+        val deliver = sink ?: return
+        sink = null
+        scope.launch(start = CoroutineStart.UNDISPATCHED) { deliver(tail) }
     }
 }

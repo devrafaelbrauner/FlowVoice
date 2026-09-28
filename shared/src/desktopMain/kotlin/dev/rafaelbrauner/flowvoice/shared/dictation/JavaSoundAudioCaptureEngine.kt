@@ -20,6 +20,9 @@ class JavaSoundAudioCaptureEngine(
 ) : AudioCaptureEngine {
     private val captureActive = AtomicBoolean(false)
 
+    // A cauda (Y3) só entra enquanto o `stop()` espera a thread de captura: depois dele, nada mais.
+    private val tailOpen = AtomicBoolean(false)
+
     @Volatile
     private var line: TargetDataLine? = null
     private var captureThread: Thread? = null
@@ -56,13 +59,14 @@ class JavaSoundAudioCaptureEngine(
     }
 
     override fun stop() {
-        captureActive.set(false)
+        tailOpen.set(captureActive.getAndSet(false))
         line?.let { runCatching { it.stop() } }
         captureThread?.let { thread ->
             if (thread !== Thread.currentThread()) {
                 runCatching { thread.join(STOP_JOIN_TIMEOUT_MS) }
             }
         }
+        tailOpen.set(false)
         line?.let { runCatching { it.close() } }
         line = null
         captureThread = null
@@ -127,6 +131,9 @@ class JavaSoundAudioCaptureEngine(
                         }
                 }
             }
+            // Parada normal: o que a linha parada ainda guarda é o fim da última palavra (Y3). O
+            // `TargetDataLine.stop()` mantém o buffer, e ler só o `available()` não bloqueia.
+            if (failure == null) runCatching { drainTail(current, buffer, onFrame) }
         } catch (error: Throwable) {
             if (captureActive.getAndSet(false)) {
                 failure = AudioCaptureException("audio capture failed", error)
@@ -140,6 +147,19 @@ class JavaSoundAudioCaptureEngine(
     }
 
     private fun readBufferBytes(): Int = CaptureFrames.readBytes(format)
+
+    private fun drainTail(target: TargetDataLine, buffer: ByteArray, onFrame: suspend (AudioFrame) -> Unit) {
+        val frameBytes = format.bytesPerFrame
+        CaptureTail.drain(
+            maxBytes = maxOf(target.bufferSize, buffer.size),
+            read = {
+                val wanted = minOf(target.available(), buffer.size) / frameBytes * frameBytes
+                if (wanted <= 0) 0 else target.read(buffer, 0, wanted)
+            },
+            deliver = { bytes -> runBlocking { onFrame(AudioFrame(buffer.copyOf(bytes), format)) } },
+            waiting = tailOpen::get
+        )
+    }
 
     private fun wrapStartFailure(error: Throwable): AudioCaptureException = when (error) {
         is AudioCaptureException -> error

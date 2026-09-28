@@ -1,6 +1,7 @@
 package dev.rafaelbrauner.flowvoice.shared.preview
 
 import dev.rafaelbrauner.flowvoice.shared.text.EditDistance
+import dev.rafaelbrauner.flowvoice.shared.text.OnsetContrast
 import dev.rafaelbrauner.flowvoice.shared.text.PtBrSound
 import kotlin.math.min
 
@@ -33,19 +34,36 @@ object TranscriptOverlap {
         val glued: Boolean
     )
 
-    // `contextDurationMs`: quanto áudio da janela anterior foi repetido à frente desta (P143). Zero
-    // significa "esta janela não repetiu nada", e aí os degraus 4 e 5 nem são tentados.
-    fun match(left: String, right: String, contextDurationMs: Long = 0L): Match {
+    // `contextDurationMs`: quanto áudio da janela anterior ainda pode estar transcrito no começo de `right`
+    // (P143; depois do corte pelo tempo, só o que sobrou dele). Zero significa "esta janela não repetiu
+    // nada": sem áudio repetido não há repetição possível, e nada é removido (P127) — a frase que o
+    // usuário disse de novo depois de uma pausa entra inteira.
+    // `continuous`: `right` continua `left` num fluxo único, sem repetição possível (motor no
+    // aparelho). Emenda nenhuma é tentada: apagar a palavra que o usuário repetiu seria alterar o ditado.
+    // `glued` vem do próprio fluxo (o pedaço começa no meio de uma palavra ou com pontuação).
+    fun match(
+        left: String,
+        right: String,
+        contextDurationMs: Long = 0L,
+        continuous: Boolean = false,
+        glued: Boolean = false
+    ): Match {
+        // Só espaço sai das pontas: o "\n" de "nova linha" é o próprio pedaço ou a ponta dele.
+        if (continuous) return Match(right.trim(' '), glued = glued)
         if (right.isBlank()) return Match("", glued = false)
         if (left.isBlank()) return Match(right.trim(), glued = false)
+        if (contextDurationMs <= 0L) return Match(right.trim(' '), glued = false)
 
         val leftTokens = tokenize(left)
         val rightTokens = tokenize(right)
 
-        val exact = overlapSize(leftTokens, rightTokens)
+        // Nem o casamento exato apaga mais do que o contexto comporta (N11): 1 s explica umas quatro
+        // palavras, e dez palavras iguais na emenda são repetição de quem ditou.
+        val exactLimit = removableChars(contextDurationMs)
+        val exact = overlapSize(leftTokens, rightTokens, exactLimit)
         if (exact > 0) return Match(rightTokens.drop(exact).joinToString(" "), glued = false)
 
-        val anchor = overlapSize(leftTokens.dropLast(1), rightTokens)
+        val anchor = overlapSize(leftTokens.dropLast(1), rightTokens, exactLimit)
         if (anchor == 0 || isWholeWordRepeatedAfterAnchor(leftTokens.last(), rightTokens, anchor)) {
             val approximate = approximateOverlapSize(leftTokens, rightTokens, contextDurationMs)
                 .takeIf { it > 0 }
@@ -53,6 +71,9 @@ object TranscriptOverlap {
             return Match(rightTokens.drop(approximate).joinToString(" "), glued = false)
         }
 
+        // A janela inteira já estava em `left` antes do último pedaço (LOC-overlap): não há palavra depois
+        // da âncora para completar nem para acrescentar.
+        if (anchor >= rightTokens.size) return Match("", glued = false)
         val fragment = leftTokens.last()
         val whole = rightTokens[anchor]
         if (completes(fragment, whole)) {
@@ -80,9 +101,10 @@ object TranscriptOverlap {
 
     // Maior sufixo de `left` igual ao prefixo de `right`. Um trecho só de pontuação não conta como
     // repetição: ele casaria com qualquer outro e apagaria palavra de verdade.
-    private fun overlapSize(left: List<String>, right: List<String>): Int {
+    private fun overlapSize(left: List<String>, right: List<String>, maxChars: Int): Int {
         val max = minOf(left.size, right.size, MAX_OVERLAP_TOKENS)
         for (size in max downTo 1) {
+            if (right.take(size).joinToString(" ").length > maxChars) continue
             val tail = left.takeLast(size).map(::normalize)
             val head = right.take(size).map(::normalize)
             if (tail == head && tail.any { it.isNotEmpty() }) return size
@@ -147,19 +169,8 @@ object TranscriptOverlap {
         isSpokenShortening(a, b) -> Kind.Loose
         min(a.length, b.length) >= CLOSE_MIN_CHARS &&
             EditDistance.within(a, b, closeBudget(a, b)) &&
-            !hasOnsetContrast(a, b) -> Kind.Close
+            !OnsetContrast.has(a, b, LONG_WORD_CHARS) -> Kind.Close
         else -> Kind.Other
-    }
-
-    // P156: em palavra de 8+ letras, diferença nas primeiras 4 é prefixo (ex-/im-, hiper-/hipo-),
-    // não ortografia. "leucocitose"/"leucositose" (miolo) continua Close.
-    private fun hasOnsetContrast(a: String, b: String): Boolean {
-        if (maxOf(a.length, b.length) < LONG_WORD_CHARS) return false
-        val n = min(ONSET_CONTRAST_CHARS, min(a.length, b.length))
-        for (i in 0 until n) {
-            if (a[i] != b[i]) return true
-        }
-        return false
     }
 
     private fun isSpokenShortening(a: String, b: String): Boolean {
@@ -337,7 +348,6 @@ object TranscriptOverlap {
     private const val MIN_FRAGMENT_CHARS = 2
     private const val CLOSE_MIN_CHARS = 4
     private const val LONG_WORD_CHARS = 8
-    private const val ONSET_CONTRAST_CHARS = 4
     private const val MIN_EVIDENCE_WORDS = 2
     private const val CHARS_PER_SECOND = 30L
     private const val MAX_REMOVABLE_CHARS = 120L

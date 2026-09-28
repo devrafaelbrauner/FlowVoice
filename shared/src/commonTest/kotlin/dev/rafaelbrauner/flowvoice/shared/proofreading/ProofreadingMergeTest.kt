@@ -82,4 +82,50 @@ class ProofreadingMergeTest {
         assertEquals("Terceiro ditado pela bolha.", merged)
         assertEquals(true, ProofreadingGuard.accepts(dictated, merged))
     }
+
+    // R2 (revisão de código): a mistura palavra a palavra também não pode deixar passar essas trocas.
+    private val meaningChangingEdits = listOf(
+        "hipertensão" to "hipotensão",
+        "Hiperglicemia" to "Hipoglicemia",
+        "normal" to "anormal",
+        "sintomático" to "assintomático",
+        "regular" to "irregular",
+        "prednisona" to "prednisolona",
+        "amoxicilina" to "ampicilina",
+        "sessenta gotas" to "setenta gotas",
+        "Não tomou a medicação." to "Não, tomou a medicação.",
+        "Nega alergias." to "Nega alergias?"
+    )
+
+    @Test
+    fun meaningChangingEditsKeepTheDictatedText() {
+        meaningChangingEdits.forEach { (dictated, revised) ->
+            assertEquals(dictated, ProofreadingMerge.merge(dictated, revised), "$dictated → $revised")
+        }
+    }
+
+    @Test
+    fun punctuationAfterANegationStaysAsDictatedWhileTheRestIsTaken() {
+        assertEquals(
+            "Não tomou a medicação. Sem febre.",
+            ProofreadingMerge.merge("não tomou a medicação sem febre", "Não, tomou a medicação. Sem febre.")
+        )
+    }
+
+    // P157: no S26 a mistura aceitou "nomeado" e recusou "foi", e o campo ficou "foram nomeado".
+    @Test
+    fun aWholeAgreementFixIsTaken() {
+        assertEquals("Um deles foi nomeado.", ProofreadingMerge.merge("Um deles foram nomeados.", "Um deles foi nomeado."))
+    }
+
+    @Test
+    fun aRefusedWordKeepsTheAgreementOfItsSentenceAsDictatedButNotOfTheNext() {
+        val dictated = "os exame foi pedido pelo plantão os resultado veio normal"
+        val revised = "Os exames foram solicitados pelo plantão. Os resultados vieram normais."
+
+        assertEquals(
+            "Os exame foi pedido pelo plantão. Os resultados vieram normais.",
+            ProofreadingMerge.merge(dictated, revised)
+        )
+    }
 }

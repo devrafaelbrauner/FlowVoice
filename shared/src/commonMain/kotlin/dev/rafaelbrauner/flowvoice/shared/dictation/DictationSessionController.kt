@@ -11,19 +11,27 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlin.math.sqrt
 
+// Quem ouve o áudio da sessão na ordem exata da captura (motor no aparelho): cada frame antes das
+// janelas que ele fecha, e cada janela no instante do corte. Chamado sob a trava da sessão, na
+// thread da captura: não pode bloquear.
+interface CaptureTap {
+    fun onFrame(frame: AudioFrame)
+    fun onWindow(window: DictationWindow)
+}
+
 class DictationSessionController(
     private val engine: AudioCaptureEngine,
-    windowTargetDurationMs: Long = DictationWindowAggregator.DEFAULT_TARGET_DURATION_MS,
+    private val windowTargetDurationMs: Long = DictationWindowAggregator.DEFAULT_TARGET_DURATION_MS,
     private val autoFinalizeOnSilence: Boolean = false,
     private val silenceThreshold: Float = DEFAULT_SILENCE_THRESHOLD,
     private val silenceTimeoutMs: Long = DEFAULT_SILENCE_TIMEOUT_MS,
-    windowPauseSearchBeforeMs: Long = 0L,
-    windowPauseSearchAfterMs: Long = 0L,
+    private val windowPauseSearchBeforeMs: Long = 0L,
+    private val windowPauseSearchAfterMs: Long = 0L,
     val windowEndpointing: SpeechEndpointing? = null,
     val windowContextDurationMs: Long = 0L
 ) {
     private val session = DictationSession()
-    private val windowAggregator = DictationWindowAggregator(
+    private var windowAggregator = DictationWindowAggregator(
         windowTargetDurationMs,
         engine.format,
         windowPauseSearchBeforeMs,
@@ -35,6 +43,7 @@ class DictationSessionController(
     private val observedState = MutableStateFlow(session.state)
     private val windowEvents = MutableSharedFlow<DictationWindow>(extraBufferCapacity = Channel.UNLIMITED)
     private var lastVoiceAtMs = 0L
+    private var tap: CaptureTap? = null
 
     val state: StateFlow<DictationSessionState> = observedState.asStateFlow()
     val windows: Flow<DictationWindow> = windowEvents.asSharedFlow()
@@ -45,7 +54,13 @@ class DictationSessionController(
     var emittedWindowCount: Int = 0
         private set
 
-    suspend fun start() {
+    // O motor no aparelho fecha pedaços mais curtos que a nuvem (o texto entra no campo antes): a sessão
+    // pode pedir outro teto e outro endpointing, e a janela é refeita com eles.
+    suspend fun start(
+        tap: CaptureTap? = null,
+        windowTargetDurationMs: Long = this.windowTargetDurationMs,
+        windowEndpointing: SpeechEndpointing? = this.windowEndpointing
+    ) {
         sessionMutex.withLock {
             when (session.state) {
                 is DictationSessionState.Idle -> session.start()
@@ -61,19 +76,27 @@ class DictationSessionController(
                     session.start()
                 }
             }
-            windowAggregator.clear()
+            windowAggregator = DictationWindowAggregator(
+                windowTargetDurationMs,
+                engine.format,
+                windowPauseSearchBeforeMs,
+                windowPauseSearchAfterMs,
+                windowEndpointing,
+                windowContextDurationMs
+            )
             capturedDurationMs = 0L
             lastVoiceAtMs = 0L
             emittedWindowCount = 0
+            this.tap = tap
             observedState.value = session.state
         }
         try {
             engine.start(
                 onFrame = { frame -> handleFrame(frame) },
-                onError = { error -> failSession("audio capture failed: ${error.message}") }
+                onError = { error -> failSession("audio capture failed: ${error.message}", keepAudio = true) }
             )
         } catch (error: Throwable) {
-            failSession("failed to start audio capture: ${error.message}")
+            failSession("failed to start audio capture: ${error.message}", keepAudio = false)
             throw error
         }
     }
@@ -116,15 +139,21 @@ class DictationSessionController(
         }
     }
 
+    // O frame que o `stop()` destrava ainda é fala do usuário (Y3): enquanto a sessão está em
+    // Finalizing — do toque de parar até o `engine.stop()` voltar —, ele entra na última janela.
     private suspend fun handleFrame(frame: AudioFrame) {
         var failureMessage: String? = null
         var silenceTimedOut = false
         sessionMutex.withLock {
-            if (session.state is DictationSessionState.Capturing) {
+            val capturing = session.state is DictationSessionState.Capturing
+            if (capturing || session.state is DictationSessionState.Finalizing) {
                 try {
-                    windowAggregator.onFrame(frame).forEach { emitWindow(it) }
+                    val windows = windowAggregator.onFrame(frame)
+                    tap?.onFrame(frame)
+                    windows.forEach { emitWindow(it) }
                     capturedDurationMs += frame.durationMs
-                    silenceTimedOut = updateSilenceState(frame)
+                    // A cauda não conta silêncio: a sessão já está encerrando.
+                    if (capturing) silenceTimedOut = updateSilenceState(frame)
                 } catch (error: IllegalArgumentException) {
                     failureMessage = "frame does not match capture format: ${error.message}"
                 }
@@ -132,19 +161,23 @@ class DictationSessionController(
         }
         val failure = failureMessage
         when {
-            failure != null -> failSession(failure)
+            failure != null -> failSession(failure, keepAudio = true)
             silenceTimedOut -> finalize()
         }
     }
 
-    private suspend fun failSession(message: String) {
+    // Falha no meio da captura (R3): o áudio que já estava no agregador é fala do usuário e sai
+    // como última janela antes do erro, para quem ouve a sessão entregar o que foi dito até ali.
+    // Na falha ao abrir o microfone não há o que guardar. A duração captada fica: é ela que diz até
+    // onde o texto vai.
+    private suspend fun failSession(message: String, keepAudio: Boolean) {
         sessionMutex.withLock {
             if (session.state.isTerminal) {
                 return
             }
+            if (keepAudio) windowAggregator.flush()?.let { emitWindow(it) }
             session.fail(message)
             windowAggregator.clear()
-            capturedDurationMs = 0L
             lastVoiceAtMs = 0L
             observedState.value = session.state
         }
@@ -163,6 +196,7 @@ class DictationSessionController(
     }
 
     private suspend fun emitWindow(window: DictationWindow) {
+        tap?.onWindow(window)
         emittedWindowCount++
         windowEvents.emit(window)
     }

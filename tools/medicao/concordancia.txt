@@ -1,0 +1,20 @@
+# Deslizes de concordância típicos da fala, escritos como a transcrição os devolve (entrada | esperado).
+# Linhas sem erro são controle: a formatação não pode mudar palavra nenhuma.
+os exame de sangue foi colhido às oito horas | os exames de sangue foram colhidos às oito horas
+um deles foram nomeados para a comissão | um deles foi nomeado para a comissão
+a paciente chegou acordado e orientado | a paciente chegou acordada e orientada
+os sinais vitais está normal | os sinais vitais estão normais
+as dores melhorou depois da medicação | as dores melhoraram depois da medicação
+foi solicitado os exames de imagem | foram solicitados os exames de imagem
+os familiares foi orientado sobre o quadro | os familiares foram orientados sobre o quadro
+ela nega febre e os vômitos cessou | ela nega febre e os vômitos cessaram
+os pacientes do leito dois e três recebeu alta | os pacientes do leito dois e três receberam alta
+a tomografia e o raio x mostrou consolidação | a tomografia e o raio x mostraram consolidação
+as lesões está em regressão | as lesões estão em regressão
+o hemograma e a função renal veio normal | o hemograma e a função renal vieram normais
+mantenho as medicações em uso e reavalio amanhã | mantenho as medicações em uso e reavalio amanhã
+não houve intercorrências durante a noite | não houve intercorrências durante a noite
+prescrevi dipirona quinhentos miligramas de seis em seis horas | prescrevi dipirona quinhentos miligramas de seis em seis horas
+a pressão está doze por oito e a frequência está oitenta | a pressão está doze por oito e a frequência está oitenta
+suspendi a prednisona e mantive a amoxicilina | suspendi a prednisona e mantive a amoxicilina
+refere dor no joelho direito sem edema | refere dor no joelho direito sem edema

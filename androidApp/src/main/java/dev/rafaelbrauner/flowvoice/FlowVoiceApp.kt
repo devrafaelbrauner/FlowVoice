@@ -4,9 +4,12 @@ import android.app.Application
 import android.content.Context
 import android.content.pm.ApplicationInfo
 import android.util.Log
+import dev.rafaelbrauner.flowvoice.localasr.LocalModelInstaller
 import dev.rafaelbrauner.flowvoice.logging.LogChunks
 import dev.rafaelbrauner.flowvoice.logging.TranscriptTextLogging
+import dev.rafaelbrauner.flowvoice.notes.DebouncedNotePersist
 import dev.rafaelbrauner.flowvoice.service.AccessibilityTextInserter
+import dev.rafaelbrauner.flowvoice.service.AppForeground
 import dev.rafaelbrauner.flowvoice.shared.dictation.AndroidAudioCaptureEngine
 import dev.rafaelbrauner.flowvoice.shared.dictation.AudioCaptureEngine
 import dev.rafaelbrauner.flowvoice.shared.dictation.DictationSessionController
@@ -18,6 +21,10 @@ import dev.rafaelbrauner.flowvoice.shared.dictionary.PersonalDictionary
 import dev.rafaelbrauner.flowvoice.shared.dictionary.PrefsDictionaryPersist
 import dev.rafaelbrauner.flowvoice.shared.auth.AuthGateway
 import dev.rafaelbrauner.flowvoice.shared.auth.PrefsAuthGateway
+import dev.rafaelbrauner.flowvoice.shared.localasr.LocalSpeechEngines
+import dev.rafaelbrauner.flowvoice.shared.localasr.NemotronEngines
+import dev.rafaelbrauner.flowvoice.shared.localasr.NemotronModel
+import dev.rafaelbrauner.flowvoice.shared.localasr.NemotronRecognizer
 import dev.rafaelbrauner.flowvoice.shared.notes.InMemoryNoteStore
 import dev.rafaelbrauner.flowvoice.shared.notes.NoteDictationCoordinator
 import dev.rafaelbrauner.flowvoice.shared.notes.NoteStore
@@ -44,10 +51,19 @@ class FlowVoiceApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        registerActivityLifecycleCallbacks(AppForeground)
         GlobalContext.startKoin {
             androidContext(this@FlowVoiceApp)
             modules(sharedModule, dictationModule)
         }
+        NemotronRecognizer.eventLog = GlobalContext.get().get<TranscriptionEventLog>()
+    }
+
+    // O modelo do aparelho ocupa ~700 MB carregado: só sai da memória nos pedidos urgentes do sistema
+    // (`shouldReleaseOnTrim`), nunca no meio de um ditado.
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        NemotronRecognizer.onTrimMemory(level)
     }
 }
 
@@ -62,6 +78,8 @@ private fun logcat(event: String, metadata: Map<String, String>) {
 
 private fun transcriptTextLog(context: Context): TranscriptionEventLog {
     val debuggable = context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
+    // Release nem olha o marcador: nada de acesso a disco na thread principal a cada evento (N14).
+    if (!debuggable) return TranscriptionEventLog { _, _ -> }
     val marker = File(context.filesDir, TranscriptTextLogging.MARKER_FILE)
     return TranscriptionEventLog { event, metadata ->
         val modifiedAt = marker.lastModified().takeIf { it > 0L }
@@ -75,17 +93,23 @@ private val dictationModule = module {
     factory {
         DictationSessionController(
             get(),
+            windowTargetDurationMs = SpeechEndpointing.LIVE_TARGET_DURATION_MS,
             windowPauseSearchBeforeMs = DictationWindowAggregator.SPEECH_PAUSE_SEARCH_BEFORE_MS,
             windowPauseSearchAfterMs = DictationWindowAggregator.SPEECH_PAUSE_SEARCH_AFTER_MS,
-            windowEndpointing = SpeechEndpointing(),
+            windowEndpointing = SpeechEndpointing.LIVE,
             windowContextDurationMs = DictationWindowAggregator.SPEECH_CONTEXT_MS
         )
     }
     single<SecretStore> { EncryptedSecretStore(androidContext()) }
+    single<LocalSpeechEngines> { NemotronEngines(File(androidContext().filesDir, NemotronModel.DIR_NAME)) }
+    single { LocalModelInstaller(androidContext(), get<PreferencesStore>()) }
     single<PersonalDictionary> { InMemoryPersonalDictionary(PrefsDictionaryPersist(androidContext())) }
+    single {
+        DebouncedNotePersist(PrefsNotePersist(androidContext()), CoroutineScope(SupervisorJob() + Dispatchers.IO))
+    }
     single<NoteStore> {
         InMemoryNoteStore(
-            persist = PrefsNotePersist(androidContext()),
+            persist = get<DebouncedNotePersist>(),
             clock = { System.currentTimeMillis() }
         )
     }
@@ -109,12 +133,14 @@ private val dictationModule = module {
             config = get(),
             dictionary = get(),
             proofreading = get(),
+            audioChat = get(),
             preferences = get(),
             secrets = get(),
             inserter = AccessibilityTextInserter,
             scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
             eventLog = get(),
-            transcriptTextLog = transcriptTextLog(androidContext())
+            transcriptTextLog = transcriptTextLog(androidContext()),
+            localEngines = get()
         )
     }
     single(createdAtStart = true) {

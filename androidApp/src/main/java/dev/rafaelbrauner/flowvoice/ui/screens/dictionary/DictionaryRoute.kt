@@ -26,7 +26,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.tooling.preview.PreviewParameter
@@ -40,6 +44,7 @@ import dev.rafaelbrauner.flowvoice.ui.components.PillButtonVariant
 import dev.rafaelbrauner.flowvoice.ui.components.ThemePreviewParameter
 import dev.rafaelbrauner.flowvoice.ui.components.fieldDescription
 import dev.rafaelbrauner.flowvoice.ui.rememberKoin
+import dev.rafaelbrauner.flowvoice.ui.screens.settings.FvTextAction
 import dev.rafaelbrauner.flowvoice.ui.theme.FlowVoiceRadius
 import dev.rafaelbrauner.flowvoice.ui.theme.FlowVoiceTheme
 
@@ -58,6 +63,7 @@ fun DictionaryRoute(modifier: Modifier = Modifier) {
         draft = state.draft,
         onApprove = state::approve,
         onDiscard = state::discard,
+        onRemove = state::remove,
         onDraftChange = state::updateDraft,
         onAddDraft = { state.addDraft() },
         modifier = modifier
@@ -71,6 +77,7 @@ internal fun DictionaryScreen(
     draft: String,
     onApprove: (String) -> Unit,
     onDiscard: (String) -> Unit,
+    onRemove: (String) -> Unit,
     onDraftChange: (String) -> Unit,
     onAddDraft: () -> Unit,
     modifier: Modifier = Modifier
@@ -131,7 +138,7 @@ internal fun DictionaryScreen(
                     modifier = Modifier.padding(horizontal = 4.dp, vertical = 6.dp)
                 )
             }
-            approved.forEach { term -> ApprovedTermRow(term) }
+            approved.forEach { term -> ApprovedTermRow(term, onRemove = { onRemove(term) }) }
         }
     }
 }
@@ -175,22 +182,45 @@ private fun PendingTermCard(term: String, onApprove: () -> Unit, onDiscard: () -
     }
 }
 
+// Termo aprovado por engano ("Espinéia" no lugar de "dispneia") passaria a trocar palavras certas em
+// todo ditado (P145); remover aqui tira o termo do dicionário e da aplicação (Y4).
 @Composable
-private fun ApprovedTermRow(term: String) {
+private fun ApprovedTermRow(term: String, onRemove: () -> Unit) {
     val colors = FlowVoiceTheme.colors
     val typography = FlowVoiceTheme.typography
     val shape = RoundedCornerShape(FlowVoiceRadius.chip)
-    Text(
-        text = term,
-        style = typography.monoKey.copy(lineHeight = 1.em),
-        color = colors.chipContent,
+    Row(
         modifier = Modifier
             .fillMaxWidth()
             .clip(shape)
             .background(colors.chip)
             .border(1.dp, colors.hairline, shape)
-            .padding(horizontal = 12.dp, vertical = 10.dp)
-    )
+            .padding(start = 12.dp, end = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = term,
+            style = typography.monoKey.copy(lineHeight = 1.em),
+            color = colors.chipContent,
+            modifier = Modifier
+                .weight(1f)
+                .padding(vertical = 10.dp)
+        )
+        FvTextAction(
+            text = "Remover",
+            onClick = onRemove,
+            modifier = Modifier
+                .padding(horizontal = 8.dp)
+                .clearAndSetSemantics {
+                    contentDescription = "Remover $term do dicionário"
+                    role = Role.Button
+                    onClick {
+                        onRemove()
+                        true
+                    }
+                }
+        )
+    }
 }
 
 @Composable
@@ -253,6 +283,7 @@ private fun DictionaryScreenPreview(@PreviewParameter(ThemePreviewParameter::cla
             draft = "",
             onApprove = {},
             onDiscard = {},
+            onRemove = {},
             onDraftChange = {},
             onAddDraft = {}
         )
@@ -269,6 +300,7 @@ private fun DictionaryScreenEmptyPreview(@PreviewParameter(ThemePreviewParameter
             draft = "",
             onApprove = {},
             onDiscard = {},
+            onRemove = {},
             onDraftChange = {},
             onAddDraft = {}
         )

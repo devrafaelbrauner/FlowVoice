@@ -31,10 +31,14 @@ class TranscriptionModelCatalog(
         } catch (error: Exception) {
             return mapFailure(error) ?: TranscriptionCatalogResult.Failed(CatalogFailure.UNAVAILABLE)
         }
+        val result = wrap(models)
+        // Lista vazia não se guarda (Y9): é mais provável um soluço do serviço do que a OpenRouter sem
+        // modelo de transcrição nenhum, e guardada ela esconderia os modelos por 24 h.
+        if (result is TranscriptionCatalogResult.Empty) return result
         cached = models
         cachedAt = timeSource.markNow()
         keyFingerprint = keyFingerprintOf(key)
-        return wrap(models)
+        return result
     }
 
     fun cached(): TranscriptionCatalogResult? =
@@ -52,6 +56,9 @@ class TranscriptionModelCatalog(
         return TranscriptionCatalogResult.Ready(normalized)
     }
 
+    // O /api/v1/models é público: responde 200 com chave falsa e sem chave (curl, 2026-09-27). Este
+    // INVALID_KEY só aparece se a OpenRouter passar a autenticar a lista; quem confere a chave é o
+    // OpenRouterKeyValidator (/api/v1/key) e, no ditado, o 401 da transcrição.
     private fun mapFailure(error: Throwable): TranscriptionCatalogResult? {
         var cause: Throwable? = error
         while (cause != null) {

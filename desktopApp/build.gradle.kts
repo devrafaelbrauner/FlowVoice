@@ -36,7 +36,9 @@ compose.desktop {
             // Sugestão de :desktopApp:suggestRuntimeModules; o motor Ktor Java exige java.net.http.
             modules("java.instrument", "java.management", "java.net.http", "jdk.unsupported")
             packageName = "FlowVoice"
-            packageVersion = "0.4.5"
+            // Mesma versão do app Android (versionName). MSI e EXE aceitam MAJOR.MINOR.BUILD com MAJOR
+            // 0; quem recusa 0.x é o jpackage do macOS (P55), formato que este app não gera.
+            packageVersion = "0.6.0"
         }
     }
 }

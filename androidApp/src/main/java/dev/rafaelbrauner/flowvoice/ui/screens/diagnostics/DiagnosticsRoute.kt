@@ -1,11 +1,9 @@
 package dev.rafaelbrauner.flowvoice.ui.screens.diagnostics
 
 import android.Manifest
-import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
-import android.provider.Settings
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -63,6 +61,7 @@ import dev.rafaelbrauner.flowvoice.shared.prefs.PreferencesStore
 import dev.rafaelbrauner.flowvoice.shared.transcription.OpenRouterConfig
 import dev.rafaelbrauner.flowvoice.shared.transcription.SecretStore
 import dev.rafaelbrauner.flowvoice.shared.transcription.TranscriptionClient
+import dev.rafaelbrauner.flowvoice.shared.transcription.TranscriptionModels
 import dev.rafaelbrauner.flowvoice.ui.components.FvCard
 import dev.rafaelbrauner.flowvoice.ui.components.FvDivider
 import dev.rafaelbrauner.flowvoice.ui.components.KeyValueRow
@@ -106,7 +105,11 @@ data class DiagnosticsActions(
 private const val NO_SOURCE = "—"
 
 @Composable
-fun DiagnosticsRoute(onBack: () -> Unit, modifier: Modifier = Modifier) {
+fun DiagnosticsRoute(
+    onBack: () -> Unit,
+    onOpenAccessibilityDisclosure: () -> Unit,
+    modifier: Modifier = Modifier
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val secretStore = rememberKoin<SecretStore>()
@@ -147,7 +150,7 @@ fun DiagnosticsRoute(onBack: () -> Unit, modifier: Modifier = Modifier) {
             keyConfigured = secretStore.readOpenRouterKey() != null,
             signedIn = authGateway.isSignedIn,
             proofreading = preferencesStore.read().proofreadingEnabled,
-            model = config.model,
+            model = TranscriptionModels.selected(preferencesStore, config),
             notes = noteStore.list().size,
             terms = dictionary.approved().size,
             overlay = FlowVoiceOverlayService.running
@@ -230,7 +233,8 @@ fun DiagnosticsRoute(onBack: () -> Unit, modifier: Modifier = Modifier) {
     val actions = DiagnosticsActions(
         onBack = onBack,
         onExport = ::exportReport,
-        onOpenAccessibilitySettings = { openAccessibilitySettings(context, diagnosticsLog) },
+        // A Acessibilidade só abre depois da divulgação em destaque exigida pelo Play.
+        onOpenAccessibilitySettings = onOpenAccessibilityDisclosure,
         onBudgetChange = { budgetUsd = it },
         onReferenceChange = { referenceText = it },
         onRunBenchmark = ::runBenchmark
@@ -401,14 +405,6 @@ private fun AccentOutlinePill(text: String, onClick: () -> Unit) {
 
 private fun currentServiceFlags(): String =
     FlowVoiceAccessibilityService.service?.serviceInfo?.flags?.let { "0x" + Integer.toHexString(it) } ?: NO_SOURCE
-
-private fun openAccessibilitySettings(context: Context, log: DiagnosticsLog) {
-    if (context.startActivitySafely(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))) {
-        log.add("Abrindo configurações de acessibilidade.")
-    } else {
-        log.add("Configurações de acessibilidade indisponíveis neste aparelho.")
-    }
-}
 
 @Preview
 @Composable

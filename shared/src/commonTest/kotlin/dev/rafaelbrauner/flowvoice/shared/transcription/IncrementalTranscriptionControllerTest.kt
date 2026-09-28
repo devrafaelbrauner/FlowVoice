@@ -3,13 +3,29 @@ package dev.rafaelbrauner.flowvoice.shared.transcription
 import dev.rafaelbrauner.flowvoice.shared.dictation.AudioFormat
 import dev.rafaelbrauner.flowvoice.shared.dictation.DictationWindow
 import dev.rafaelbrauner.flowvoice.shared.dictation.WindowCut
+import io.ktor.client.HttpClient
+import io.ktor.client.engine.mock.MockEngine
+import io.ktor.client.engine.mock.respond
+import io.ktor.client.plugins.HttpTimeout
+import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.http.HttpHeaders
+import io.ktor.http.HttpStatusCode
+import io.ktor.http.headersOf
+import io.ktor.serialization.kotlinx.json.json
+import io.ktor.utils.io.ByteReadChannel
+import kotlin.coroutines.Continuation
+import kotlin.coroutines.resume
+import kotlin.coroutines.suspendCoroutine
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -173,8 +189,8 @@ class IncrementalTranscriptionControllerTest {
         controller.submit(testWindow(2))
         advanceUntilIdle()
 
-        assertEquals(1, client.cancelCount)
-        assertTrue(client.started.size <= 1)
+        assertTrue(client.started.size <= IncrementalTranscriptionController.MAX_PARALLEL_WINDOWS)
+        assertTrue(controller.segments.value.none { it.status == TranscriptionSegment.Status.Ok })
         assertEquals("", controller.provisionalText.value)
         assertEquals(0, controller.segments.value.count { it.windowIndex == 2 })
     }
@@ -409,6 +425,95 @@ class IncrementalTranscriptionControllerTest {
         assertEquals(listOf(0, 1, 2), client.started, "o nível que já rendeu texto não é silêncio")
     }
 
+    // R1: uma tosse ou um esbarrão no aparelho voltou vazio na janela 0. Com a P153 sem limite, toda a
+    // fala mais baixa que ele deixava de ser enviada pelo resto do ditado, e sem aviso. Voz alta que
+    // volta vazia não é silêncio: não ensina nada à memória e o trecho fica marcado como sem texto.
+    @Test
+    fun aLoudWindowThatComesBackEmptyDoesNotSilenceTheQuieterSpeechAfterIt() = runTest {
+        val client = FakeTranscriptionClient(
+            results = mapOf(
+                0 to TranscriptionResult("", "fake"),
+                1 to TranscriptionResult("Paciente relata dor torácica.", "fake"),
+                2 to TranscriptionResult("Nega febre.", "fake")
+            )
+        )
+        val controller = IncrementalTranscriptionController(
+            client = client,
+            config = OpenRouterConfig(),
+            scope = this,
+            apiKeyProvider = { "sk-or-v1-testkey123456" }
+        )
+
+        controller.submit(noiseWindow(0, WindowCut.Pause, durationMs = 2_500L, voicedMs = 800L, peakLevel = 6_000))
+        advanceUntilIdle()
+        controller.submit(noiseWindow(1, WindowCut.Pause, durationMs = 2_500L, voicedMs = 800L, peakLevel = 3_000))
+        advanceUntilIdle()
+        controller.submit(noiseWindow(2, WindowCut.Pause, durationMs = 2_500L, voicedMs = 800L, peakLevel = 2_500))
+        advanceUntilIdle()
+
+        assertEquals(listOf(0, 1, 2), client.started, "a fala depois do vazio alto tem de ir à rede")
+        assertEquals("Paciente relata dor torácica. Nega febre.", controller.provisionalText.value)
+        assertEquals(TranscriptionSegment.Status.Failed, controller.segments.value[0].status, "voz alta sem texto não é silêncio")
+    }
+
+    // N7: o cliente de transcrição é único no app. Cancelar o ditado não pode derrubar o pedido de
+    // outro usuário do mesmo cliente (o benchmark), só os pedidos do próprio ditado.
+    @Test
+    fun cancellingTheDictationDoesNotCancelAnotherUserOfTheSameClient() = runTest {
+        val gate = CompletableDeferred<Unit>()
+        val engine = MockEngine {
+            gate.await()
+            respond(
+                content = ByteReadChannel("""{"text":"texto do benchmark"}"""),
+                status = HttpStatusCode.OK,
+                headers = headersOf(HttpHeaders.ContentType, "application/json")
+            )
+        }
+        val http = HttpClient(engine) {
+            install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
+            install(HttpTimeout)
+        }
+        val shared = OpenRouterTranscriptionClient(http, OpenRouterConfig())
+        val controller = IncrementalTranscriptionController(
+            client = shared,
+            config = OpenRouterConfig(),
+            scope = this,
+            apiKeyProvider = { "sk-or-v1-testkey123456" }
+        )
+
+        controller.submit(testWindow(0))
+        runCurrent()
+        val benchmark = async { shared.transcribe(testWindow(7), "sk-or-v1-testkey123456") }
+        runCurrent()
+        controller.cancel()
+        runCurrent()
+        gate.complete(Unit)
+
+        assertEquals("texto do benchmark", benchmark.await().text)
+    }
+
+    // P53: um pedido que termina depois do reset (a resposta já chegava quando o novo ditado começou)
+    // não pode escrever na sessão nova: o texto do ditado anterior entraria no seguinte.
+    @Test
+    fun aRequestThatEndsAfterResetDoesNotWriteIntoTheNewSession() = runTest {
+        val client = LateTranscriptionClient()
+        val controller = IncrementalTranscriptionController(
+            client = client,
+            config = OpenRouterConfig(),
+            scope = this,
+            apiKeyProvider = { "sk-or-v1-testkey123456" }
+        )
+
+        controller.submit(testWindow(0))
+        runCurrent()
+        controller.reset()
+        client.finish("texto do ditado anterior")
+        advanceUntilIdle()
+
+        assertEquals(emptyList(), controller.segments.value)
+        assertEquals("", controller.provisionalText.value)
+    }
+
     private fun quietWindow(index: Int, cut: WindowCut) = DictationWindow(
         index = index,
         pcm = ByteArray(32_000) { if (it % 2 == 0) 100.toByte() else 0.toByte() },
@@ -451,8 +556,6 @@ class IncrementalTranscriptionControllerTest {
     ) : TranscriptionClient {
         val started = mutableListOf<Int>()
         val keys = mutableListOf<String>()
-        var cancelCount = 0
-            private set
 
         override suspend fun transcribe(
             window: dev.rafaelbrauner.flowvoice.shared.dictation.DictationWindow,
@@ -465,9 +568,21 @@ class IncrementalTranscriptionControllerTest {
             failures[window.index]?.let { throw it }
             return results[window.index] ?: TranscriptionResult("w${window.index}", "fake")
         }
+    }
 
-        override fun cancel() {
-            cancelCount++
+    // Pedido que não reage ao cancelamento: a resposta já estava chegando, e só termina quando o
+    // teste manda.
+    private class LateTranscriptionClient : TranscriptionClient {
+        private var pending: Continuation<String>? = null
+
+        fun finish(text: String) {
+            pending?.resume(text)
         }
+
+        override suspend fun transcribe(
+            window: DictationWindow,
+            apiKey: String,
+            model: String?
+        ): TranscriptionResult = TranscriptionResult(suspendCoroutine { pending = it }, "fake")
     }
 }

@@ -2,5 +2,5 @@
 <resources>
     <string name="app_name">FlowVoice</string>
     <string name="accessibility_service_label">FlowVoice</string>
-    <string name="accessibility_service_description">Permite o FlowVoice inserir o texto ditado diretamente no campo de texto ativo.</string>
+    <string name="accessibility_service_description">Permite o FlowVoice escrever o texto ditado no campo em que está o cursor. Para isso ele anota o nome do app aberto a cada troca de janela, vê a posição do campo, do cursor e do teclado, e lê o texto do campo do ditado para inserir no ponto certo e conferir o que escreveu. O texto lido fica no celular, e campos de senha não são lidos nem escritos.</string>
 </resources>

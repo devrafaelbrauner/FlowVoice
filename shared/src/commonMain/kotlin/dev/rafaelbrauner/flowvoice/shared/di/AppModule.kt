@@ -8,6 +8,8 @@ import dev.rafaelbrauner.flowvoice.shared.prefs.InMemoryPreferencesStore
 import dev.rafaelbrauner.flowvoice.shared.prefs.PreferencesStore
 import dev.rafaelbrauner.flowvoice.shared.transcription.OpenRouterConfig
 import dev.rafaelbrauner.flowvoice.shared.transcription.OpenRouterKeyValidator
+import dev.rafaelbrauner.flowvoice.shared.proofreading.AudioChatClient
+import dev.rafaelbrauner.flowvoice.shared.proofreading.OpenRouterAudioChatClient
 import dev.rafaelbrauner.flowvoice.shared.proofreading.OpenRouterProofreadingClient
 import dev.rafaelbrauner.flowvoice.shared.proofreading.ProofreadingClient
 import dev.rafaelbrauner.flowvoice.shared.transcription.OpenRouterTranscriptionClient
@@ -35,4 +37,5 @@ val sharedModule = module {
         )
     }
     single<ProofreadingClient> { OpenRouterProofreadingClient(get(), get()) }
+    single<AudioChatClient> { OpenRouterAudioChatClient(get(), get()) }
 }

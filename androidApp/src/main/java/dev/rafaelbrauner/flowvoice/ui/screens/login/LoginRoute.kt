@@ -59,11 +59,13 @@ fun LoginRoute(onContinue: () -> Unit, modifier: Modifier = Modifier) {
     val scope = rememberCoroutineScope()
     var signingIn by remember { mutableStateOf(false) }
     var failed by remember { mutableStateOf(false) }
+    val googleAvailable = remember { preferences.read().googleWebClientId.isNotBlank() }
 
     LoginScreen(
+        googleAvailable = googleAvailable,
         signingIn = signingIn,
         failed = failed,
-        onContinueWithGoogle = {
+        onPrimary = {
             val clientId = preferences.read().googleWebClientId
             val activity = context.findActivity()
             if (clientId.isBlank() || activity == null) {
@@ -93,9 +95,10 @@ fun LoginRoute(onContinue: () -> Unit, modifier: Modifier = Modifier) {
 
 @Composable
 internal fun LoginScreen(
+    googleAvailable: Boolean,
     signingIn: Boolean,
     failed: Boolean,
-    onContinueWithGoogle: () -> Unit,
+    onPrimary: () -> Unit,
     onSkip: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -116,21 +119,30 @@ internal fun LoginScreen(
         )
         Spacer(Modifier.height(14.dp))
         Text(
-            text = "Entre com o Google para sincronizar notas, dicionário e preferências. " +
-                "Sua chave OpenRouter fica só neste aparelho.",
+            text = if (googleAvailable) {
+                "Entre com o Google para ligar sua conta ao FlowVoice. A sincronização entre aparelhos " +
+                    "ainda não está ativa."
+            } else {
+                "Você fala e o FlowVoice escreve no campo que estiver aberto, em qualquer app."
+            },
             style = typography.body,
             color = colors.textMuted,
             modifier = Modifier.widthIn(max = 280.dp)
         )
         Spacer(Modifier.height(32.dp))
-        GoogleButton(
-            label = if (signingIn) "Entrando…" else "Continuar com o Google",
+        LoginButton(
+            label = when {
+                !googleAvailable -> "Começar"
+                signingIn -> "Entrando…"
+                else -> "Continuar com o Google"
+            },
+            showGoogleMark = googleAvailable,
             enabled = !signingIn,
-            onClick = onContinueWithGoogle
+            onClick = onPrimary
         )
         Spacer(Modifier.height(16.dp))
         Text(
-            text = "Uso pessoal · pt-BR · dados seus, servidor seu",
+            text = "Uso pessoal · pt-BR · notas e dicionário ficam neste celular",
             style = typography.bodySmall.copy(lineHeight = 1.5.em),
             color = colors.textTimestamp,
             textAlign = TextAlign.Center,
@@ -163,7 +175,7 @@ internal fun LoginScreen(
 }
 
 @Composable
-private fun GoogleButton(label: String, enabled: Boolean, onClick: () -> Unit) {
+private fun LoginButton(label: String, showGoogleMark: Boolean, enabled: Boolean, onClick: () -> Unit) {
     val colors = FlowVoiceTheme.colors
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
@@ -184,12 +196,14 @@ private fun GoogleButton(label: String, enabled: Boolean, onClick: () -> Unit) {
         horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(
-            Modifier
-                .size(20.dp)
-                .clip(CircleShape)
-                .background(colors.background)
-        )
+        if (showGoogleMark) {
+            Box(
+                Modifier
+                    .size(20.dp)
+                    .clip(CircleShape)
+                    .background(colors.background)
+            )
+        }
         Text(text = label, style = FlowVoiceTheme.typography.buttonLarge, color = colors.background)
     }
 }
@@ -199,9 +213,10 @@ private fun GoogleButton(label: String, enabled: Boolean, onClick: () -> Unit) {
 private fun LoginScreenPreview(@PreviewParameter(ThemePreviewParameter::class) dark: Boolean) {
     FlowVoiceTheme(darkTheme = dark) {
         LoginScreen(
+            googleAvailable = dark.not(),
             signingIn = false,
             failed = dark.not(),
-            onContinueWithGoogle = {},
+            onPrimary = {},
             onSkip = {},
             modifier = Modifier.fillMaxSize()
         )

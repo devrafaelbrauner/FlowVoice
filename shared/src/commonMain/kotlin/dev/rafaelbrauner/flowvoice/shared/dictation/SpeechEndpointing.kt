@@ -49,5 +49,18 @@ data class SpeechEndpointing(
         const val SPEECH_FACTOR = 3.0
         const val MIN_PAUSE_LEVEL = 100
         const val MIN_SPEECH_LEVEL = 250
+
+        // Ditado ao vivo pela nuvem (2026-09-28): janela de ~2 s cortada em pausa curta (250 ms depois de
+        // 1 s de áudio). Com 4 s / 2 s / 450 ms o texto só entrava depois da frase; na réplica do Mac com 6
+        // modelos a 1ª inserção caiu de 3,8–6,3 s para 1,4–3,5 s depois da fala e as inserções durante a
+        // fala de 6–8 para 10–13 por ditado de ~22 s, sem aumentar palavra quebrada nem repetida, e o texto
+        // final (a passada final com o áudio inteiro) não mudou. A precisão das janelas curtas (P143)
+        // pesa menos agora que a passada final troca o rascunho no fim.
+        const val LIVE_TARGET_DURATION_MS = 2_000L
+        const val LIVE_MIN_BUFFERED_MS = 1_000L
+        const val LIVE_MIN_PAUSE_MS = 250L
+
+        val LIVE: SpeechEndpointing
+            get() = SpeechEndpointing(minBufferedMs = LIVE_MIN_BUFFERED_MS, minPauseMs = LIVE_MIN_PAUSE_MS)
     }
 }

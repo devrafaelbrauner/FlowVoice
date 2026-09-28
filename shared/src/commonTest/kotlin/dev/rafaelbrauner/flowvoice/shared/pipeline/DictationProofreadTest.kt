@@ -21,37 +21,25 @@ class DictationProofreadTest {
     }
 
     // O caso do S26 (2026-09-16 09:29): o modelo fecha cada janela com ponto e abre a seguinte com
-    // maiúscula. A revisão só mexe em pontuação e caixa, então o guard aceita e o texto é trocado.
+    // maiúscula; o texto final da passada troca tudo o que o app digitou.
     @Test
-    fun anAcceptedRevisionReplacesEverythingTheAppTyped() {
+    fun aFinalTextReplacesEverythingTheAppTyped() {
         val typed = "Hoje o dia está muito bonito. Por isso iremos para a praia. Pois lá tem uma água de coco bem gelada."
-        val revised = "Hoje o dia está muito bonito, por isso iremos para a praia, pois lá tem uma água de coco bem gelada."
+        val final = "Hoje o dia está muito bonito, por isso iremos para a praia, pois lá tem uma água de coco bem gelada."
 
-        val outcome = DictationProofread.outcome(typed, revised)
+        val outcome = DictationProofread.replacement(typed, final)
 
         val replace = assertIs<DictationProofread.Outcome.Replace>(outcome)
         assertEquals(typed.length, replace.deleteBefore)
-        assertEquals(revised, replace.text)
+        assertEquals(final, replace.text)
     }
 
-    // Troca de palavra é exatamente o que o ProofreadingGuard existe para barrar; nada é apagado.
+    // Texto final igual ao ditado: apagar e reescrever o mesmo texto só faria o campo piscar.
     @Test
-    fun aRevisionThatChangesAWordIsRefusedAndNothingIsTouched() {
-        val outcome = DictationProofread.outcome(
-            typed = "Paciente refere dor no joelho direito.",
-            revised = "Paciente refere dor no joelho esquerdo."
-        )
-
-        val skip = assertIs<DictationProofread.Outcome.Skip>(outcome)
-        assertEquals(DictationProofread.REASON_GUARD, skip.reason)
-    }
-
-    // Revisão igual ao ditado: apagar e reescrever o mesmo texto só faria o campo piscar.
-    @Test
-    fun aRevisionIdenticalToTheDictationErasesAndWritesNothing() {
+    fun aFinalTextIdenticalToTheDictationErasesAndWritesNothing() {
         val typed = "Bom dia, Marina."
 
-        val outcome = DictationProofread.outcome(typed, typed)
+        val outcome = DictationProofread.replacement(typed, typed)
 
         val skip = assertIs<DictationProofread.Outcome.Skip>(outcome)
         assertEquals(DictationProofread.REASON_UNCHANGED, skip.reason)
@@ -134,10 +122,10 @@ class DictationProofreadTest {
 
     // A resposta vazia não pode virar um apagar sem escrever nada.
     @Test
-    fun anEmptyAnswerFromTheModelErasesNothing() {
-        val outcome = DictationProofread.outcome(typed = "Bom dia, Marina.", revised = "   ")
+    fun anEmptyFinalTextErasesNothing() {
+        val outcome = DictationProofread.replacement(typed = "Bom dia, Marina.", final = "   ")
 
         val skip = assertIs<DictationProofread.Outcome.Skip>(outcome)
-        assertEquals(DictationProofread.REASON_GUARD, skip.reason)
+        assertEquals(DictationProofread.REASON_EMPTY, skip.reason)
     }
 }

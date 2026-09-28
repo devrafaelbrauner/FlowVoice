@@ -34,10 +34,18 @@ data class OpenRouterConfig(
     val modelsPath: String
         get() = "/api/v1/models"
 
+    // Informações da chave usada na chamada: 200 para chave válida, 401 para chave inválida ou
+    // ausente (https://openrouter.ai/docs/api/api-reference/api-keys/get-current-key). Não gasta
+    // crédito. Conferido por curl em 2026-09-27: 401 com chave falsa e sem chave.
+    val keyPath: String
+        get() = "/api/v1/key"
+
     companion object {
         const val DEFAULT_BASE_URL = "https://openrouter.ai"
-        // Benchmark F05 no S26 (P136, docs/PLAN.md): WER 0 nas rodadas de 13/set e 15/set.
-        const val DEFAULT_MODEL = "openai/gpt-transcribe"
+        // Medição de modelos da nuvem (docs/medicao-modelos-nuvem.md, 2026-09-28): sem erro que muda sentido,
+        // empatada na nota com o google/chirp-3 (0,5 ponto) e a mais rápida (1,6 s num ditado de 20 s). Antes,
+        // `openai/gpt-transcribe` (benchmark F05 no S26, P136), que trocou "dipirona" por "de pirona".
+        const val DEFAULT_MODEL = "openai/gpt-4o-mini-transcribe"
         const val DEFAULT_LANGUAGE = "pt"
         // Nem a OpenRouter nem a OpenAI documentam o padrão de temperature na transcrição; 0 é o
         // valor mais determinístico e não depende do padrão de cada provedor (P137).
@@ -47,12 +55,19 @@ data class OpenRouterConfig(
         const val DEFAULT_MAX_RETRIES = 3
         const val DEFAULT_INITIAL_BACKOFF_MS = 500L
         const val DEFAULT_MAX_BACKOFF_MS = 8_000L
-        // Janelas cortadas na pausa (P140, P143) têm de ~2 a 4,3 s, mais 1 s de contexto sobreposto
-        // no que é enviado. Com ~2,5 s de média, 90 pedidos dão uma sessão útil de ~3,7 min, mais que
-        // os ~3 min de antes da P143: o teto de 90 segue valendo. O teto continua contado na
-        // submissão (P107), e silêncio só sai no teto de ~4 s, então uma captura muda ainda para, em
-        // ~6 min. Custo máximo por sessão com o gpt-transcribe (~US$ 0,0011 por 15 s de áudio):
-        // 90 × (4,3 s + 1 s) ≈ US$ 0,035.
-        const val DEFAULT_MAX_REQUESTS_PER_SESSION = 90
+        // Janelas ao vivo de ~1 a 2,3 s (SpeechEndpointing.LIVE, 2026-09-28), mais 1 s de contexto
+        // sobreposto quando o fim da anterior tem fala. Com ~2 s de média, 180 janelas dão uma sessão útil
+        // de ~6 min, a mesma de antes com janelas de 4 s e teto 90. O teto continua contado na submissão
+        // (P107), e uma captura muda para em ~7 min (silêncio sai no teto de ~2,3 s).
+        //
+        // O teto conta janelas, não chamadas HTTP (N5). Cada janela pode virar até 1 + `maxRetries`
+        // chamadas (408, 429, 5xx, rede, timeout), e a primeira janela com contexto de cada modelo
+        // pode refazer o pedido uma vez em `json` quando o `verbose_json` é recusado. Contar essas
+        // chamadas no teto fecharia o microfone mais cedo justamente numa rede ruim, no meio de uma
+        // nota; o teto é o limite de duração da sessão, e o gasto por janela já é limitado pelas
+        // tentativas. Custo com o gpt-transcribe (~US$ 0,0011 por 15 s de áudio): 180 × (2 s + 1 s)
+        // ≈ US$ 0,04 quando cada janela vai uma vez só; o pior caso, com todas as 4 tentativas
+        // cobradas em todas as janelas, é ~4× isso, ≈ US$ 0,16.
+        const val DEFAULT_MAX_REQUESTS_PER_SESSION = 180
     }
 }

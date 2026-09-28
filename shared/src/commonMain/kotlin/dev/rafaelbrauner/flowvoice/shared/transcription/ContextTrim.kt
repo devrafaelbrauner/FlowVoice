@@ -22,12 +22,19 @@ object ContextTrim {
 
     enum class Strategy { Words, Segments, Text }
 
+    // `contextInTextMs`: quanto do contexto ainda pode estar em `text` depois do corte — é o que a
+    // deduplicação por texto (TranscriptOverlap) fica autorizada a remover. Com tempos, é só o trecho do
+    // contexto em que começa a primeira palavra que ficou (a palavra partida na fronteira), mais a folga;
+    // se ela começa depois do contexto, nada do que sobrou é repetição. Sem tempos, o contexto inteiro.
+    // Medido no S26 (2026-09-28, qwen/qwen3-asr-1.7b): o corte pelo tempo já tinha tirado o contexto, a
+    // deduplicação por texto ainda contava com 1 s dele e apagou a frase inteira que o usuário repetiu.
     data class Result(
         val text: String,
         val strategy: Strategy,
         val droppedMs: Long = 0L,
         val droppedWords: Int = 0,
-        val droppedSegments: Int = 0
+        val droppedSegments: Int = 0,
+        val contextInTextMs: Long = 0L
     )
 
     fun trim(
@@ -40,17 +47,20 @@ object ContextTrim {
         if (contextDurationMs <= 0L) return Result(text, Strategy.Text)
         val cutoffMs = (contextDurationMs - toleranceMs).coerceAtLeast(0L)
         return when {
-            payload.words.isNotEmpty() -> trimByWords(text, payload.words, cutoffMs)
-            payload.segments.isNotEmpty() -> trimBySegments(text, payload.segments, cutoffMs)
-            else -> Result(text, Strategy.Text)
+            payload.words.isNotEmpty() -> trimByWords(text, payload.words, cutoffMs, contextDurationMs, toleranceMs)
+            payload.segments.isNotEmpty() -> trimBySegments(text, payload.segments, cutoffMs, contextDurationMs, toleranceMs)
+            else -> Result(text, Strategy.Text, contextInTextMs = contextDurationMs)
         }
     }
 
-    private fun trimByWords(text: String, words: List<TimedUnit>, cutoffMs: Long): Result {
+    private fun contextLeft(firstKept: TimedUnit, contextDurationMs: Long, toleranceMs: Long): Long =
+        (contextDurationMs + toleranceMs - firstKept.startMs).coerceIn(0L, contextDurationMs)
+
+    private fun trimByWords(text: String, words: List<TimedUnit>, cutoffMs: Long, contextDurationMs: Long, toleranceMs: Long): Result {
         // Só o começo é contexto: `takeWhile` protege uma palavra do meio da janela que volte com
         // tempo estranho.
         val dropped = words.takeWhile { it.endMs <= cutoffMs }
-        if (dropped.isEmpty()) return Result(text, Strategy.Words)
+        if (dropped.isEmpty()) return Result(text, Strategy.Words, contextInTextMs = contextLeft(words.first(), contextDurationMs, toleranceMs))
         val droppedMs = dropped.last().endMs
         if (dropped.size == words.size) return Result("", Strategy.Words, droppedMs, dropped.size)
 
@@ -63,15 +73,27 @@ object ContextTrim {
         } else {
             words.drop(dropped.size).joinToString(" ") { it.text.trim() }
         }
-        return Result(kept.trim(), Strategy.Words, droppedMs, dropped.size)
+        return Result(
+            kept.trim(),
+            Strategy.Words,
+            droppedMs,
+            dropped.size,
+            contextInTextMs = contextLeft(words[dropped.size], contextDurationMs, toleranceMs)
+        )
     }
 
-    private fun trimBySegments(text: String, segments: List<TimedUnit>, cutoffMs: Long): Result {
+    private fun trimBySegments(text: String, segments: List<TimedUnit>, cutoffMs: Long, contextDurationMs: Long, toleranceMs: Long): Result {
         val dropped = segments.takeWhile { it.endMs <= cutoffMs }
-        if (dropped.isEmpty()) return Result(text, Strategy.Segments)
+        if (dropped.isEmpty()) return Result(text, Strategy.Segments, contextInTextMs = contextLeft(segments.first(), contextDurationMs, toleranceMs))
         val droppedMs = dropped.last().endMs
         val kept = segments.drop(dropped.size).joinToString(" ") { it.text.trim() }
-        return Result(kept.trim(), Strategy.Segments, droppedMs, droppedSegments = dropped.size)
+        return Result(
+            kept.trim(),
+            Strategy.Segments,
+            droppedMs,
+            droppedSegments = dropped.size,
+            contextInTextMs = segments.getOrNull(dropped.size)?.let { contextLeft(it, contextDurationMs, toleranceMs) } ?: 0L
+        )
     }
 
     private val SPACES = Regex("\\s+")

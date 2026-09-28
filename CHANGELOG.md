@@ -6,6 +6,538 @@ estão em [`docs/tasks/`](docs/tasks/README.md).
 
 ## [Unreleased]
 
+### Corrigido (ditado na nuvem ao vivo, 2026-09-28)
+
+- **Frase repetida depois de uma pausa sumia do campo** (S26, qwen/qwen3-asr-1.7b): a emenda entre
+  janelas (`TranscriptOverlap`) tirava do começo da janela o que repetia o fim do texto mesmo sem áudio
+  repetido, ou depois de o corte pelo tempo já ter tirado o contexto — "Amanhã de manhã vamos à praia." (30
+  caracteres, o que 1 s de contexto autoriza) voltou três vezes da nuvem e entrou uma. Agora sem contexto
+  nada é removido (P127), o contexto só vai quando o fim da janela anterior tem fala, e o corte pelo tempo
+  diz quanto do contexto sobrou (`contextInTextMs`, log `contextLeftMs`).
+- **Uma janela lenta segurava as seguintes:** as janelas iam à nuvem uma de cada vez; no S26 a janela 1
+  do nova-3 ficou presa e nada mais entrou até parar (1ª inserção aos 20 s). Agora até 3 em voo, e a
+  janela presa não impede que as seguintes entrem no prazo do fim.
+- **Tocar enquanto a revisão final está a caminho descartava o texto final** (S26 13:56: passada final de
+  150 caracteres descartada, ficou o rascunho de 88). O cartão "revisando…" não tem mais "Cancelar", o
+  cancelar da sessão direta depois do toque de parar é ignorado (`dictation_cancel_ignored`) e a bolha diz
+  "Revisando o ditado".
+- **Emenda e ordem no Samsung Notes** ("bem?Consegue", "tarde?\nPaciente", "coco?\n tomar", e "bem?
+  Paciente do leito doze.Consegue me ligar…", que fazia a passada final ser recusada com `campo_diferente`):
+  sondas de texto fixo no S26, sem nuvem, mostraram que o corpo de nota trata um `commitText` de 25
+  caracteres ou mais como colagem — aplica de ~60 a ~300 ms depois, tira o espaço da frente e do fim, põe
+  uma linha nova no fim e deixa o cursor depois dela, ignorando o `newCursorPosition` —, enquanto até 24
+  entra na hora e igual ao mandado (o título da nota, um EditText, aceita os longos). O trecho seguinte ia
+  para a linha de baixo, ou, se saía antes de o longo ser aplicado, entrava antes dele. Agora cada escrita
+  vai em pedaços de até 20 caracteres, cortados antes de um espaço (`CommitChunks`), com as mesmas travas.
+  No S26, 6 modelos × 2 ditados: nenhuma linha nova, frase colada ou recusa `campo_diferente`, no ao vivo e
+  no final, e `drift=0` sem linha nova no fim em todas as trocas (antes `drift=1` em 5 de 11 e linha nova no
+  fim em todas). O fim do ditado segue conferindo espaço e linha nova (`dictation_field_restored`) como rede.
+
+- **Todas as janelas ao vivo falharam e a passada final nem era tentada** (qwen sem resposta no S26): o
+  ditado acabava em "Nenhum trecho transcrito". Com trecho falho a passada final vai mesmo sem rascunho, e o
+  texto final entra no campo; áudio sem fala continua sem pedido.
+
+### Alterado
+
+- **Janela ao vivo da nuvem de ~2 s** (`SpeechEndpointing.LIVE`: alvo 2 s, pausa de 250 ms depois de 1 s),
+  no lugar de 4 s / 2 s / 450 ms: na réplica com 6 modelos a 1ª inserção caiu de 3,8–6,3 s para 1,4–3,5 s
+  depois da fala, com 10–13 inserções por ditado de ~22 s em vez de 6–8; números do S26 em
+  `TAREFAS_PENDENTES.md` (Nuvem ao vivo). Teto de janelas por sessão 90 → 180 (~6 min, como antes).
+- **Cartões:** saem "Nada transcrito." e "Digitado no campo · N palavras". Trecho falho só avisa quando o texto
+  que ficou é o ao vivo (revisão desligada, ou ela não veio e havia trecho falho); o aviso "Versão final da
+  nuvem não veio" sozinho sai, porque sem trecho falho nada faltou. O aviso é uma linha curta, sem cabeçalho
+  nem botões, que some em ~4 s ou com um toque.
+
+- **Padrão da passada final: só a transcrição do áudio inteiro, sem formatação**
+  (`openai/gpt-4o-mini-transcribe`), por escolha do usuário depois da medição: 0 erros que mudam sentido,
+  nota 95,8, 1,9 s no S26 e texto igual ao gabarito. O passo único com `thinkingmachines/inkling` (nota 97,7)
+  segue em Ajustes, mas deu 7,4 s e erro de servidor no S26. Custo estimado da passada final: US$ 0,0018/min.
+
+### Adicionado
+
+- **Motor Nuvem completo, com os modelos escolhidos.** Com a "Revisão final por IA" ligada, o motor Nuvem
+  segue digitando ao vivo as janelas curtas pelo modelo de transcrição escolhido e, ao parar, reenvia o
+  **áudio inteiro** à OpenRouter pela mesma passada final do motor do aparelho (`FinalPass`: pedaços de até
+  50 s cortados em silêncio, guarda, teto de 8 s, fallback) e troca o que foi digitado pelo caminho da
+  revisão final. Falhou, demorou ou foi recusado: fica o texto ao vivo, com o aviso "Versão final da nuvem
+  não veio: ficou o texto ao vivo". A revisão só de texto da nuvem (DP-nuvem) sai.
+- **"Formatação" em Ajustes** (novo, vale para a passada final dos dois motores): **um passo só** (o
+  padrão), em que um modelo de chat ouve o áudio e devolve o texto já formatado (`OpenRouterAudioChatClient`,
+  `thinkingmachines/inkling`, teto de 12 s), um modelo de chat depois da transcrição (`openai/gpt-4.1`,
+  conferido pela guarda) ou **sem formatação** (fica a transcrição do áudio inteiro). Sem transcrição para
+  conferir, o passo único só troca o rascunho se o texto tiver ao menos 35 % das palavras dele
+  (`FinalPass.draftOverlap`, log `final_pass_skipped reason=diverge`): na medição o `gpt-audio-mini`
+  respondeu "Claro, vou avisar assim que chegar." a "Me avisa quando chegar, por favor.". Os seletores de
+  transcrição e de formatação listam primeiro os modelos medidos, com a nota e o tempo de um ditado de
+  20 s (`CloudModels`); o pedido leva o raciocínio mínimo medido de cada modelo (`reasoning`). O log
+  `final_pass_done` ganhou `mode` (`dois_passos`, `so_transcricao`, `um_passo`), `model` e
+  `formattingModel`.
+- **Medição dos modelos da nuvem** (`docs/medicao-modelos-nuvem.md`, US$ 1,81): as 24 transcrições da
+  OpenRouter, 23 modelos de chat com áudio em passo único e 15 formatações sobre as duas melhores
+  transcrições, com erro de palavra sensível a acento, cedilha, hífen e caixa de nome próprio, trocas só de
+  acento, F1 de vírgula, fim de frase, "?" e ":", latência em série e custo; gabaritos com erro conhecido
+  corrigidos à parte (`tools/medicao/gabaritos-corrigidos.txt`).
+
+- **Duas passadas no motor do aparelho.** Com a "Revisão final por IA" ligada (o antigo "Revisão por
+  IA", mesma chave, sem ajuste novo), o Nemotron segue digitando o rascunho ao vivo e, ao parar, o
+  **áudio inteiro** do ditado vai uma vez à OpenRouter: transcrição (`openai/gpt-transcribe`, o modelo
+  da nuvem escolhido em Ajustes) → pontuação falada no texto inteiro → formatação (`anthropic/claude-haiku-4.5`)
+  → guarda contra a transcrição da nuvem → vocabulário do usuário → troca do rascunho pelo caminho da
+  revisão final (mesmas travas: sem pendente, contíguo, nunca depois de "Inserir aqui" noutro campo,
+  até 4000 caracteres, apagando só o que o campo confirma). Nota e barra de revisão recebem o texto
+  final. O áudio é o das janelas que o pipeline já guarda em memória (nunca em disco; cancelar o
+  descarta); acima de 50 s vai em pedaços cortados em fim de janela em silêncio, transcritos em
+  paralelo e emendados na ordem. Teto de 8 s (`FinalPass.TIMEOUT`). Sem chave, sem rede, erro, prazo
+  ou transcrição com menos de 60 % das palavras do rascunho: fica o rascunho, e o cartão avisa "Versão
+  final da nuvem não veio: ficou o texto do aparelho". Se só a formatação falhar ou for recusada, vale
+  a transcrição da nuvem como veio. Logs só com contagens e tempos (`final_pass_done`,
+  `final_pass_applied`, `final_pass_kept_draft`, `final_pass_skipped reason=…`). Medição em
+  `docs/medicao-duas-passadas.md` (US$ 0,20 gastos); os modelos e o custo mudaram com a medição dos modelos
+  da nuvem (acima).
+- **Concordância só pela terminação** na guarda (`ProofreadingGuard.wordEdit`): radical comum de 4+
+  letras e fim de até 3 letras (ou "-ou/-aram", "-eu/-eram"), ou um par da lista fechada de verbos
+  (é/são, foi/foram, está/estão…). Número, negação, hiper/hipo, "prednisona"→"prednisolona",
+  "amoxicilina"→"ampicilina", "direito"→"esquerdo", "normal"→"anormal" continuam recusados. A mistura
+  (P157) volta ao ditado as trocas de concordância da frase em que alguma palavra foi recusada.
+
+- **Pontuação falada**, portada do Intelligent Keyboard (`SpokenPunctuation`, com os casos de teste
+  de lá): "vírgula", "ponto final", "dois pontos" (também "2 pontos"), "ponto e vírgula",
+  "interrogação", "exclamação", "reticências", aspas, parênteses, "nova linha", "novo parágrafo"
+  e, para listas, "novo item"/"próximo item" (linha nova com "- "). Aplicada a cada trecho fechado,
+  na nuvem e no motor do aparelho, antes do vocabulário do usuário; um "vírgula" dito sozinho tira
+  o ponto que o modelo pôs no trecho anterior pela regra da P144. Na captura do usuário no S26
+  (2026-09-28) "ponto final Nova Linha" saía escrito. Não conferido no aparelho com fala.
+
+### Corrigido
+
+- **"Nova linha" dito sozinho depois de uma pausa sumia.** O pedaço virava só "\n", e a emenda
+  (`TranscriptOverlap`, `LivePreviewAssembler`) tirava as pontas com `trim()` e o descartava como
+  vazio: no S26 (2026-09-28) o pedaço tinha 10 caracteres e nada chegou ao campo. Agora só espaço sai
+  das pontas, no campo e na nota.
+- **Comando partido pelo corte no teto saía por extenso** ("nova linha: amanhã…", S26 2026-09-28).
+  No motor do aparelho, o corte sem pausa segura para o pedaço seguinte as palavras que começam um
+  comando sem terminá-lo ("nova", "ponto de", "dois"). Se não era comando, a palavra só entra um pedaço
+  depois.
+
+### Alterado
+
+- **Modelos padrão** (medição de modelos da nuvem, regra: nenhum erro que muda sentido — afebril/febril,
+  número, negação, remédio trocado —, depois nota de ortografia e pontuação, latência e custo): passada final
+  num passo só com `thinkingmachines/inkling` (0 erros de sentido, nota 97,7, 4,2 s num ditado de 20 s), no
+  lugar de `openai/gpt-transcribe` + `anthropic/claude-haiku-4.5`; transcrição ao vivo
+  `openai/gpt-4o-mini-transcribe` (0 erros, nota 95,8, 1,6 s) no lugar do `openai/gpt-transcribe` (1 erro:
+  "dipirona" → "de pirona"); formatação por LLM, quando escolhida, `openai/gpt-4.1`. Quem escolheu um modelo em
+  Ajustes continua com ele. Passada final ≈ US$ 0,0049 por minuto (antes US$ 0,0073). Estimativa da tela da
+  chave: ≈ R$ 0,70 a 2,90 por hora na nuvem (o teto com a revisão final) e ≈ R$ 1,60 a 1,90 no motor do
+  aparelho com a revisão.
+- **Textos:** Ajustes ("Modelo de transcrição", "Formatação", motor Nuvem, revisão final), README, política
+  de privacidade e "O que o FlowVoice vê": na nuvem com a revisão ligada o áudio do ditado inteiro vai de
+  novo no fim, e o texto só vai a um modelo de formatação quando há um.
+
+- **Formatação:** prompt novo (pontuação, vírgulas, maiúsculas, acentos, concordância só pela terminação,
+  listas só onde houve comando), temperatura 0 e modelo padrão `anthropic/claude-haiku-4.5` no lugar do
+  `openai/gpt-4o-mini`, também na revisão final da nuvem. Estimativa de custo da tela da chave: ≈ R$ 1,90
+  a 3,30 por hora na nuvem, e uma linha nova para o motor do aparelho com a revisão (≈ R$ 2,40 a 2,80).
+- **Textos:** Ajustes, "O que o FlowVoice vê", tela da chave, motor de transcrição e política de
+  privacidade dizem que, com a revisão final ligada, o áudio vai à OpenRouter no fim mesmo no motor do
+  aparelho.
+
+- **Motor do aparelho: o texto entra no campo a cada ~1,2 s**, e não mais só nas pausas ou a
+  cada ~4 s. Cada corte ali só fecha o texto do fluxo contínuo e não custa requisição, então a
+  sessão local usa teto de 1,2 s e pausa a partir de 0,8 s de áudio
+  (`DictationPipeline.LOCAL_WINDOW_TARGET_MS`, `LOCAL_MIN_BUFFERED_MS`); a nuvem segue com 4 s e
+  2 s. Continua fechando só palavras inteiras e segurando começo de comando falado. Não medido
+  com fala no S26.
+
+### Conferido no S26 (motor Nuvem com modelos, release, 2026-09-28 tarde)
+
+Frases de `audio-pessoal` tocadas pelo alto-falante do Mac, bolha → Samsung Notes (notas novas), motor Nuvem,
+revisão final ligada (capturas e logs em `/tmp/flowvoice-nuvem/`):
+
+- Ajustes lista os modelos medidos primeiro com "N erros de sentido · nota · tempo"; padrões
+  `gpt-4o-mini-transcribe` ao vivo e "Um passo só: thinkingmachines/inkling" (capturas 01, 02, 05).
+- 01+11+12+13 (26,3 s), padrões: o passo único devolveu erro do provedor (`final_pass_kept_draft
+  kind=server reason=erro_transcricao`, 8 s) e ficou o texto ao vivo, com aviso. No Mac, na mesma hora, o
+  inkling passou a raciocinar por padrão (11–20 s numa frase), a devolver vazio e 429; o app agora o pede com
+  raciocínio desligado.
+- Contínua de 20 s (26,8 s), padrões, depois disso: `final_pass_done mode=um_passo transcribeMs=7362` →
+  "Paciente do leito 12 segue com dispneia, pedida uma radiografia de tórax. Ela está eupneica, sem sinais de
+  desconforto respiratório. Hemograma veio normal, só a glicemia um pouco alterada. A tomografia mostrou uma
+  broncopneumonia à direita, solicitada transferência para a UTI para o paciente que estava na enfermaria."
+  — contra o gabarito corrigido: "pedida" (pedi), "solicitada" (Solicitei), sem o "O" de "O hemograma"; nenhum
+  erro que muda sentido; 7,4 s do toque de parar ao texto final (4,2 s no Mac pela manhã).
+- Trocada a formatação para "Sem formatação" em Ajustes, 01+11+12+13 de novo: `mode=so_transcricao
+  transcribeMs=1923` → "Bom dia, tudo bem? Consegue me ligar mais tarde? Paciente do leito 12 segue com
+  dispneia. Pedi uma radiografia de tórax. Aumentei a dipirona para 6 em 6 horas. Ela está eupneica, sem
+  sinais de desconforto respiratório." — igual ao gabarito corrigido, salvo algarismos e um ponto no lugar de
+  vírgula.
+- Ajustes devolvidos como estavam: motor Nuvem, `x-ai/grok-stt-1.0`, revisão final ligada, formatação no
+  padrão (passo único, inkling).
+- **Não conferido:** fala ao vivo, rede móvel, motor do aparelho com os novos modelos, barra de revisão e notas.
+
+### Conferido no S26 (duas passadas, release, 2026-09-28)
+
+Frases de `audio-pessoal` e ditados longos tocados pelo alto-falante do Mac, bolha → Samsung Notes, motor
+do aparelho, revisão final ligada (capturas em `/tmp/flowvoice-duas-passadas/`):
+
+- 01+11+12+13 com pausas (26,4 s): rascunho "Bom dia tudo bem consegue me ligar mais tarde paciente do
+  leito doze segue com é pedi uma radiografia de toques aumentei de pirana…" → final "Bom dia, tudo bem?
+  Consegue me ligar mais tarde? Paciente do leito 12 segue com dispneia, pedi uma radiografia de tórax.
+  Aumentei a dipirona para 6 em 6 horas. Ela está eupneica, sem sinais de desconforto respiratório." em
+  4,3 s do toque de parar (transcrição 2,4 s + formatação 1,7 s).
+- Contínua de 20 s (26,7 s): igual ao gabarito salvo o que o gabarito difere da fala; 3,5 s. Os
+  espaços comidos e a quebra de parágrafo do Samsung Notes no rascunho ("elaestá") somem na troca.
+- Conversa com pausas (65 s) e texto 3 (55,5 s): **dois pedaços** cortados em pausa (45,7 + 19,3 s;
+  44,2 + 11,3 s), transcritos em paralelo; 4,4 s e 4,6 s até o texto final.
+- Modo avião antes de parar: 4 tentativas com `kind=network`, `final_pass_skipped reason=erro_transcricao`
+  ~3 s depois, rascunho intacto e cartão "Versão final da nuvem não veio: ficou o texto do aparelho".
+- **Não conferido:** fala ao vivo, rede móvel lenta, notas do FlowVoice e barra de revisão no aparelho
+  (só JVM), outros apps além do Samsung Notes.
+
+### Removido
+
+- **Cartão da prévia no ditado normal.** Ele cobria a linha em que se ditava e repetia o que
+  já estava no campo (capturas do usuário no S26, 2026-09-28). Agora só abre para pendente depois
+  de troca de app, aviso, "revisando…" ou bolha oculta; sem "Cancelar" no ditado normal.
+- **Cartão "Digitado no campo · N palavras" depois do ditado.** O texto já está no campo; o
+  cartão só aparece quando o ditado termina com aviso (trecho que falhou, captura interrompida,
+  teto), que é o único lugar onde o aviso é mostrado.
+
+## [0.7.0] - 2026-09-28
+
+Motor de transcrição no aparelho: NVIDIA Nemotron 3.5 ASR Streaming 0.6B (blocos de 560 ms,
+int8) pelo sherpa-onnx 1.13.8, com o texto aparecendo enquanto se fala. É uma alternativa à
+nuvem (OpenRouter), escolhida em Ajustes; o padrão continua sendo a nuvem. Conferido no S26
+Ultra (Android 16) em 2026-09-28 com frases gravadas tocadas pelo alto-falante do Mac ao lado
+do telefone, não com fala ao vivo.
+
+### Adicionado
+
+- **"Motor de transcrição" em Ajustes:** "No aparelho (Nemotron, ao vivo)" ou "Nuvem
+  (OpenRouter)". O motor do ditado sai de uma regra pura (`TranscriptionEngineSelection`): o
+  local só vale escolhido, com o modelo inteiro no aparelho e no Android; qualquer outro caso é
+  a nuvem, como antes. O motor fica fixo durante o ditado.
+- **Modelo baixado no app:** 475 MB do GitHub (release `asr-models` do k2-fsa/sherpa-onnx), com
+  progresso, conferência de tamanho e SHA-256, espaço livre conferido antes (1,2 GB durante a
+  instalação), extração em streaming do `.tar.bz2` (só os quatro arquivos, guarda contra path
+  traversal, tamanhos exatos, troca atômica da pasta), cancelar e apagar. Fica em `filesDir`
+  (682 MB), fora do backup e da transferência entre aparelhos. No S26: download em 73 s, SHA-256
+  ok, instalado em 116 s no total.
+- **Texto ao vivo:** o que o motor já reconheceu e ainda não fechou aparece como provisório
+  (sublinhado pontilhado) no cartão da bolha, na barra de revisão e na nota. **Nunca é digitado
+  em outro app:** só o pedaço fechado segue o caminho de sempre — digitação direta com as travas
+  de destino e a conferência do campo, PENDENTE na troca de foco, barra com Inserir e nota.
+- **Chave opcional com o motor local:** o ditado começa sem chave. O passo 3 do onboarding virou
+  "Chave OpenRouter ou modelo no aparelho", e qualquer um dos dois basta; a tela da chave oferece
+  "Baixar o modelo (475 MB)". A revisão por IA continua precisando da chave e é pulada sem ela
+  (`dictation_proofread_skipped reason=sem_chave`). A estimativa de custo fica só na parte da
+  nuvem.
+
+### Como o texto é fechado (decisões)
+
+- **Um fluxo só por ditado.** No teclado, um fluxo novo por trecho perdia palavras quando o
+  corte caía dentro delas. Os cortes do FlowVoice continuam os mesmos (pausa, teto de ~4 s, fim);
+  cada corte fecha o texto reconhecido desde o anterior.
+- **Corte numa pausa ou no fim:** o motor recebe 0,8 s de silêncio de cauda e tudo o que foi dito
+  sai. **Corte no teto, com a fala em curso:** fecham só as palavras inteiras — até antes do último
+  token que abre palavra —, e a última palavra, que ainda pode crescer, fica para o pedaço
+  seguinte. Nenhum corte parte palavra.
+- **Pedaço que continua a palavra anterior entra colado.** Com 0,6 s de cauda, no S26, o "s" de
+  "minutos" só saiu depois do fechamento e virou "minuto s"; a cauda passou a 0,8 s e o pedaço
+  cujo primeiro token não abre palavra (ou que começa com pontuação, como o "?" de "tarde?")
+  entra sem espaço na digitação, na revisão, na nota e na prévia.
+- **Sem deduplicação na emenda:** os pedaços do fluxo contínuo não se sobrepõem, então a emenda
+  por sobreposição da nuvem não se aplica — ela apagaria a palavra que o usuário repetiu.
+- **Sem teto de requisições nem travas de áudio vazio** (nada disso custa aqui); no lugar, o
+  ditado local para em **10 min** (`LOCAL_SESSION_CAP`), com o texto até ali e o aviso "Ditado
+  encerrado no limite de 10 min".
+- **Falha do motor no meio do ditado:** o que já foi reconhecido — inclusive o provisório que
+  estava na tela — é entregue, o ditado termina com o aviso "Motor no aparelho falhou aos M:SS:
+  texto só até ali", e o FlowVoice **não** troca para a nuvem sozinho, mesmo com chave.
+- **Idioma `pt-BR`** por fluxo (no modelo, `pt` é pt-PT), só `greedy_search` (sem hotwords).
+- **Reconhecedor por processo:** carrega uma vez (1,4–1,7 s no S26), é contado por uso, sai da
+  memória depois de 5 min sem ditado ou nos pedidos urgentes de `onTrimMemory`. O áudio que chega
+  durante a carga espera na fila e é transcrito.
+
+### Conferido no S26 (release 0.7.0, 2026-09-28)
+
+- Instalação do modelo pela tela da chave, no onboarding, sem chave; o passo 3 ficou ok.
+- Ditado pelo microfone do Início e pela bolha no Samsung Notes, e em notas do FlowVoice, com as
+  frases 01–20 de `intelligent-keyboard/build/voz/audio-pessoal` e uma frase contínua de 20 s
+  (cinco frases emendadas, sem pausa) para forçar cortes no teto. Carga do modelo 1421–1670 ms
+  (0 ms com o reconhecedor já carregado); fechamento com cauda 48–142 ms; tempo do motor por trecho
+  de 11 a 22 % do áudio do trecho, fechamento incluído; intervalo médio entre mudanças do
+  provisório de 0,84 a 1,19 s por sessão, pausas incluídas. Nenhuma queda. Em modo avião, uma nota
+  foi ditada inteira.
+- Qualidade do Nemotron nas frases de trabalho ruim como no teclado ("dispneia" → "Spneia",
+  "dipirona" → "de pirona"); o texto de cada teste, comparado às referências, está em
+  `TAREFAS_PENDENTES.md` (seção do motor no aparelho).
+- **Não conferido:** fala ao vivo (só alto-falante), consumo de bateria, memória além de uma
+  leitura (PSS 1,47 GB e RSS 467 MB com o modelo carregado e ocioso), outros apps além do
+  Samsung Notes.
+
+### Corrigido
+
+- **Emenda da nuvem não quebra mais com janela que só repete uma palavra (LOC-overlap).**
+  `TranscriptOverlap.match("… muito muito obrigado", "muito")` indexava além da janela
+  (`IndexOutOfBoundsException`). Quando a janela inteira já estava no texto antes do último pedaço,
+  a emenda agora não acrescenta nada.
+
+### Build
+
+- sherpa-onnx 1.13.8 pelo JitPack (`com.github.k2-fsa.sherpa-onnx:sherpa-onnx:v1.13.8`), o mesmo
+  arquivo do release oficial do GitHub (SHA-256 `633c2432…bd96`, conferido byte a byte), preso em
+  `gradle/verification-metadata.xml` só para esse grupo; commons-compress 1.28.0.
+- APK só com `arm64-v8a` (S26 e os emuladores arm64 deste Mac); as APIs C/C++ do AAR ficam de
+  fora. APK de release: 11,46 MB (0.6.0) → 39,64 MB (+28,2 MB, quase tudo `libonnxruntime.so`).
+- Regra de keep do R8 para `com.k2fsa.sherpa.onnx.**` como consumer rule do `:shared` (o release
+  segue sem minify).
+- versionCode 17.
+
+## [0.6.0] - 2026-09-27
+
+Primeiro uso sem abandono e preparação para o teste interno do Google Play. Um
+smoke num emulador Android 16 (AVD `flowvoice_api36`, 2026-09-27) passou pelo
+fluxo novo e achou os dois defeitos de P163 e P164, corrigidos e conferidos no mesmo
+emulador. Nada desta versão foi conferido num aparelho real.
+
+### Aviso de malware (P161): causa medida no aparelho
+
+- **O app acusado não era o FlowVoice.** No S26 (2026-09-27), a "Proteção do aplicativo" da
+  Samsung (McAfee) listava como malware o "Intelligent Keyboard" `…latin.benchmark`, um build
+  de depuração de outro projeto assinado com a chave pública do AOSP; o Play Protect não
+  acusava nada. A hipótese da 0.5.1 (FlowVoice debug com acessibilidade) não se confirmou. O
+  release do FlowVoice passou pela verificação do Play Protect na instalação
+  (`VERIFICATION_ALLOW`), e a nova verificação da Samsung, com o teclado trocado, deu "Não há
+  nenhuma ameaça".
+
+### Distribuição
+
+- **`compileSdk` e `targetSdk` 36**, exigência do Play para apps novos desde
+  2026-08-31.
+- **CI gera o `.aab` assinado** junto do APK de release; `:androidApp:bundleRelease`
+  faz o mesmo localmente.
+- **`docs/DISTRIBUICAO_PLAY.md`:** checklist do teste interno (conta, Play App
+  Signing, formulários, testadores).
+- **`docs/POLITICA_PRIVACIDADE.md`:** rascunho da política de privacidade, ainda com
+  campos `[PREENCHER]` e sem URL publicada.
+
+### Onboarding (P162)
+
+- **"O que o FlowVoice vê":** tocar no passo 1 abre, antes do Android, uma tela que
+  diz o que a acessibilidade acessa e para quê: o nome do app na tela; no ditado,
+  o campo com o cursor; a posição de campo, cursor e teclado. Ela diz também o que
+  o serviço não faz: o texto lido fica no celular, ele não escreve em campo marcado
+  como senha e não navega por você. Avisa que o Android vai falar em "controle
+  total", tem o link da política de privacidade e só abre a Acessibilidade com o
+  toque em "Entendi, abrir Acessibilidade". É a divulgação em destaque que o Google
+  Play exige de quem usa AccessibilityService sem ser ferramenta de acessibilidade
+  ([política](https://support.google.com/googleplay/android-developer/answer/10964491)).
+  O botão "Abrir configurações de acessibilidade" do Diagnóstico passa pela mesma
+  tela.
+- **Configurações restritas em passos:** para quem instalou fora de loja no Android
+  13+, o aviso virou três passos numerados que avisam antes o "acesso negado" do
+  Android. "Abrir detalhes do app" virou botão.
+- **Tela própria da chave (passo 3):** explica a OpenRouter, abre openrouter.ai/keys
+  e informa os créditos pré-pagos no cartão (mínimo US$ 5, ≈ R$ 32 com taxa e IOF).
+  Mostra uma **estimativa** de ≈ R$ 1,90 a 2,70 por hora de ditado (set/2026), feita
+  com os preços da OpenRouter de 2026-09-27, a taxa de 5,5% (mínimo US$ 0,80), o IOF
+  de 3,5% e a PTAX de 2026-09-25 (5,1991), e não medida em uso. As premissas ficam
+  em `DictationCostEstimate`. "Validar e salvar" é o mesmo código de Ajustes
+  (`OpenRouterKeyEntry`). "Configurar chave" do Início e das Notas abre essa tela.
+- **Progresso persistido:** o onboarding conclui sozinho quando os três passos ficam
+  ok, e "Pular por enquanto" fica guardado. O botão escuro leva ao próximo passo
+  pendente e pular virou ação secundária.
+- **Textos honestos:** "Três passos…"; o microfone "grava só durante o ditado"; a
+  chave "só vai à OpenRouter, nunca é sincronizada"; o login sem Client ID diz
+  "Começar" e não promete sincronização; o rodapé diz "notas e dicionário ficam
+  neste celular"; o Início diz "Toque para ditar".
+
+### Adicionado
+
+- **Link para a política de privacidade nos Ajustes:** nova entrada "Política de privacidade — O que o FlowVoice envia, guarda e lê", logo abaixo de "Diagnóstico técnico". Abre `https://github.com/devrafaelbrauner/FlowVoice/blob/main/docs/POLITICA_PRIVACIDADE.md` no navegador. A URL fica numa constante única (`AppLinks.PRIVACY_POLICY_URL`), que o onboarding também pode usar. O link só funciona depois que `docs/POLITICA_PRIVACIDADE.md` chegar à `main`, e a política ainda tem campos `[PREENCHER]`.
+
+
+### Corrigido
+
+- **Botão flutuante liga de primeira (R5b):** ao ligar "Botão flutuante" sem a permissão "sobrepor a outros apps", o FlowVoice guarda o pedido. Na volta da tela do sistema, se a permissão foi dada, o fluxo continua sozinho: pede notificações (se faltar) e liga a bolha. Se não foi dada, mantém o aviso "Autorize “sobrepor a outros apps” e ligue de novo.". O microfone do Início faz o mesmo: o ditado começa na volta, sem outro toque.
+  - O app já abria `ACTION_MANAGE_OVERLAY_PERMISSION` com `package:`. A lista genérica de apps não é defeito do emulador nem do fabricante: a partir do **Android 11** o sistema ignora o pacote e sempre mostra a lista de apps ([documentação](https://developer.android.com/about/versions/11/privacy/permissions)). Do Android 6 ao 10 a página abre direto no FlowVoice. Por isso a mensagem diz "Ative “sobrepor a outros apps” para o FlowVoice".
+- **Sem chave, aviso que fica e leva à configuração (R5c):** o microfone do Início, "Nova nota" e "Ditar nesta nota" conferem a chave OpenRouter antes de começar. Sem chave, nada de ditado nem de nota "Sem título" vazia. Aparece o aviso fixo "Falta a chave OpenRouter", com **Configurar chave** (abre a tela própria da chave pelo `onOpenKeySetup` do `FlowVoiceRoot`) e **Agora não**. O aviso some quando a chave é salva ou quando o usuário dispensa. Pela bolha, o cartão de falha continua como antes.
+- **A bolha não cobre mais o próprio app (R5d):** com qualquer tela do FlowVoice aberta, a bolha ociosa fica escondida; o serviço segue ativo e o interruptor continua ligado. Ela volta quando o app sai da frente.
+  - **Decisão:** só a bolha ociosa some. Isso vale para o modo "só bolha", inclusive durante ditados de nota ou ditados que não são da bolha.
+  - Com a prévia de um ditado direto na tela, a bolha fica, porque ela é o "parar" desse ditado (P159).
+  - Com a barra de ditado, nada muda: a barra já substitui a bolha.
+  - Assim, nenhum ditado da bolha é cancelado nem perde os controles. "Ocultar botão" e as regras P40/P159/P160 continuam iguais.
+  - Ao ligar o botão nos Ajustes, a mensagem agora avisa que ele aparece quando você sai do FlowVoice.
+- **P163: a validação da chave aceitava qualquer chave.** Ela consultava o
+  `/api/v1/models`, que responde 200 com chave falsa e até sem chave (curl,
+  2026-09-27). No smoke, `sk-or-v1-FAKE-0000000000000000` foi salva e o passo 3 ficou
+  "ok". Agora a validação vai ao `/api/v1/key`, que devolve 401 para chave inválida ou
+  ausente ([documentação](https://openrouter.ai/docs/api/api-reference/api-keys/get-current-key)).
+  A classificação não mudou: 401/403 recusa, e rede ou 5xx dá "não foi possível
+  validar agora", sem apagar a chave salva. **Conferido no emulador:** a mesma chave
+  falsa agora dá "A OpenRouter recusou esta chave." e não é salva. O caminho de chave
+  válida (200) segue a documentação e os testes, mas não foi exercido, por falta de uma
+  chave real. A lista de modelos continua no `/api/v1/models`, que é público; o
+  `INVALID_KEY` dela só aparece se a OpenRouter passar a autenticar a lista.
+- **P163: a mensagem de formato diz a regra que falhou.** `sk-or-v1-FAKE-000` recebia
+  "Formato inválido: a chave começa com sk- e não tem espaços.", sendo que ela começa
+  com sk-. Agora a mensagem é "Chave curta demais: tem 17 caracteres, e uma chave da
+  OpenRouter tem pelo menos 20. Copie a chave inteira." (e há mensagens próprias para
+  prefixo e espaços). O Windows usa as mesmas mensagens.
+- **P164: a bolha escondida reaparecia sobre o FlowVoice.** Depois de sair para o
+  launcher e voltar ao app, a bolha continuava desenhada sobre o Início e o
+  Diagnóstico, mesmo 10 s depois. O WindowManager dava a janela como 0×0
+  (`frame=[850,749][850,749]`), mas o SurfaceFlinger seguia compondo o último quadro
+  (`displayFrame=[850 749 1049 948]`). Esvaziar o conteúdo não bastava: agora a
+  janela do overlay fica `GONE` e com `FLAG_NOT_TOUCHABLE` sempre que não teria nada a
+  mostrar. **Conferido no emulador:** a sequência do smoke (repetida duas vezes e
+  também com o app em paisagem) deixa a janela `mViewVisibility=0x8`, fora das camadas
+  compostas e da lista de janelas de toque. A bolha volta no launcher, e numa prévia de
+  ditado direto (Mensagens) a bolha continua visível e encerra o ditado ao toque.
+
+### Corrigido na revisão de código (REV)
+
+Revisão do projeto inteiro em duas partes: `shared/` e `desktopApp/` (REV1), depois
+`androidApp/` e o CI (REV2). Cada achado corrigido tem um teste de regressão que falhava
+antes da correção. Nada desta seção foi conferido num aparelho real; o que passou pelo
+emulador está marcado.
+
+**Texto que se perdia ou mudava de sentido**
+
+- **REV1-R1: uma janela alta que volta vazia não cala mais o resto do ditado.** Uma
+  tosse ou um esbarrão devolvidos sem texto ensinavam à memória da P153 que aquele
+  volume era silêncio, e toda fala mais baixa deixava de ser enviada, sem aviso. Agora
+  a memória só aprende com janelas de até 2× o limiar de fala da sessão, e a janela alta
+  sem texto vira trecho falho ("voz sem texto"), com o aviso de texto incompleto.
+- **REV1-R2: a revisão por IA não aceita mais trocas que mudam o sentido clínico:**
+  hipertensão→hipotensão (hiper/hipo), prefixo de negação posto ou tirado
+  (normal→anormal, regular→irregular, sintomático→assintomático), remédio trocado por
+  outro parecido (prednisona→prednisolona, amoxicilina→ampicilina), número por extenso
+  trocado (sessenta→setenta), "?" novo e pontuação nova logo depois de não, nem, nega
+  ou sem. A regra de contraste no começo da palavra (P156) virou um utilitário comum
+  (`OnsetContrast`). A P149 (tá→está, pontuação) continua valendo.
+- **REV1-R3: microfone que cai no meio do ditado não leva mais o texto junto.** A falha
+  de captura com o ditado em curso é tratada como parada antecipada, igual à chave
+  recusada (P111): o áudio guardado vira a última janela, as janelas na rede são
+  esperadas, e o texto chega à revisão, à nota ou ao campo com o aviso "Captura do
+  microfone interrompida aos m:ss: texto só até ali". Sem texto nenhum, falha como antes.
+- **REV1-Y1:** uma resposta 200 com erro do provedor, ou sem `text`, é falha da janela
+  (repetida se o código for 5xx), não um trecho vazio.
+- **REV1-Y2: depois de "Inserir aqui" noutro campo, a revisão final não reescreve mais
+  o campo.** Num campo que não se deixa ler, ela apagava o texto do usuário e escrevia
+  ali o trecho do primeiro campo.
+- **REV1-Y3:** o fim da última palavra não se perde no toque de parar. O quadro que o
+  parar destrava entra na última janela, e o resto do buffer do microfone é lido antes
+  de fechá-lo (não medido no S26).
+- **REV1-Y4:** a conferência do pedaço digitado se ancora no que o próprio app escreveu
+  e não apaga nem duplica o pedaço anterior quando o editor aplica um pedaço atrasado.
+- **REV2-Y1 e parte da P86: o FlowVoice só lê o texto antes do cursor depois de
+  conferir** que o foco continua no app e no campo do ditado, que o campo não é o do
+  próprio FlowVoice (chave OpenRouter) e que não é campo de senha. O fallback por
+  acessibilidade também recusa senha pelo tipo do input (`VISIBLE_PASSWORD`,
+  `WEB_PASSWORD`) antes de ler o texto. A divulgação diz agora "não lê nem escreve em
+  campos marcados como senha".
+- **REV2-Y5:** a reescrita atômica do campo (P142) só roda num EditText simples cujo
+  texto aparece por inteiro para o FlowVoice. Em editores ricos, web ou expostos em
+  parte, o campo fica como está e a divergência vai só para o log.
+- **REV1-N2:** o vocabulário do usuário é reaplicado depois da revisão final do ditado
+  direto, como já era na revisão antes de inserir.
+
+**Dados guardados**
+
+- **REV1-Y7:** sincronizar não carimba mais todas as notas com a hora do sync; a edição
+  mais nova de outro aparelho não se perde. A nota apagada vira lápide sem texto
+  (`deletedAtMs`) e não volta pelo sync. Notas gravadas antes continuam sendo lidas.
+- **REV1-Y8: uma nota ilegível no armazenamento não apaga mais as outras.** Cada nota é
+  lida sozinha, o texto original vai para um backup (`notes_json.bak`) e, se nada é
+  legível, o app não grava por cima. Preferências ilegíveis também vão para backup antes
+  de voltar ao padrão.
+- **REV1-N3:** o dicionário guarda a ordem de aprovação (lista JSON). Os termos já
+  aprovados são migrados em ordem alfabética, porque o formato antigo não tinha ordem.
+  **Conferido no emulador Android 16:** atualizando por `adb install -r` sobre a 0.6.0
+  anterior (`5a7fc54`, mesma chave), os três termos aprovados continuaram na lista, e
+  continuaram depois de um force-stop. As notas não puderam ser exercidas: sem chave, não
+  há como criar nota em nenhuma das duas versões.
+- **REV1-N4:** notas novas têm id UUID. **REV1-N9:** no máximo 100 sugestões pendentes
+  no dicionário.
+- **REV2-Y4:** um termo aprovado pode ser removido na tela do Dicionário e deixa de ser
+  aplicado. **Conferido no emulador:** "Remover dipirona do dicionário" tirou o termo, e
+  a remoção continuou depois de um force-stop.
+- **REV2-Y6:** editar uma nota não regrava mais todas as notas a cada tecla na thread
+  principal. A gravação sai 500 ms depois da última tecla, em segundo plano, e na hora
+  quando a tela pausa.
+
+**Bolha, Início e rede**
+
+- **REV2-R1: com "Ocultar botão" no ditado direto, o cartão da prévia voltou a
+  responder.** A correção da P164 punha `FLAG_NOT_TOUCHABLE` em todas as janelas do
+  overlay, inclusive no cartão com Encerrar, Cancelar e Inserir aqui. Agora só a janela
+  da bolha escondida deixa de receber toques (`OverlayWindowFlags`). **Conferido no
+  emulador** só o lado da bolha: com o app aberto, depois de voltar do launcher e depois
+  de girar, a janela da bolha fica `mViewVisibility=0x8` com `NOT_TOUCHABLE`, e no
+  launcher volta visível. O cartão tocável precisa de um ditado real, sem chave no
+  emulador.
+- **REV2-Y2:** o microfone do Início não religa mais para sempre a bolha que o usuário
+  desligou. O overlay aparece só para aquele ditado, e o interruptor dos Ajustes fica
+  como estava.
+- **REV2-Y3:** o app de volta do microfone do Início vence 10 min depois que o usuário
+  sai dele. Sem destino recente, o FlowVoice só vai para trás e o primeiro trecho espera
+  "Inserir aqui". Os dois caminhos da P130 (Início → ícone e Recentes) continuam.
+- **REV1-Y5: o fim do ditado tem prazo de 15 s.** Com a rede presa, o "Transcrevendo"
+  durava minutos. Vencido o prazo, o que voltou é entregue e os trechos sem resposta
+  entram no aviso. **REV1-N8:** o teto de 5 s da revisão por IA (P152) vale também antes
+  de inserir e nas notas.
+- **REV1-Y9:** um 429 ou 5xx do `/api/v1/models` é falha, não lista vazia, e nem falha
+  nem lista vazia ficam 24 h em cache.
+- **REV1-Y6: o desktop avisa do trecho que falhou** ("Trecho X de Y falhou") e encerra a
+  gravação no teto de requisições ou com a chave recusada, como o Android. A tela do
+  desktop não foi aberta.
+- **REV1-N1, N6, N7, N11 e P53:** o texto ao vivo tira a repetição do contexto como o
+  final; um 400/422 no pedido com tempos só marca o modelo como "sem tempos" se o mesmo
+  áudio passar em `json`; cancelar o ditado não derruba o benchmark; a emenda exata entre
+  janelas não apaga mais do que 1 s de contexto comporta; o controle da transcrição
+  ficou seguro entre threads.
+- **REV2-Y7: CI** com token só de leitura (`permissions: contents: read`), actions
+  fixadas por SHA e keystore apagado mesmo quando o build de release falha.
+- **REV2, pequenos:** cursor que não se reposiciona no meio do texto desfaz a escrita e
+  deixa o trecho pendente; a notificação reabre a tarefa existente; o seletor de
+  compartilhamento não vira destino do Início; o Diagnóstico exporta o modelo escolhido;
+  a descrição do serviço nos Ajustes do Android diz o que é lido; os Ajustes não
+  sobrescrevem preferências com cópia velha; o release não consulta o marcador de log;
+  `storeFile` relativo resolve a partir da raiz do repositório, como no README.
+- **REV1-N5 e N10:** o comentário do teto de requisições diz que ele conta janelas, não
+  chamadas (pior caso com as tentativas ≈ US$ 0,14 por sessão); o pacote desktop passou
+  a 0.6.0.
+
+### Removido
+
+- **Estatísticas do Início (R5e):** os cartões "Latência média", "Ditados hoje" e "Gasto hoje" sempre mostravam "—" e saíram, junto com o componente `StatCard`, até existir fonte persistida (P59).
+
+## [0.5.1] - 2026-09-27
+
+Release assinado e ícone do app, contra o aviso de malware no S26 (P161).
+
+### Security
+
+- P161: **o app instalado passa a ser o release assinado com chave própria.** O
+  APK debug que o README e o CI produziam é depurável e assinado pela chave
+  genérica `CN=Android Debug` (no CI, certificado novo a cada build). Somado a
+  acessibilidade, sobreposição e microfone, é a causa provável do aviso de
+  malware no S26 — hipótese: o aviso não foi observado no aparelho, nem qual
+  proteção o deu. O release lê a chave de `keystore.properties` (fora do git) ou
+  das variáveis `FLOWVOICE_*`, não é depurável e não leva o receiver de teste do
+  adb. Sem chave, sai sem assinatura como antes.
+- P161 / SEG-2: o CI não publica mais o APK debug; em `main`, com os segredos da
+  chave, publica `flowvoice-release` (APK assinado + `.sha256`) e confere a
+  assinatura com `apksigner`.
+
+### Added
+
+- P19: **ícone do app**, provisório: microfone laranja sobre fundo escuro, com as
+  cores do tema. Ícone adaptativo no Android 8+ e o mesmo desenho num círculo no
+  Android 7.
+
 ### Fixed
 
 - P149: **dois-pontos ou aspas na revisão não descartam mais a pontuação.** No S26

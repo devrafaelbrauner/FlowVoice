@@ -14,6 +14,7 @@ import android.provider.Settings
 import android.util.Log
 import android.view.Gravity
 import android.view.WindowInsets
+import android.view.View
 import android.view.WindowManager
 import android.widget.Toast
 import androidx.compose.ui.platform.ComposeView
@@ -28,6 +29,7 @@ import dev.rafaelbrauner.flowvoice.shared.pipeline.DictationPipeline
 import dev.rafaelbrauner.flowvoice.ui.overlay.BubbleHost
 import dev.rafaelbrauner.flowvoice.ui.overlay.BubbleMove
 import dev.rafaelbrauner.flowvoice.ui.overlay.BubblePlacement
+import dev.rafaelbrauner.flowvoice.ui.overlay.BubbleVisibility
 import dev.rafaelbrauner.flowvoice.ui.overlay.BubblePoint
 import dev.rafaelbrauner.flowvoice.ui.overlay.BubblePosition
 import dev.rafaelbrauner.flowvoice.ui.overlay.DictationOverlay
@@ -36,6 +38,8 @@ import dev.rafaelbrauner.flowvoice.ui.overlay.OverlayLifecycleOwner
 import dev.rafaelbrauner.flowvoice.ui.overlay.OverlayMode
 import dev.rafaelbrauner.flowvoice.ui.overlay.OverlaySessionPolicy
 import dev.rafaelbrauner.flowvoice.ui.overlay.OverlayStartRequests
+import dev.rafaelbrauner.flowvoice.ui.overlay.OverlayWindow
+import dev.rafaelbrauner.flowvoice.ui.overlay.OverlayWindowFlags
 import dev.rafaelbrauner.flowvoice.ui.overlay.PreviewActions
 import dev.rafaelbrauner.flowvoice.ui.overlay.PreviewCardOverlay
 import dev.rafaelbrauner.flowvoice.ui.overlay.PreviewCardUi
@@ -80,18 +84,26 @@ class FlowVoiceOverlayService : Service(), KoinComponent, BubbleHost {
     private var keyboardTracking: Job? = null
     private var ownsSession = false
     private val bubbleHiddenState = MutableStateFlow(false)
+    private var windowShown = true
     private var position = BubblePosition.Default
     private var dragStart: BubblePoint? = null
     private var dragPoint: BubblePoint? = null
+    private var awaitingDictation = false
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
             positionStore.writeEnabled(false)
+            awaitingDictation = false
             hideBubble()
             return START_NOT_STICKY
         }
+        val plan = OverlayStartRequests.plan(
+            action = intent?.action,
+            bubbleEnabled = positionStore.readEnabled(),
+            bubbleOnScreen = overlayView != null && !bubbleHiddenState.value
+        )
         if (!enterForeground()) {
             stopSelf()
             return START_NOT_STICKY
@@ -101,11 +113,9 @@ class FlowVoiceOverlayService : Service(), KoinComponent, BubbleHost {
             return START_NOT_STICKY
         }
         // Guardado para o app religar a bolha depois de uma reinstalação ou atualização (P141).
-        positionStore.writeEnabled(true)
-        showBubble()
-        if (intent?.action == OverlayStartRequests.ACTION_START_DICTATION) {
-            OverlayStartRequests.request()
-        }
+        if (plan.persistEnabled) positionStore.writeEnabled(true)
+        if (plan.showBubble) showBubble() else keepBubbleHiddenForDictation()
+        if (plan.requestDictation) OverlayStartRequests.request()
         return START_NOT_STICKY
     }
 
@@ -202,16 +212,53 @@ class FlowVoiceOverlayService : Service(), KoinComponent, BubbleHost {
     // continua com os controles à mão (P159) e o serviço só morre quando não sobra nada a mostrar. O
     // `running` é a bolha na tela, não o serviço vivo — é o que o interruptor dos Ajustes mostra.
     private fun hideBubble() {
+        markBubbleHidden()
+        stopIfNothingToShow()
+        syncWindowVisibility()
+    }
+
+    // Microfone do Início com a bolha desligada (Y2): a bolha fica fora, a barra ou a prévia mostram o
+    // ditado, e o serviço espera o ditado começar em vez de encerrar por não ter o que mostrar.
+    private fun keepBubbleHiddenForDictation() {
+        awaitingDictation = true
+        markBubbleHidden()
+        syncWindowVisibility()
+    }
+
+    private fun markBubbleHidden() {
         bubbleHiddenState.value = true
         runningState.value = false
         cardUi.value = cardUi.value.copy(bubbleHidden = true)
-        if (OverlaySessionPolicy.shouldStopWithHiddenBubble(bubbleHiddenState.value, mode)) stopSelf()
+    }
+
+    private fun stopIfNothingToShow(): Boolean {
+        if (!OverlaySessionPolicy.shouldStopWithHiddenBubble(bubbleHiddenState.value, mode, awaitingDictation)) return false
+        stopSelf()
+        return true
     }
 
     private fun showBubble() {
+        awaitingDictation = false
         bubbleHiddenState.value = false
         runningState.value = true
         cardUi.value = cardUi.value.copy(bubbleHidden = false)
+        syncWindowVisibility()
+    }
+
+    // Esconder a janela, não só esvaziar o conteúdo: veja BubbleVisibility.windowVisible.
+    private fun syncWindowVisibility() {
+        val view = overlayView ?: return
+        val show = BubbleVisibility.windowVisible(bubbleHiddenState.value, AppForeground.inForeground.value, mode)
+        if (show == windowShown) return
+        windowShown = show
+        view.visibility = if (show) View.VISIBLE else View.GONE
+        if (mode == OverlayMode.Bar) {
+            barOffsetPx = -1
+            placeBar()
+        } else {
+            placeBubble()
+        }
+        Log.i(TAG, "overlay_window_visible $show")
     }
 
     private fun foregroundType(): Int =
@@ -229,12 +276,10 @@ class FlowVoiceOverlayService : Service(), KoinComponent, BubbleHost {
             Intent(this, FlowVoiceOverlayService::class.java).setAction(ACTION_STOP),
             PendingIntent.FLAG_IMMUTABLE
         )
-        val open = PendingIntent.getActivity(
-            this,
-            0,
-            Intent(this, MainActivity::class.java),
-            PendingIntent.FLAG_IMMUTABLE
-        )
+        // A mesma intent do ícone do launcher: o toque traz a tarefa que já existe para a frente em vez de
+        // empilhar uma segunda MainActivity, com outra pilha e outro onboarding (N3).
+        val launch = packageManager.getLaunchIntentForPackage(packageName) ?: Intent(this, MainActivity::class.java)
+        val open = PendingIntent.getActivity(this, 0, launch, PendingIntent.FLAG_IMMUTABLE)
         NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
             .setContentTitle("FlowVoice pronto para ditar")
@@ -263,6 +308,7 @@ class FlowVoiceOverlayService : Service(), KoinComponent, BubbleHost {
                 pipeline = pipeline,
                 host = this,
                 bubbleHidden = bubbleHiddenState,
+                appInForeground = AppForeground.inForeground,
                 onModeChange = ::applyMode,
                 onSessionOwned = { ownership -> ownsSession = OverlaySessionPolicy.ownsSession(ownership) }
             )
@@ -280,22 +326,29 @@ class FlowVoiceOverlayService : Service(), KoinComponent, BubbleHost {
         lifecycleOwner = owner
         mode = OverlayMode.Bubble
         runningState.value = true
+        scope.launch { AppForeground.inForeground.collect { syncWindowVisibility() } }
         scope.launch {
             pipeline.status.drop(1).collect { status ->
                 ownsSession = OverlaySessionPolicy.ownedAfter(ownsSession, status)
                 Log.i(TAG, "overlay_status ${status::class.simpleName}")
+                if (awaitingDictation) {
+                    awaitingDictation = OverlaySessionPolicy.awaitingAfterStatus(awaitingDictation, status)
+                    stopIfNothingToShow()
+                }
             }
         }
         return true
     }
 
     private fun applyMode(next: OverlayMode) {
-        if (OverlaySessionPolicy.shouldStopWithHiddenBubble(bubbleHiddenState.value, next)) {
+        awaitingDictation = OverlaySessionPolicy.awaitingAfterMode(awaitingDictation, next)
+        if (OverlaySessionPolicy.shouldStopWithHiddenBubble(bubbleHiddenState.value, next, awaitingDictation)) {
             stopSelf()
             return
         }
         if (next == mode) return
         mode = next
+        syncWindowVisibility()
         keyboardTracking?.cancel()
         keyboardTracking = null
         if (next != OverlayMode.Bar) {
@@ -391,7 +444,7 @@ class FlowVoiceOverlayService : Service(), KoinComponent, BubbleHost {
             gap = gap,
             maxWidth = dp(PREVIEW_MAX_WIDTH_DP)
         )
-        val params = screenParams(span.width).apply {
+        val params = screenParams(span.width, OverlayWindow.Card).apply {
             gravity = (if (placement.fromBottom) Gravity.BOTTOM else Gravity.TOP) or Gravity.START
             x = span.x
             y = if (placement.fromBottom) screenHeight - placement.edge else placement.edge
@@ -428,7 +481,8 @@ class FlowVoiceOverlayService : Service(), KoinComponent, BubbleHost {
             (if (state.notice != null) CARD_NOTICE_DP else 0) +
             (if (state.warning != null) CARD_WARNING_DP else 0) +
             (if (state.pending.isNotEmpty()) CARD_PENDING_DP else 0)
-        is DirectPreviewState.Result -> CARD_RESULT_DP
+        is DirectPreviewState.Result,
+        is DirectPreviewState.Notice -> CARD_RESULT_DP
         DirectPreviewState.Hidden -> 0
     }
 
@@ -485,7 +539,7 @@ class FlowVoiceOverlayService : Service(), KoinComponent, BubbleHost {
     private fun bubbleParams(manager: WindowManager): WindowManager.LayoutParams {
         val area = safeArea(manager)
         val point = dragPoint ?: BubblePlacement.pointOf(position, area, bubbleSize())
-        return screenParams(WindowManager.LayoutParams.WRAP_CONTENT).apply {
+        return screenParams(WindowManager.LayoutParams.WRAP_CONTENT, OverlayWindow.Bubble).apply {
             gravity = Gravity.TOP or Gravity.START
             x = point.x
             y = point.y
@@ -493,30 +547,24 @@ class FlowVoiceOverlayService : Service(), KoinComponent, BubbleHost {
     }
 
     // x/y em pixels da tela: sem encaixe automático nas barras do sistema, que a SafeArea já desconta.
-    private fun screenParams(width: Int) = overlayParams(
-        width = width,
-        flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
-    ).apply {
+    private fun screenParams(width: Int, window: OverlayWindow) = overlayParams(width, window).apply {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             setFitInsetsTypes(0)
             layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
         }
     }
 
-    private fun barParams(offset: Int) = overlayParams(
-        width = WindowManager.LayoutParams.MATCH_PARENT,
-        flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
-    ).apply {
+    private fun barParams(offset: Int) = overlayParams(WindowManager.LayoutParams.MATCH_PARENT, OverlayWindow.Bubble).apply {
         gravity = Gravity.BOTTOM or Gravity.START
         x = 0
         y = offset
     }
 
-    private fun overlayParams(width: Int, flags: Int) = WindowManager.LayoutParams(
+    private fun overlayParams(width: Int, window: OverlayWindow) = WindowManager.LayoutParams(
         width,
         WindowManager.LayoutParams.WRAP_CONTENT,
         WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-        flags,
+        OverlayWindowFlags.flags(window, bubbleWindowShown = windowShown),
         PixelFormat.TRANSLUCENT
     )
 

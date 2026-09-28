@@ -9,14 +9,14 @@ class OpenRouterConfigTest {
     fun usesTheBenchmarkDefaultModelAndOpenRouterBase() {
         val config = OpenRouterConfig()
         assertEquals("https://openrouter.ai", config.baseUrl)
-        assertEquals("openai/gpt-transcribe", config.model)
+        assertEquals("openai/gpt-4o-mini-transcribe", config.model)
         assertEquals("pt", config.language)
         assertEquals(0.0, config.temperature)
         assertEquals("/api/v1/audio/transcriptions", config.transcriptionsPath)
         assertEquals(10_000L, config.connectTimeoutMs)
         assertEquals(30_000L, config.requestTimeoutMs)
         assertEquals(3, config.maxRetries)
-        assertEquals(90, config.maxRequestsPerSession)
+        assertEquals(180, config.maxRequestsPerSession)
     }
 
     @Test

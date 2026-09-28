@@ -5,4 +5,9 @@
     <exclude domain="sharedpref" path="flowvoice_notes.xml" />
     <exclude domain="sharedpref" path="flowvoice_dictionary.xml" />
     <exclude domain="sharedpref" path="flowvoice_auth.xml" />
+    <!-- Modelo do motor no aparelho (~680 MB): baixado de novo, nunca copiado. -->
+    <exclude domain="file" path="nemotron-3.5-asr-streaming-0.6b-560ms-int8" />
+    <exclude domain="file" path="nemotron-3.5-asr-streaming-0.6b-560ms-int8.tar.bz2.part" />
+    <exclude domain="file" path="nemotron-3.5-asr-streaming-0.6b-560ms-int8.extracting" />
+    <exclude domain="file" path="nemotron-3.5-asr-streaming-0.6b-560ms-int8.old" />
 </full-backup-content>

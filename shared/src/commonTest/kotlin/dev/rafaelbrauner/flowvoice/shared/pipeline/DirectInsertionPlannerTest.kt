@@ -69,18 +69,33 @@ class DirectInsertionPlannerTest {
     fun wordRepeatedAtTheBoundaryIsDroppedFromTheNewPieceBecauseTypedTextCannotBeUndone() {
         val step = DirectInsertionPlanner.advance(
             DirectInsertionPlan(),
-            listOf(ok(0, "é muito"), ok(1, "muito importante"))
+            listOf(ok(0, "é muito"), ok(1, "muito importante", CONTEXT_MS))
         )
 
         assertEquals(listOf("é muito", "importante"), step.pieces.map { it.text })
         assertEquals("é muito importante", step.plan.transcript)
     }
 
+    // A: no S26 (2026-09-28 13:56, qwen/qwen3-asr-1.7b) o usuário repetiu "Amanhã de manhã vamos à praia."
+    // depois de pausas; as janelas voltaram com o texto, e nenhuma entrou no campo: sem áudio repetido
+    // (contexto zero) a emenda ainda tirava tudo o que repetia o fim do anterior.
+    @Test
+    fun aPhraseSaidAgainAfterASilentWindowIsTyped() {
+        val phrase = "Amanhã de manhã vamos à praia."
+        val step = DirectInsertionPlanner.advance(
+            DirectInsertionPlan(),
+            listOf(ok(0, phrase), ok(1, ""), ok(2, phrase), ok(3, ""), ok(4, phrase))
+        )
+
+        assertEquals(listOf(phrase, phrase, phrase), step.pieces.map { it.text })
+        assertEquals("$phrase $phrase $phrase", step.plan.transcript)
+    }
+
     @Test
     fun pieceFullyRepeatingTheEndTypesNothingButStillAdvances() {
         val step = DirectInsertionPlanner.advance(
             DirectInsertionPlan(),
-            listOf(ok(0, "pediu o exame"), ok(1, "o exame"), ok(2, "de sangue"))
+            listOf(ok(0, "pediu o exame"), ok(1, "o exame", CONTEXT_MS), ok(2, "de sangue", CONTEXT_MS))
         )
 
         assertEquals(listOf("pediu o exame", "de sangue"), step.pieces.map { it.text })
@@ -133,7 +148,7 @@ class DirectInsertionPlannerTest {
     fun aWordBrokenAtTheCutIsCompletedWithoutASeparator() {
         val step = DirectInsertionPlanner.advance(
             DirectInsertionPlan(),
-            listOf(ok(0, "com episódios de di"), ok(1, "de diarreia."))
+            listOf(ok(0, "com episódios de di"), ok(1, "de diarreia.", CONTEXT_MS))
         )
 
         assertEquals(
@@ -304,6 +319,10 @@ class DirectInsertionPlannerTest {
             text = text,
             contextDurationMs = contextDurationMs
         )
+
+    private companion object {
+        const val CONTEXT_MS = 1_000L
+    }
 
     private fun failed(index: Int) =
         TranscriptionSegment(index, TranscriptionSegment.Status.Failed, errorKind = "timeout")

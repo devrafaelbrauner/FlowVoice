@@ -100,4 +100,17 @@ class PersonalDictionaryTest {
         assertTrue(dictionary.approved().isEmpty())
         assertEquals("Segundo lactato pedido", dictionary.apply("Segundo lactato pedido"))
     }
+
+    // N9 (revisão de código): as sugestões pendentes cresciam sem limite a cada ditado.
+    @Test
+    fun pendingSuggestionsAreCappedDroppingTheOldest() {
+        val dictionary = InMemoryPersonalDictionary()
+        val cap = InMemoryPersonalDictionary.MAX_PENDING_SUGGESTIONS
+        repeat(cap + 20) { dictionary.suggestFrom("termo${it}x") }
+
+        val pending = dictionary.pending().map { it.surface }
+        assertEquals(cap, pending.size)
+        assertEquals("termo20x", pending.first())
+        assertEquals("termo${cap + 19}x", pending.last())
+    }
 }

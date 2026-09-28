@@ -14,11 +14,9 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -35,7 +33,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -54,30 +51,35 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
-import androidx.core.net.toUri
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import dev.rafaelbrauner.flowvoice.service.AccessibilityTextInserter
 import dev.rafaelbrauner.flowvoice.service.FlowVoiceAccessibilityService
 import dev.rafaelbrauner.flowvoice.service.FlowVoiceOverlayService
+import dev.rafaelbrauner.flowvoice.shared.localasr.TranscriptionEngineSelection
 import dev.rafaelbrauner.flowvoice.shared.notes.NoteDictationCoordinator
 import dev.rafaelbrauner.flowvoice.shared.notes.NoteStore
 import dev.rafaelbrauner.flowvoice.shared.pipeline.DictationPipeline
 import dev.rafaelbrauner.flowvoice.shared.pipeline.DictationPipelineStatus
+import dev.rafaelbrauner.flowvoice.shared.transcription.SecretStore
 import dev.rafaelbrauner.flowvoice.ui.components.FvCard
 import dev.rafaelbrauner.flowvoice.ui.components.MicButton
+import dev.rafaelbrauner.flowvoice.ui.components.MissingKeyNotice
 import dev.rafaelbrauner.flowvoice.ui.components.MonoLabel
-import dev.rafaelbrauner.flowvoice.ui.components.StatCard
 import dev.rafaelbrauner.flowvoice.ui.components.StatusPill
 import dev.rafaelbrauner.flowvoice.ui.components.ThemePreviewParameter
 import dev.rafaelbrauner.flowvoice.ui.components.Wordmark
 import dev.rafaelbrauner.flowvoice.ui.overlay.OverlayStartRequests
 import dev.rafaelbrauner.flowvoice.ui.rememberKoin
+import dev.rafaelbrauner.flowvoice.ui.shell.OverlayPermissionReturn
+import dev.rafaelbrauner.flowvoice.ui.shell.PendingOverlayPermission
 import dev.rafaelbrauner.flowvoice.ui.shell.findActivity
-import dev.rafaelbrauner.flowvoice.ui.shell.startActivitySafely
+import dev.rafaelbrauner.flowvoice.ui.shell.openOverlayPermissionSettings
 import dev.rafaelbrauner.flowvoice.ui.theme.FlowVoiceRadius
 import dev.rafaelbrauner.flowvoice.ui.theme.FlowVoiceSpacing
 import dev.rafaelbrauner.flowvoice.ui.theme.FlowVoiceTheme
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.launch
@@ -86,7 +88,10 @@ import kotlinx.coroutines.withTimeoutOrNull
 private const val RECENT_NOTES = 2
 private const val START_TIMEOUT_MS = 4_000L
 private const val LATE_START_GRACE_MS = 10_000L
-private const val NO_DATA = "—"
+
+// O vigia do começo do ditado (P133) não morre com a tela: trocar de aba ou girar o aparelho nos 4 s
+// cancelava o escopo da composição, e um Recording atrasado nunca era abandonado (N10).
+private val startWatchdogScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
 @Immutable
 data class RecentNote(
@@ -102,31 +107,88 @@ fun HomeRoute(
     onOpenNote: (String) -> Unit,
     onOpenDiagnostics: () -> Unit,
     onOpenOnboarding: () -> Unit,
+    onOpenKeySetup: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val noteStore = rememberKoin<NoteStore>()
     val pipeline = rememberKoin<DictationPipeline>()
-    val scope = rememberCoroutineScope()
+    val secretStore = rememberKoin<SecretStore>()
     var accessibilityActive by remember { mutableStateOf(FlowVoiceAccessibilityService.isRunning) }
     var notes by remember { mutableStateOf(noteStore.list().take(RECENT_NOTES)) }
     var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
     var askedNotifications by rememberSaveable { mutableStateOf(false) }
+    var keyNotice by rememberSaveable { mutableStateOf(false) }
+    var pendingMicAfterOverlay by rememberSaveable { mutableStateOf(false) }
+    // Com o modelo no aparelho em uso, a chave deixa de ser pré-requisito do ditado.
+    fun transcriptionReady(): Boolean = TranscriptionEngineSelection.canDictate(
+        pipeline.effectiveEngine(),
+        keyConfigured = !secretStore.readOpenRouterKey().isNullOrBlank()
+    )
 
     LifecycleResumeEffect(Unit) {
         accessibilityActive = FlowVoiceAccessibilityService.isRunning
         notes = noteStore.list().take(RECENT_NOTES)
         nowMs = System.currentTimeMillis()
+        if (keyNotice && transcriptionReady()) keyNotice = false
         onPauseOrDispose { }
     }
 
     val coordinator = rememberKoin<NoteDictationCoordinator>()
     val latestOpenNote by rememberUpdatedState(onOpenNote)
-    val starter = remember(context, pipeline, scope, coordinator) {
-        DictationStarter(context, pipeline, scope, coordinator) { latestOpenNote(it) }
+    val starter = remember(context, pipeline, coordinator) {
+        DictationStarter(context, pipeline, coordinator) { latestOpenNote(it) }
     }
     val notificationLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
         starter.start()
+    }
+
+    val onMic: () -> Unit = {
+        val action = micAction(
+            accessibilityRunning = FlowVoiceAccessibilityService.isRunning,
+            microphoneGranted = context.hasPermission(Manifest.permission.RECORD_AUDIO),
+            transcriptionReady = transcriptionReady(),
+            sdkInt = Build.VERSION.SDK_INT,
+            canDrawOverlays = Settings.canDrawOverlays(context)
+        )
+        when (action) {
+            MicAction.OpenOnboarding -> onOpenOnboarding()
+            MicAction.ConfigureKey -> keyNotice = true
+            MicAction.OverlayUnsupported ->
+                context.toast("O ditado sobre outros apps requer Android 8 ou superior.")
+            MicAction.RequestOverlayPermission -> {
+                pendingMicAfterOverlay = true
+                context.toast("Ative “sobrepor a outros apps” para o FlowVoice; o ditado começa quando você voltar.")
+                context.openOverlayPermissionSettings()
+            }
+            MicAction.StartDictation -> {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                    !askedNotifications &&
+                    !context.hasPermission(Manifest.permission.POST_NOTIFICATIONS)
+                ) {
+                    askedNotifications = true
+                    notificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                } else {
+                    starter.start()
+                }
+            }
+        }
+    }
+    val latestOnMic by rememberUpdatedState(onMic)
+
+    LifecycleResumeEffect(Unit) {
+        when (PendingOverlayPermission.onReturn(pendingMicAfterOverlay, Settings.canDrawOverlays(context))) {
+            OverlayPermissionReturn.NotPending -> Unit
+            OverlayPermissionReturn.Continue -> {
+                pendingMicAfterOverlay = false
+                latestOnMic()
+            }
+            OverlayPermissionReturn.StillMissing -> {
+                pendingMicAfterOverlay = false
+                context.toast("Sem “sobrepor a outros apps” o ditado não abre sobre os outros apps.")
+            }
+        }
+        onPauseOrDispose { }
     }
 
     HomeScreen(
@@ -139,37 +201,11 @@ fun HomeRoute(
                 time = RelativeTime.format(note.updatedAtMs, nowMs)
             )
         },
+        keyNotice = keyNotice,
         onStatus = { if (accessibilityActive) onOpenDiagnostics() else onOpenOnboarding() },
-        onMic = {
-            val action = micAction(
-                accessibilityRunning = FlowVoiceAccessibilityService.isRunning,
-                microphoneGranted = context.hasPermission(Manifest.permission.RECORD_AUDIO),
-                sdkInt = Build.VERSION.SDK_INT,
-                canDrawOverlays = Settings.canDrawOverlays(context)
-            )
-            when (action) {
-                MicAction.OpenOnboarding -> onOpenOnboarding()
-                MicAction.OverlayUnsupported ->
-                    context.toast("O ditado sobre outros apps requer Android 8 ou superior.")
-                MicAction.RequestOverlayPermission -> {
-                    context.toast("Autorize “sobrepor a outros apps” e toque de novo no microfone.")
-                    context.startActivitySafely(
-                        Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, "package:${context.packageName}".toUri())
-                    )
-                }
-                MicAction.StartDictation -> {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-                        !askedNotifications &&
-                        !context.hasPermission(Manifest.permission.POST_NOTIFICATIONS)
-                    ) {
-                        askedNotifications = true
-                        notificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                    } else {
-                        starter.start()
-                    }
-                }
-            }
-        },
+        onMic = onMic,
+        onConfigureKey = onOpenKeySetup,
+        onDismissKeyNotice = { keyNotice = false },
         onOpenNotes = onOpenNotes,
         onOpenNote = onOpenNote,
         modifier = modifier
@@ -179,7 +215,6 @@ fun HomeRoute(
 private class DictationStarter(
     private val context: Context,
     private val pipeline: DictationPipeline,
-    private val scope: CoroutineScope,
     private val notes: NoteDictationCoordinator,
     private val openNote: (String) -> Unit
 ) {
@@ -201,7 +236,7 @@ private class DictationStarter(
             Intent(context, FlowVoiceOverlayService::class.java)
                 .setAction(OverlayStartRequests.ACTION_START_DICTATION)
         )
-        scope.launch {
+        startWatchdogScope.launch {
             val status = withTimeoutOrNull(START_TIMEOUT_MS) {
                 pipeline.session.mapNotNull { startOutcome(previous, it) }.first()
             }
@@ -245,8 +280,11 @@ private fun Context.toast(message: String) {
 internal fun HomeScreen(
     accessibilityActive: Boolean,
     notes: List<RecentNote>,
+    keyNotice: Boolean,
     onStatus: () -> Unit,
     onMic: () -> Unit,
+    onConfigureKey: () -> Unit,
+    onDismissKeyNotice: () -> Unit,
     onOpenNotes: () -> Unit,
     onOpenNote: (String) -> Unit,
     modifier: Modifier = Modifier
@@ -272,24 +310,17 @@ internal fun HomeScreen(
             onMic = onMic,
             modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp)
         )
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(IntrinsicSize.Min)
-                .padding(start = 16.dp, end = 16.dp, top = 14.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            val stat = Modifier
-                .weight(1f)
-                .fillMaxHeight()
-            StatCard(value = NO_DATA, label = "Latência média", modifier = stat)
-            StatCard(value = NO_DATA, label = "Ditados hoje", modifier = stat)
-            StatCard(value = NO_DATA, label = "Gasto hoje", modifier = stat)
+        if (keyNotice) {
+            MissingKeyNotice(
+                onConfigureKey = onConfigureKey,
+                onDismiss = onDismissKeyNotice,
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 10.dp)
+            )
         }
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = 16.dp, end = 16.dp, top = 4.dp),
+                .padding(start = 16.dp, end = 16.dp, top = 10.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -356,7 +387,7 @@ private fun HeroCard(onMic: () -> Unit, modifier: Modifier = Modifier) {
         Spacer(Modifier.height(22.dp))
         MicButton(onClick = onMic, contentDescription = "Ditar")
         Spacer(Modifier.height(16.dp))
-        MonoLabel("Segure ou toque para ditar", color = colors.textTertiary)
+        MonoLabel("Toque para ditar", color = colors.textTertiary)
     }
 }
 
@@ -411,8 +442,11 @@ private fun HomeScreenPreview(@PreviewParameter(ThemePreviewParameter::class) da
                 RecentNote("1", "Reunião de orçamento", "Fechamos o escopo da fase 2 com a Marina.", "09:41"),
                 RecentNote("2", "Ideias para o F05", "Rodar o corpus pt-BR", "ontem")
             ),
+            keyNotice = !dark,
             onStatus = {},
             onMic = {},
+            onConfigureKey = {},
+            onDismissKeyNotice = {},
             onOpenNotes = {},
             onOpenNote = {},
             modifier = Modifier.fillMaxSize()

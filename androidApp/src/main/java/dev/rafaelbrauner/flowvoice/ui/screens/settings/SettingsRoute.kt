@@ -24,7 +24,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
@@ -36,16 +35,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.tooling.preview.PreviewParameter
@@ -56,19 +53,23 @@ import androidx.credentials.exceptions.GetCredentialCancellationException
 import androidx.credentials.exceptions.NoCredentialException
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import dev.rafaelbrauner.flowvoice.auth.GoogleSignInHelper
+import dev.rafaelbrauner.flowvoice.localasr.LocalModelInstaller
+import dev.rafaelbrauner.flowvoice.localasr.LocalModelState
 import dev.rafaelbrauner.flowvoice.service.FlowVoiceAccessibilityService
 import dev.rafaelbrauner.flowvoice.service.FlowVoiceOverlayService
 import dev.rafaelbrauner.flowvoice.shared.auth.AuthGateway
+import dev.rafaelbrauner.flowvoice.shared.localasr.TranscriptionEngine
 import dev.rafaelbrauner.flowvoice.shared.model.CatalogFailure
+import dev.rafaelbrauner.flowvoice.shared.model.CloudModels
+import dev.rafaelbrauner.flowvoice.shared.model.FormattingChoice
+import dev.rafaelbrauner.flowvoice.shared.model.FormattingOption
 import dev.rafaelbrauner.flowvoice.shared.model.TranscriptionCatalogResult
 import dev.rafaelbrauner.flowvoice.shared.model.TranscriptionModelCatalog
+import dev.rafaelbrauner.flowvoice.shared.pipeline.DictationPipeline
 import dev.rafaelbrauner.flowvoice.shared.prefs.PreferencesStore
 import dev.rafaelbrauner.flowvoice.shared.sync.SyncEngine
-import dev.rafaelbrauner.flowvoice.shared.transcription.KeyValidationResult
 import dev.rafaelbrauner.flowvoice.shared.transcription.OpenRouterConfig
-import dev.rafaelbrauner.flowvoice.shared.transcription.OpenRouterKeyValidator
 import dev.rafaelbrauner.flowvoice.shared.transcription.SecretStore
-import dev.rafaelbrauner.flowvoice.shared.transcription.SecretStoreUnavailableException
 import dev.rafaelbrauner.flowvoice.shared.transcription.TranscriptionModel
 import dev.rafaelbrauner.flowvoice.shared.transcription.TranscriptionModels
 import dev.rafaelbrauner.flowvoice.ui.components.FvCard
@@ -83,6 +84,10 @@ import dev.rafaelbrauner.flowvoice.ui.components.ThemePreviewParameter
 import dev.rafaelbrauner.flowvoice.ui.icons.FlowVoiceIcons
 import dev.rafaelbrauner.flowvoice.ui.rememberKoin
 import dev.rafaelbrauner.flowvoice.ui.screens.diagnostics.DiagnosticsLog
+import dev.rafaelbrauner.flowvoice.ui.shell.AppLinks
+import dev.rafaelbrauner.flowvoice.ui.shell.OverlayPermissionReturn
+import dev.rafaelbrauner.flowvoice.ui.shell.PendingOverlayPermission
+import dev.rafaelbrauner.flowvoice.ui.shell.openOverlayPermissionSettings
 import dev.rafaelbrauner.flowvoice.ui.shell.startActivitySafely
 import dev.rafaelbrauner.flowvoice.ui.theme.FlowVoiceTheme
 import kotlinx.coroutines.CancellationException
@@ -109,7 +114,13 @@ data class SettingsUiState(
     val googleWebClientId: String,
     val signingIn: Boolean,
     val syncing: Boolean,
-    val accountMessage: String?
+    val accountMessage: String?,
+    val engineChoice: TranscriptionEngine,
+    val effectiveEngine: TranscriptionEngine,
+    val localModel: LocalModelState,
+    val dictationBusy: Boolean,
+    val formatting: FormattingChoice,
+    val formattingOptions: List<FormattingOption>
 )
 
 data class SettingsActions(
@@ -122,10 +133,16 @@ data class SettingsActions(
     val onProofreadingChange: (Boolean) -> Unit,
     val onReviewBeforeInsertChange: (Boolean) -> Unit,
     val onOpenDiagnostics: () -> Unit,
+    val onOpenPrivacyPolicy: () -> Unit,
     val onClientIdChange: (String) -> Unit,
     val onSignIn: () -> Unit,
     val onSignOut: () -> Unit,
-    val onSync: () -> Unit
+    val onSync: () -> Unit,
+    val onEngineSelect: (TranscriptionEngine) -> Unit,
+    val onModelInstall: () -> Unit,
+    val onModelCancel: () -> Unit,
+    val onModelDelete: () -> Unit,
+    val onFormattingSelect: (FormattingChoice) -> Unit
 )
 
 @Composable
@@ -133,7 +150,7 @@ fun SettingsRoute(onOpenDiagnostics: () -> Unit, modifier: Modifier = Modifier) 
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val secretStore = rememberKoin<SecretStore>()
-    val keyValidator = rememberKoin<OpenRouterKeyValidator>()
+    val keyEntry = rememberOpenRouterKeyEntry()
     val config = rememberKoin<OpenRouterConfig>()
     val modelCatalog = rememberKoin<TranscriptionModelCatalog>()
     val transcriptionModel = rememberKoin<TranscriptionModel>()
@@ -141,12 +158,9 @@ fun SettingsRoute(onOpenDiagnostics: () -> Unit, modifier: Modifier = Modifier) 
     val authGateway = rememberKoin<AuthGateway>()
     val syncEngine = rememberKoin<SyncEngine>()
     val diagnosticsLog = rememberKoin<DiagnosticsLog>()
+    val pipeline = rememberKoin<DictationPipeline>()
+    val modelInstaller = rememberKoin<LocalModelInstaller>()
 
-    var maskedKey by remember { mutableStateOf(KeyMask.mask(secretStore.readOpenRouterKey())) }
-    var keyDraft by remember { mutableStateOf("") }
-    var keyDraftVisible by remember { mutableStateOf(false) }
-    var validatingKey by remember { mutableStateOf(false) }
-    var keyMessage by remember { mutableStateOf<String?>(null) }
     var preferences by remember { mutableStateOf(preferencesStore.read()) }
     var modelOptions by remember { mutableStateOf(emptyList<String>()) }
     var modelLoading by remember { mutableStateOf(false) }
@@ -155,14 +169,24 @@ fun SettingsRoute(onOpenDiagnostics: () -> Unit, modifier: Modifier = Modifier) 
     var accountEmail by remember { mutableStateOf(authGateway.currentUser()?.email) }
     var accessibilityActive by remember { mutableStateOf(FlowVoiceAccessibilityService.isRunning) }
     var overlayMessage by remember { mutableStateOf<String?>(null) }
+    var pendingOverlayEnable by rememberSaveable { mutableStateOf(false) }
     var signingIn by remember { mutableStateOf(false) }
     var syncing by remember { mutableStateOf(false) }
     var accountMessage by remember { mutableStateOf<String?>(null) }
     val overlayRunning by FlowVoiceOverlayService.runningFlow.collectAsState()
+    val localModel by modelInstaller.state.collectAsState()
+    val pipelineStatus by pipeline.status.collectAsState()
+
+    // Instalar (com "usar ao terminar") e apagar o modelo mudam o motor escolhido nas preferências.
+    LaunchedEffect(localModel) {
+        preferences = preferencesStore.read()
+    }
 
     LifecycleResumeEffect(Unit) {
+        // O modelo pode ter chegado ou sumido fora do app (adb push, limpeza de dados).
+        modelInstaller.refresh()
         accessibilityActive = FlowVoiceAccessibilityService.isRunning
-        maskedKey = KeyMask.mask(secretStore.readOpenRouterKey())
+        keyEntry.refresh()
         preferences = preferencesStore.read()
         accountEmail = authGateway.currentUser()?.email
         onPauseOrDispose { }
@@ -186,7 +210,7 @@ fun SettingsRoute(onOpenDiagnostics: () -> Unit, modifier: Modifier = Modifier) 
         scope.launch {
             val message = when (val result = modelCatalog.load(key)) {
                 is TranscriptionCatalogResult.Ready -> {
-                    modelOptions = result.models.map { it.id }
+                    modelOptions = CloudModels.orderedTranscription(result.models.map { it.id })
                     modelsTouched = true
                     val selected = currentModelId()
                     if (selected !in result.models.map { it.id }) {
@@ -209,8 +233,8 @@ fun SettingsRoute(onOpenDiagnostics: () -> Unit, modifier: Modifier = Modifier) 
         }
     }
 
-    LaunchedEffect(maskedKey) {
-        if (maskedKey != null && !modelsTouched) refreshModels(showErrors = false)
+    LaunchedEffect(keyEntry.maskedKey) {
+        if (keyEntry.maskedKey != null && !modelsTouched) refreshModels(showErrors = false)
     }
 
     fun applyOverlayAction(action: OverlayToggleAction, requestPermissions: (Array<String>) -> Unit) {
@@ -223,8 +247,9 @@ fun SettingsRoute(onOpenDiagnostics: () -> Unit, modifier: Modifier = Modifier) 
             }
             OverlayToggleAction.Unsupported -> "O botão flutuante requer Android 8 ou superior."
             OverlayToggleAction.RequestOverlayPermission -> {
-                openOverlayPermissionSettings(context)
-                "Autorize “sobrepor a outros apps” e ligue de novo."
+                pendingOverlayEnable = true
+                context.openOverlayPermissionSettings()
+                "Ative “sobrepor a outros apps” para o FlowVoice; o botão liga quando você voltar."
             }
             is OverlayToggleAction.RequestPermissions -> {
                 requestPermissions(action.permissions.toTypedArray())
@@ -233,7 +258,7 @@ fun SettingsRoute(onOpenDiagnostics: () -> Unit, modifier: Modifier = Modifier) 
             OverlayToggleAction.MicrophoneDenied -> "O botão flutuante precisa da permissão de microfone."
             OverlayToggleAction.Start -> {
                 ContextCompat.startForegroundService(context, Intent(context, FlowVoiceOverlayService::class.java))
-                "Botão flutuante ligado."
+                "Botão flutuante ligado: ele aparece quando você sai do FlowVoice."
             }
         }
         overlayMessage = message
@@ -248,35 +273,23 @@ fun SettingsRoute(onOpenDiagnostics: () -> Unit, modifier: Modifier = Modifier) 
         ) { }
     }
 
-    fun saveKey() {
-        val candidate = keyDraft
-        if (candidate.isBlank() || validatingKey) return
-        validatingKey = true
-        keyMessage = "Validando chave…"
-        diagnosticsLog.add("Validando chave OpenRouter.")
-        scope.launch {
-            val message = when (keyValidator.validate(candidate)) {
-                KeyValidationResult.Valid -> try {
-                    secretStore.writeOpenRouterKey(candidate)
-                    keyDraft = ""
-                    keyDraftVisible = false
-                    maskedKey = KeyMask.mask(secretStore.readOpenRouterKey())
-                    modelCatalog.clear()
-                    "Chave validada e guardada cifrada."
-                } catch (_: SecretStoreUnavailableException) {
-                    "Cofre da chave indisponível neste aparelho; a chave não foi salva."
-                }
-                KeyValidationResult.InvalidFormat -> "Formato inválido: a chave começa com sk- e não tem espaços."
-                KeyValidationResult.Rejected -> "A OpenRouter recusou esta chave."
-                KeyValidationResult.Unavailable -> "Não foi possível validar agora (rede ou serviço)."
+    LifecycleResumeEffect(Unit) {
+        when (PendingOverlayPermission.onReturn(pendingOverlayEnable, Settings.canDrawOverlays(context))) {
+            OverlayPermissionReturn.NotPending -> Unit
+            OverlayPermissionReturn.Continue -> {
+                pendingOverlayEnable = false
+                applyOverlayAction(
+                    overlayDecision(context, FlowVoiceOverlayService.running, permissionsRequested = false)
+                ) { overlayPermissionLauncher.launch(it) }
             }
-            keyMessage = message
-            diagnosticsLog.add(message)
-            validatingKey = false
-            if (message == "Chave validada e guardada cifrada.") {
-                refreshModels(showErrors = false)
+            OverlayPermissionReturn.StillMissing -> {
+                pendingOverlayEnable = false
+                val message = "Autorize “sobrepor a outros apps” e ligue de novo."
+                overlayMessage = message
+                diagnosticsLog.add(message)
             }
         }
+        onPauseOrDispose { }
     }
 
     fun signIn() {
@@ -339,12 +352,12 @@ fun SettingsRoute(onOpenDiagnostics: () -> Unit, modifier: Modifier = Modifier) 
     }
 
     val state = SettingsUiState(
-        keyConfigured = maskedKey != null,
-        maskedKey = maskedKey,
-        keyDraft = keyDraft,
-        keyDraftVisible = keyDraftVisible,
-        validatingKey = validatingKey,
-        keyMessage = keyMessage,
+        keyConfigured = keyEntry.maskedKey != null,
+        maskedKey = keyEntry.maskedKey,
+        keyDraft = keyEntry.draft,
+        keyDraftVisible = keyEntry.draftVisible,
+        validatingKey = keyEntry.validating,
+        keyMessage = keyEntry.message,
         modelLabel = currentModelId().substringAfterLast('/'),
         modelOptions = modelOptions,
         modelLoading = modelLoading,
@@ -359,12 +372,18 @@ fun SettingsRoute(onOpenDiagnostics: () -> Unit, modifier: Modifier = Modifier) 
         googleWebClientId = preferences.googleWebClientId,
         signingIn = signingIn,
         syncing = syncing,
-        accountMessage = accountMessage
+        accountMessage = accountMessage,
+        engineChoice = preferences.transcriptionEngine,
+        effectiveEngine = remember(preferences, localModel) { pipeline.effectiveEngine() },
+        localModel = localModel,
+        dictationBusy = pipelineStatus.isBusy,
+        formatting = CloudModels.formatting(preferences),
+        formattingOptions = CloudModels.formattingOptions()
     )
     val actions = SettingsActions(
-        onKeyDraftChange = { keyDraft = it },
-        onToggleKeyDraftVisibility = { keyDraftVisible = !keyDraftVisible },
-        onSaveKey = ::saveKey,
+        onKeyDraftChange = { keyEntry.draft = it },
+        onToggleKeyDraftVisibility = { keyEntry.draftVisible = !keyEntry.draftVisible },
+        onSaveKey = { keyEntry.save(onSaved = { refreshModels(showErrors = false) }) },
         onModelRefresh = { refreshModels() },
         onModelSelect = ::selectModel,
         onOverlayToggle = {
@@ -373,16 +392,19 @@ fun SettingsRoute(onOpenDiagnostics: () -> Unit, modifier: Modifier = Modifier) 
             ) { overlayPermissionLauncher.launch(it) }
         },
         onProofreadingChange = { enabled ->
-            preferencesStore.write(preferences.copy(proofreadingEnabled = enabled))
+            preferencesStore.write(preferencesStore.read().copy(proofreadingEnabled = enabled))
             preferences = preferencesStore.read()
         },
         onReviewBeforeInsertChange = { enabled ->
-            preferencesStore.write(preferences.copy(reviewBeforeInsert = enabled))
+            preferencesStore.write(preferencesStore.read().copy(reviewBeforeInsert = enabled))
             preferences = preferencesStore.read()
         },
         onOpenDiagnostics = onOpenDiagnostics,
+        onOpenPrivacyPolicy = {
+            context.startActivitySafely(Intent(Intent.ACTION_VIEW, AppLinks.PRIVACY_POLICY_URL.toUri()))
+        },
         onClientIdChange = { clientId ->
-            preferencesStore.write(preferences.copy(googleWebClientId = clientId.trim()))
+            preferencesStore.write(preferencesStore.read().copy(googleWebClientId = clientId.trim()))
             preferences = preferencesStore.read()
         },
         onSignIn = ::signIn,
@@ -392,7 +414,21 @@ fun SettingsRoute(onOpenDiagnostics: () -> Unit, modifier: Modifier = Modifier) 
             accountMessage = "Sessão Google encerrada."
             diagnosticsLog.add("Sessão Google encerrada.")
         },
-        onSync = ::sync
+        onSync = ::sync,
+        onEngineSelect = { engine ->
+            preferencesStore.write(preferencesStore.read().copy(transcriptionEngine = engine))
+            preferences = preferencesStore.read()
+        },
+        onModelInstall = { modelInstaller.install(useWhenReady = true) },
+        onModelCancel = modelInstaller::cancel,
+        onModelDelete = {
+            if (!pipeline.status.value.isBusy) modelInstaller.delete()
+        },
+        onFormattingSelect = { choice ->
+            preferencesStore.write(CloudModels.withFormatting(preferencesStore.read(), choice))
+            preferences = preferencesStore.read()
+            diagnosticsLog.add("Formatação: ${CloudModels.label(choice)}.")
+        }
     )
     SettingsContent(state = state, actions = actions, modifier = modifier)
 }
@@ -423,8 +459,13 @@ internal fun SettingsContent(
         ) {
             KeyCard(state, actions)
             SettingsCard {
+                TranscriptionEngineSection(state, actions)
+                FvDivider()
                 ModelPickerCard(state, actions)
                 FvDivider()
+                FormattingPickerCard(state, actions)
+            }
+            SettingsCard {
                 SettingsRow(
                     label = "Idioma do ditado",
                     hint = "Português brasileiro",
@@ -465,18 +506,26 @@ internal fun SettingsContent(
                 }
                 FvDivider()
                 SettingsRow(
-                    label = "Revisão por IA",
-                    hint = "Pontuação e ortografia: no fim do ditado pela bolha, ao revisar antes de inserir e nas notas"
+                    label = "Revisão final por IA",
+                    hint = when {
+                        !state.keyConfigured -> "Usa a OpenRouter no fim do ditado; precisa da chave"
+                        state.effectiveEngine == TranscriptionEngine.Local ->
+                            "No fim do ditado o áudio vai à OpenRouter, e o texto final (pontuação, vírgulas, " +
+                                "concordância) troca o do aparelho"
+                        else -> "No fim do ditado o áudio inteiro vai de novo à OpenRouter, e o texto final " +
+                            "(pontuação, vírgulas, concordância) troca o digitado ao vivo"
+                    }
                 ) {
                     FvToggle(
                         checked = state.proofreadingEnabled,
                         onCheckedChange = actions.onProofreadingChange,
-                        label = "Revisão por IA"
+                        label = "Revisão final por IA"
                     )
                 }
             }
             AccountCard(state, actions)
-            DiagnosticsLinkCard(actions.onOpenDiagnostics)
+            LinkCard("Diagnóstico técnico", "Rota de inserção, permissões e log do serviço", actions.onOpenDiagnostics)
+            LinkCard("Política de privacidade", "O que o FlowVoice envia, guarda e lê", actions.onOpenPrivacyPolicy)
             Spacer(Modifier.height(8.dp))
         }
     }
@@ -533,13 +582,7 @@ private fun ModelPickerCard(state: SettingsUiState, actions: SettingsActions) {
                 state.modelOptions.forEach { id ->
                     val selected = id == selectedId
                     androidx.compose.material3.DropdownMenuItem(
-                        text = {
-                            Text(
-                                text = id,
-                                style = typography.bodySmall,
-                                color = if (selected) colors.accentText else colors.textPrimary
-                            )
-                        },
+                        text = { ModelMenuText(id, CloudModels.transcriptionSummary(id), selected) },
                         trailingIcon = if (selected) {
                             {
                                 Icon(
@@ -562,12 +605,96 @@ private fun ModelPickerCard(state: SettingsUiState, actions: SettingsActions) {
         }
         if (selectable) {
             Text(
-                text = "Padrão do benchmark F05: openai/gpt-transcribe.",
+                text = "Ao vivo e na passada final. Padrão: ${OpenRouterConfig.DEFAULT_MODEL}; os medidos vêm primeiro, " +
+                    "com a nota (ortografia e pontuação) e o tempo de um ditado de 20 s.",
                 style = typography.bodySmall,
                 color = colors.textTertiary,
                 modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 10.dp)
             )
         }
+    }
+}
+
+// Nome do modelo e, se ele foi medido, a nota e o tempo (docs/medicao-modelos-nuvem.md).
+@Composable
+private fun ModelMenuText(label: String, summary: String?, selected: Boolean) {
+    val colors = FlowVoiceTheme.colors
+    val typography = FlowVoiceTheme.typography
+    Column {
+        Text(
+            text = label,
+            style = typography.bodySmall,
+            color = if (selected) colors.accentText else colors.textPrimary
+        )
+        if (summary != null) {
+            Text(text = summary, style = typography.bodySmall, color = colors.textTertiary)
+        }
+    }
+}
+
+// Como a passada final formata o texto, nos dois motores: um modelo de chat depois da transcrição, só a
+// transcrição, ou um passo só com um modelo que ouve o áudio. A lista é a medida, sem rede.
+@Composable
+private fun FormattingPickerCard(state: SettingsUiState, actions: SettingsActions) {
+    val colors = FlowVoiceTheme.colors
+    val typography = FlowVoiceTheme.typography
+    var expanded by remember { mutableStateOf(false) }
+    Column {
+        Box {
+            SettingsRow(
+                label = "Formatação",
+                hint = when (state.formatting) {
+                    is FormattingChoice.Llm -> "Pontuação, acentos e concordância no fim do ditado · toque para trocar"
+                    FormattingChoice.None -> "Fica a transcrição do áudio inteiro como veio · toque para trocar"
+                    is FormattingChoice.OneStep -> "O modelo ouve o áudio inteiro e já devolve o texto formatado · toque para trocar"
+                },
+                value = CloudModels.label(state.formatting).substringAfterLast('/'),
+                onClick = { expanded = true },
+                trailing = {
+                    Icon(
+                        FlowVoiceIcons.ChevronRight,
+                        contentDescription = null,
+                        tint = colors.textTertiary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            )
+            androidx.compose.material3.DropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false },
+                modifier = Modifier.background(colors.surfaceRaised)
+            ) {
+                state.formattingOptions.forEach { option ->
+                    val selected = option.choice == state.formatting
+                    androidx.compose.material3.DropdownMenuItem(
+                        text = { ModelMenuText(option.label, option.summary, selected) },
+                        trailingIcon = if (selected) {
+                            {
+                                Icon(
+                                    FlowVoiceIcons.Check,
+                                    contentDescription = "Formatação atual",
+                                    tint = colors.accentText,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        } else {
+                            null
+                        },
+                        onClick = {
+                            expanded = false
+                            actions.onFormattingSelect(option.choice)
+                        }
+                    )
+                }
+            }
+        }
+        Text(
+            text = "Vale para a passada final dos dois motores, com a revisão final por IA ligada. " +
+                "Padrão: um passo só com ${CloudModels.DEFAULT_ONE_STEP_MODEL}.",
+            style = typography.bodySmall,
+            color = colors.textTertiary,
+            modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 10.dp)
+        )
     }
 }
 
@@ -589,50 +716,16 @@ private fun KeyCard(state: SettingsUiState, actions: SettingsActions) {
             )
         }
         Spacer(Modifier.height(10.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            FvDarkField(
-                value = state.keyDraft,
-                onValueChange = actions.onKeyDraftChange,
-                modifier = Modifier.weight(1f),
-                placeholder = state.maskedKey ?: "sk-or-v1-…",
-                label = "Nova chave OpenRouter",
-                visualTransformation = if (state.keyDraftVisible) {
-                    VisualTransformation.None
-                } else {
-                    PasswordVisualTransformation('•')
-                },
-                keyboardOptions = KeyboardOptions(
-                    keyboardType = KeyboardType.Password,
-                    autoCorrectEnabled = false,
-                    imeAction = ImeAction.Done
-                ),
-                keyboardActions = KeyboardActions(onDone = { actions.onSaveKey() }),
-                enabled = !state.validatingKey
-            )
-            FvFieldButton(
-                text = if (state.keyDraftVisible) "ocultar" else "mostrar",
-                onClick = actions.onToggleKeyDraftVisibility,
-                enabled = state.keyDraft.isNotEmpty()
-            )
-        }
-        if (state.keyDraft.isNotBlank()) {
-            Spacer(Modifier.height(10.dp))
-            PillButton(
-                text = if (state.validatingKey) "Validando…" else "Validar e salvar",
-                onClick = actions.onSaveKey,
-                enabled = !state.validatingKey,
-                modifier = Modifier.fillMaxWidth()
-            )
-        }
-        Spacer(Modifier.height(9.dp))
-        Text(
-            text = state.keyMessage ?: "Guardada cifrada no aparelho. Nunca sincronizada.",
-            style = typography.bodySmall,
-            color = colors.textTertiary
+        OpenRouterKeyInput(
+            draft = state.keyDraft,
+            draftVisible = state.keyDraftVisible,
+            validating = state.validatingKey,
+            maskedKey = state.maskedKey,
+            message = state.keyMessage,
+            idleHint = "Guardada cifrada no aparelho. Nunca sincronizada.",
+            onDraftChange = actions.onKeyDraftChange,
+            onToggleDraftVisibility = actions.onToggleKeyDraftVisibility,
+            onSave = actions.onSaveKey
         )
     }
 }
@@ -715,12 +808,12 @@ private fun AccountCard(state: SettingsUiState, actions: SettingsActions) {
 }
 
 @Composable
-private fun DiagnosticsLinkCard(onOpenDiagnostics: () -> Unit) {
+private fun LinkCard(title: String, subtitle: String, onClick: () -> Unit) {
     val colors = FlowVoiceTheme.colors
     val typography = FlowVoiceTheme.typography
     FvCard(
         modifier = Modifier.fillMaxWidth(),
-        onClick = onOpenDiagnostics,
+        onClick = onClick,
         contentPadding = PaddingValues(14.dp)
     ) {
         Row(
@@ -729,10 +822,10 @@ private fun DiagnosticsLinkCard(onOpenDiagnostics: () -> Unit) {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(Modifier.weight(1f)) {
-                Text("Diagnóstico técnico", style = typography.rowLabel, color = colors.textPrimary)
+                Text(title, style = typography.rowLabel, color = colors.textPrimary)
                 Spacer(Modifier.height(3.dp))
                 Text(
-                    text = "Rota de inserção, permissões e log do serviço",
+                    text = subtitle,
                     style = typography.bodySmall,
                     color = colors.textTertiary
                 )
@@ -761,13 +854,6 @@ private fun overlayDecision(context: Context, running: Boolean, permissionsReque
         permissionsRequested = permissionsRequested
     )
 
-private fun openOverlayPermissionSettings(context: Context) {
-    val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, "package:${context.packageName}".toUri())
-    if (!context.startActivitySafely(intent)) {
-        context.startActivitySafely(Intent(Settings.ACTION_SETTINGS))
-    }
-}
-
 private fun Context.isGranted(permission: String): Boolean =
     ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
 
@@ -789,7 +875,7 @@ private fun SettingsContentPreview(@PreviewParameter(ThemePreviewParameter::clas
                 keyDraftVisible = false,
                 validatingKey = false,
                 keyMessage = null,
-                modelLabel = "gpt-transcribe",
+                modelLabel = "gpt-4o-mini-transcribe",
                 modelOptions = emptyList(),
                 modelLoading = false,
                 modelMessage = null,
@@ -803,9 +889,15 @@ private fun SettingsContentPreview(@PreviewParameter(ThemePreviewParameter::clas
                 googleWebClientId = "",
                 signingIn = false,
                 syncing = false,
-                accountMessage = null
+                accountMessage = null,
+                engineChoice = TranscriptionEngine.Local,
+                effectiveEngine = TranscriptionEngine.Local,
+                localModel = LocalModelState.Installed,
+                dictationBusy = false,
+                formatting = FormattingChoice.OneStep(CloudModels.DEFAULT_ONE_STEP_MODEL),
+                formattingOptions = CloudModels.formattingOptions()
             ),
-            actions = SettingsActions({}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {})
+            actions = SettingsActions({}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {})
         )
     }
 }

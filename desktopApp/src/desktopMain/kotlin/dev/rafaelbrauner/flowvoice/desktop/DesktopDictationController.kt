@@ -3,6 +3,7 @@ package dev.rafaelbrauner.flowvoice.desktop
 import dev.rafaelbrauner.flowvoice.shared.dictation.DictationSessionController
 import dev.rafaelbrauner.flowvoice.shared.dictation.DictationSessionState
 import dev.rafaelbrauner.flowvoice.shared.insertion.TextInserter
+import dev.rafaelbrauner.flowvoice.shared.pipeline.TranscriptionFailureSummary
 import dev.rafaelbrauner.flowvoice.shared.preview.LivePreviewAssembler
 import dev.rafaelbrauner.flowvoice.shared.transcription.InMemorySecretStore
 import dev.rafaelbrauner.flowvoice.shared.prefs.InMemoryPreferencesStore
@@ -53,6 +54,7 @@ class DesktopDictationController : KoinComponent {
     private val keyConfiguredFlow = MutableStateFlow(false)
     private val finalTextFlow = MutableStateFlow("")
     private val finalizingFlow = MutableStateFlow(false)
+    private val warningFlow = MutableStateFlow<String?>(null)
     private val submittedWindows = MutableStateFlow(0)
 
     @Volatile
@@ -62,6 +64,9 @@ class DesktopDictationController : KoinComponent {
     val keyConfigured: StateFlow<Boolean> = keyConfiguredFlow.asStateFlow()
     val finalText: StateFlow<String> = finalTextFlow.asStateFlow()
     val finalizing: StateFlow<Boolean> = finalizingFlow.asStateFlow()
+    // Trecho que falhou (rede, teto, chave, voz sem texto), como o aviso do Android (Y6). Nulo quando
+    // todos os trechos saíram.
+    val warning: StateFlow<String?> = warningFlow.asStateFlow()
     val sessionState: StateFlow<DictationSessionState>
         get() = session.state
     val segments: StateFlow<List<TranscriptionSegment>>
@@ -77,6 +82,19 @@ class DesktopDictationController : KoinComponent {
                 submittedWindows.value += 1
             }
         }
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            transcription.segments.collect { segments ->
+                warningFlow.value = failuresOf(segments)?.partialMessage
+            }
+        }
+        // Como no Android (P92, P111): no teto de requisições ou com a chave recusada, gravar mais só
+        // acumularia trechos falhos com o microfone aberto. A gravação encerra e o que já saiu fica.
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            transcription.budgetExhausted.collect { exhausted -> if (exhausted) stopEarly() }
+        }
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            transcription.fatalError.collect { error -> if (error != null) stopEarly() }
+        }
     }
 
     fun saveKey(rawKey: String) {
@@ -84,7 +102,7 @@ class DesktopDictationController : KoinComponent {
             statusFlow.value = "Validando chave…"
             statusFlow.value = when (keyValidator.validate(rawKey)) {
                 KeyValidationResult.Valid -> storeKey(rawKey)
-                KeyValidationResult.InvalidFormat -> "Formato de chave inválido."
+                KeyValidationResult.InvalidFormat -> OpenRouterKeyValidator.formatMessage(rawKey).orEmpty()
                 KeyValidationResult.Rejected -> "Chave recusada pela OpenRouter."
                 KeyValidationResult.Unavailable -> "Não foi possível validar agora (rede ou serviço)."
             }
@@ -98,6 +116,7 @@ class DesktopDictationController : KoinComponent {
         transcription.reset()
         submittedWindows.value = 0
         finalTextFlow.value = ""
+        warningFlow.value = null
         scope.launch {
             try {
                 session.start()
@@ -117,13 +136,19 @@ class DesktopDictationController : KoinComponent {
                 publishIfCurrent(token) { statusFlow.value = "Transcrevendo o trecho final…" }
                 submittedWindows.first { it >= session.emittedWindowCount }
                 transcription.awaitIdle()
-                val preview = LivePreviewAssembler.assemble(transcription.segments.value, sessionComplete = true)
+                val segments = transcription.segments.value
+                val preview = LivePreviewAssembler.assemble(segments, sessionComplete = true)
+                val failures = failuresOf(segments)
                 publishIfCurrent(token) {
                     finalTextFlow.value = preview.finalized
-                    statusFlow.value = if (preview.finalized.isBlank()) {
-                        "Nada transcrito."
-                    } else {
-                        "Texto final pronto (${preview.finalized.length} caracteres)."
+                    warningFlow.value = failures?.partialMessage
+                    statusFlow.value = when {
+                        preview.finalized.isBlank() && failures != null -> failures.noTextMessage
+                        preview.finalized.isBlank() -> "Nada transcrito."
+                        // Texto com trecho faltando nunca sai como pronto: o aviso diz qual falhou.
+                        failures != null ->
+                            "Texto final incompleto (${preview.finalized.length} caracteres): confira antes de inserir."
+                        else -> "Texto final pronto (${preview.finalized.length} caracteres)."
                     }
                 }
             } catch (error: Exception) {
@@ -140,6 +165,7 @@ class DesktopDictationController : KoinComponent {
         sessionToken++
         transcription.cancel()
         finalTextFlow.value = ""
+        warningFlow.value = null
         finalizingFlow.value = false
         scope.launch {
             try {
@@ -180,6 +206,13 @@ class DesktopDictationController : KoinComponent {
         }
         scope.cancel()
     }
+
+    private fun stopEarly() {
+        if (session.state.value == DictationSessionState.Capturing) finalizeDictation()
+    }
+
+    private fun failuresOf(segments: List<TranscriptionSegment>): TranscriptionFailureSummary? =
+        TranscriptionFailureSummary.from(segments, session.emittedWindowCount)
 
     private inline fun publishIfCurrent(token: Int, publish: () -> Unit) {
         if (token == sessionToken) publish()

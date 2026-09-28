@@ -326,6 +326,37 @@ class OpenRouterTranscriptionClientTest {
         assertTrue(log.events.none { it.event == "transcription_error" }, "recusa de formato não é falha do trecho")
     }
 
+    // N6: um 400 no pedido `verbose_json` pode ser da janela (curta ou malformada), não do formato. Se
+    // o pedido em `json` recusa do mesmo jeito, o formato não era o problema: a janela falha e o modelo
+    // continua pedindo os tempos que cortam o contexto nas janelas seguintes.
+    @Test
+    fun aWindowRefusedInBothFormatsDoesNotMarkTheModelAsWithoutTimestamps() = runTest {
+        val log = RecordingLog()
+        var refuseAll = true
+        val engine = MockEngine {
+            if (refuseAll) {
+                respond(
+                    content = ByteReadChannel("""{"error":{"message":"Audio file is too short"}}"""),
+                    status = HttpStatusCode.BadRequest,
+                    headers = jsonHeaders()
+                )
+            } else {
+                respond(content = ByteReadChannel(VERBOSE_WORDS_BODY), status = HttpStatusCode.OK, headers = jsonHeaders())
+            }
+        }
+        val client = OpenRouterTranscriptionClient(httpClient(engine), OpenRouterConfig(), log)
+
+        assertFailsWith<TranscriptionError.InvalidResponse> {
+            client.transcribe(testWindow(index = 1, contextMs = 1_000L), SECRET_KEY)
+        }
+        refuseAll = false
+        val next = client.transcribe(testWindow(index = 2, contextMs = 1_000L), SECRET_KEY)
+
+        assertTrue((engine.requestHistory.last().body as TextContent).text.contains("verbose_json"))
+        assertEquals("Grandmont.", next.text, "a janela seguinte ainda corta o contexto pelo tempo")
+        assertTrue(log.events.none { it.event == "transcription_verbose_unsupported" })
+    }
+
     // Provedor que aceita o formato e devolve sem tempos: o texto vale, nada é cortado por tempo e as
     // janelas seguintes deixam de pedir a resposta maior.
     @Test

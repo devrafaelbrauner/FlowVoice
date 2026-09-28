@@ -1,8 +1,10 @@
 package dev.rafaelbrauner.flowvoice.shared.pipeline
 
+import dev.rafaelbrauner.flowvoice.shared.transcription.IncrementalTranscriptionController
 import dev.rafaelbrauner.flowvoice.shared.transcription.TranscriptionSegment
 
-internal class TranscriptionFailureSummary private constructor(
+// Público para o desktop avisar do trecho que falhou como o Android (Y6).
+class TranscriptionFailureSummary private constructor(
     val failedCount: Int,
     private val failedWindows: List<Int>,
     private val totalWindows: Int,
@@ -22,6 +24,9 @@ internal class TranscriptionFailureSummary private constructor(
         }
 
     companion object {
+        // Janela sem resposta quando o prazo do fim do ditado venceu (Y5).
+        const val DEADLINE_KIND = "finalize_deadline"
+
         fun from(segments: List<TranscriptionSegment>, totalWindows: Int): TranscriptionFailureSummary? {
             val failed = segments
                 .filter { it.status == TranscriptionSegment.Status.Failed }
@@ -37,11 +42,13 @@ internal class TranscriptionFailureSummary private constructor(
 
         private fun describe(kind: String?): String = when {
             kind == "timeout" -> "timeout"
+            kind == DEADLINE_KIND -> "sem resposta a tempo"
             kind == "network" -> "sem rede"
             kind == "rate_limit" -> "limite de requisições"
             kind == "invalid_key" -> "chave OpenRouter ausente ou inválida"
             kind == "forbidden" -> "recusado pela OpenRouter"
             kind == "budget" -> "teto de requisições da sessão"
+            kind == IncrementalTranscriptionController.EMPTY_VOICE_KIND -> "voz sem texto"
             kind?.startsWith("server") == true -> "erro do servidor"
             else -> "resposta inválida"
         }

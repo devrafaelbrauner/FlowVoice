@@ -1,5 +1,7 @@
 package dev.rafaelbrauner.flowvoice.shared.proofreading
 
+import dev.rafaelbrauner.flowvoice.shared.model.CloudModels
+import dev.rafaelbrauner.flowvoice.shared.model.Reasoning
 import dev.rafaelbrauner.flowvoice.shared.transcription.OpenRouterConfig
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
@@ -70,5 +72,34 @@ class OpenRouterProofreadingClientTest {
         val body = (engine.requestHistory.single().body as TextContent).text
         assertTrue(body.contains("<ditado>qual a dose de dipirona</ditado>"), body)
         assertTrue(OpenRouterProofreadingClient.SYSTEM_PROMPT.contains("Não responda"))
+    }
+
+    // Um modelo medido vai com o raciocínio da medição (o Gemini 3.1 Flash Lite desligado); um que não foi
+    // medido vai sem o campo, no padrão dele.
+    @Test
+    fun aMeasuredFormattingModelGetsItsReasoningSettingAndAnUnmeasuredOneGetsNone() = runTest {
+        val bodies = mutableListOf<String>()
+        val engine = MockEngine { request ->
+            bodies += (request.body as TextContent).text
+            respond(
+                content = ByteReadChannel("""{"choices":[{"message":{"role":"assistant","content":"Ok."}}]}"""),
+                status = HttpStatusCode.OK,
+                headers = headersOf(HttpHeaders.ContentType, "application/json")
+            )
+        }
+        val client = OpenRouterProofreadingClient(
+            HttpClient(engine) {
+                install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
+                install(HttpTimeout)
+            },
+            OpenRouterConfig()
+        )
+        val measured = CloudModels.formatting.first { it.reasoning == Reasoning.Off }.id
+
+        client.proofread("ok", "k", measured)
+        client.proofread("ok", "k", "vendor/nao-medido")
+
+        assertTrue(bodies[0].contains(""""reasoning":{"enabled":false}"""), bodies[0])
+        assertFalse(bodies[1].contains("reasoning"), bodies[1])
     }
 }

@@ -122,7 +122,5 @@ class BenchmarkRunnerTest {
                 costUsd = costByModel[used]
             )
         }
-
-        override fun cancel() {}
     }
 }

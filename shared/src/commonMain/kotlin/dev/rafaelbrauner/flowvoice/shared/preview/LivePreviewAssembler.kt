@@ -9,8 +9,8 @@ object LivePreviewAssembler {
     ): LivePreview {
         val merged = segments
             .sortedBy { it.windowIndex }
-            .filter { it.status == TranscriptionSegment.Status.Ok && it.text.isNotBlank() }
-            .fold("") { acc, segment -> mergeAdjacent(acc, segment.text.trim(), segment.contextDurationMs) }
+            .filter { it.status == TranscriptionSegment.Status.Ok && (it.text.isNotBlank() || '\n' in it.text) }
+            .fold("") { acc, segment -> mergeAdjacent(acc, segment.text.trim(' '), segment.contextDurationMs, segment.continuous, segment.glued) }
 
         val transcribing = segments.any { it.status == TranscriptionSegment.Status.Transcribing }
         return if (sessionComplete && !transcribing) {
@@ -24,14 +24,21 @@ object LivePreviewAssembler {
         }
     }
 
-    fun mergeAdjacent(left: String, right: String, contextDurationMs: Long = 0L): String {
-        if (left.isBlank()) return right.trim()
-        if (right.isBlank()) return left.trim()
-        val match = TranscriptOverlap.match(left, right, contextDurationMs)
-        val head = left.trimEnd()
+    fun mergeAdjacent(
+        left: String,
+        right: String,
+        contextDurationMs: Long = 0L,
+        continuous: Boolean = false,
+        glued: Boolean = false
+    ): String {
+        // A quebra de linha da pontuação falada é texto: só espaço sai das pontas.
+        if (left.isBlank() && '\n' !in left) return right.trim(' ')
+        if (right.isBlank() && '\n' !in right) return left.trimEnd(' ')
+        val match = TranscriptOverlap.match(left, right, contextDurationMs, continuous, glued)
+        val head = left.trimEnd(' ')
         return when {
             match.text.isEmpty() -> head
-            match.glued -> head + match.text
+            match.glued || head.endsWith('\n') || match.text.startsWith('\n') -> head + match.text
             else -> "$head ${match.text}"
         }
     }

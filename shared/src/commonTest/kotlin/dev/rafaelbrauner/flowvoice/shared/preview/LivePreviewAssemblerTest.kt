@@ -9,7 +9,7 @@ class LivePreviewAssemblerTest {
     fun mergesOverlappingWindowsWithoutDuplicatingTokens() {
         val segments = listOf(
             ok(0, "o médico pediu o exame"),
-            ok(1, "o exame de sangue para amanhã")
+            ok(1, "o exame de sangue para amanhã", CONTEXT_MS)
         )
         val preview = LivePreviewAssembler.assemble(segments, sessionComplete = true)
         assertEquals("o médico pediu o exame de sangue para amanhã", preview.finalized)
@@ -56,9 +56,9 @@ class LivePreviewAssemblerTest {
 
     @Test
     fun continuationDropsFromTheNewPieceTheWordsThatRepeatTheEndOfTheTextAlreadyTyped() {
-        assertEquals("de sangue", LivePreviewAssembler.continuation("o médico pediu o exame", "o exame de sangue"))
-        assertEquals("importante", LivePreviewAssembler.continuation("é muito", "muito importante"))
-        assertEquals("", LivePreviewAssembler.continuation("pediu o exame", "o exame"))
+        assertEquals("de sangue", LivePreviewAssembler.continuation("o médico pediu o exame", "o exame de sangue", CONTEXT_MS))
+        assertEquals("importante", LivePreviewAssembler.continuation("é muito", "muito importante", CONTEXT_MS))
+        assertEquals("", LivePreviewAssembler.continuation("pediu o exame", "o exame", CONTEXT_MS))
     }
 
     @Test
@@ -85,8 +85,8 @@ class LivePreviewAssemblerTest {
     fun overlappingContextIsMergedEvenWhenTheModelWritesItDifferently() {
         val segments = listOf(
             ok(0, "Paciente evoluiu com diarreia"),
-            ok(1, "com diarréia, há três dias,"),
-            ok(2, "há três dias, e dispneia.")
+            ok(1, "com diarréia, há três dias,", CONTEXT_MS),
+            ok(2, "há três dias, e dispneia.", CONTEXT_MS)
         )
 
         val preview = LivePreviewAssembler.assemble(segments, sessionComplete = true)
@@ -98,10 +98,14 @@ class LivePreviewAssemblerTest {
     fun aWordBrokenAtTheCutIsClosedWithoutASpaceWhenMerging() {
         assertEquals(
             "com episódios de diarreia",
-            LivePreviewAssembler.mergeAdjacent("com episódios de di", "de diarreia")
+            LivePreviewAssembler.mergeAdjacent("com episódios de di", "de diarreia", CONTEXT_MS)
         )
     }
 
-    private fun ok(index: Int, text: String) =
-        TranscriptionSegment(index, TranscriptionSegment.Status.Ok, text)
+    private fun ok(index: Int, text: String, contextDurationMs: Long = 0L) =
+        TranscriptionSegment(index, TranscriptionSegment.Status.Ok, text, contextDurationMs = contextDurationMs)
+
+    private companion object {
+        const val CONTEXT_MS = 1_000L
+    }
 }

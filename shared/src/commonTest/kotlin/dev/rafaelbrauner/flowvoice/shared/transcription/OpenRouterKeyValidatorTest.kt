@@ -12,6 +12,7 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class OpenRouterKeyValidatorTest {
@@ -44,6 +45,49 @@ class OpenRouterKeyValidatorTest {
         }
         val validator = OpenRouterKeyValidator(httpClient(engine), OpenRouterConfig())
         assertEquals(KeyValidationResult.Rejected, validator.validate("sk-or-v1-testkey123456"))
+    }
+
+    @Test
+    fun validationAsksTheAuthenticatingKeyEndpointWithTheTrimmedKey() = runTest {
+        var url: String? = null
+        var authorization: String? = null
+        val engine = MockEngine { request ->
+            url = request.url.toString()
+            authorization = request.headers[HttpHeaders.Authorization]
+            respond(content = ByteReadChannel("""{"data":{}}"""), status = HttpStatusCode.OK)
+        }
+        val validator = OpenRouterKeyValidator(httpClient(engine), OpenRouterConfig())
+
+        validator.validate("  sk-or-v1-testkey123456 ")
+
+        assertEquals("https://openrouter.ai/api/v1/key", url)
+        assertEquals("Bearer sk-or-v1-testkey123456", authorization)
+    }
+
+    @Test
+    fun networkFailureIsUnavailableNotRejected() = runTest {
+        val engine = MockEngine { throw IllegalStateException("conexão recusada") }
+        val validator = OpenRouterKeyValidator(httpClient(engine), OpenRouterConfig())
+        assertEquals(KeyValidationResult.Unavailable, validator.validate("sk-or-v1-testkey123456"))
+    }
+
+    @Test
+    fun serverErrorIsUnavailableNotRejected() = runTest {
+        val engine = MockEngine {
+            respond(content = ByteReadChannel(""), status = HttpStatusCode.InternalServerError)
+        }
+        val validator = OpenRouterKeyValidator(httpClient(engine), OpenRouterConfig())
+        assertEquals(KeyValidationResult.Unavailable, validator.validate("sk-or-v1-testkey123456"))
+    }
+
+    @Test
+    fun formatMessageNamesTheRuleThatFailed() {
+        assertEquals(KeyFormatProblem.TooShort, OpenRouterKeyValidator.formatProblem("sk-or-v1-FAKE-000"))
+        assertTrue(OpenRouterKeyValidator.formatMessage("sk-or-v1-FAKE-000")!!.startsWith("Chave curta demais: tem 17 caracteres"))
+        assertEquals(KeyFormatProblem.MissingPrefix, OpenRouterKeyValidator.formatProblem("or-v1-0000000000000000000"))
+        assertEquals(KeyFormatProblem.Whitespace, OpenRouterKeyValidator.formatProblem("sk-or-v1-with space00000"))
+        assertEquals(KeyFormatProblem.Empty, OpenRouterKeyValidator.formatProblem("   "))
+        assertNull(OpenRouterKeyValidator.formatMessage("sk-or-v1-testkey123456"))
     }
 
     @Test

@@ -115,8 +115,10 @@ class DictationWindowAggregator(
             cut = reason,
             noiseFloor = noiseFloor,
             // Janela sem fala própria não precisa levar contexto: sem ele, nem o que for enviado tem
-            // o que copiar do trecho anterior (P144).
-            contextPcm = if (hasSpeech) contextTail else ByteArray(0),
+            // o que copiar do trecho anterior (P144). Contexto sem fala (o fim de uma janela de silêncio)
+            // também não vai: não ajuda o modelo em nada e faria a emenda procurar repetição onde não pode
+            // haver — no S26 (2026-09-28) a frase repetida depois da pausa sumiu do campo assim.
+            contextPcm = if (hasSpeech && contextHasSpeech()) contextTail else ByteArray(0),
             voicedMs = voicedMs,
             peakLevel = peakLevelOf(cut)
         )
@@ -139,6 +141,14 @@ class DictationWindowAggregator(
         if (blocks == 0) return 0L
         val levels = (0 until blocks).map { blockLevel(it * levelBlockBytes) }
         return endpointer.voicedBlocks(levels) * SpeechEndpointing.BLOCK_MS
+    }
+
+    private fun contextHasSpeech(): Boolean {
+        val endpointer = endpointer ?: return true
+        val blocks = contextTail.size / levelBlockBytes
+        if (blocks == 0) return false
+        val levels = (0 until blocks).map { levelOf(contextTail, it * levelBlockBytes, levelBlockBytes) }
+        return endpointer.voicedBlocks(levels) > 0
     }
 
     // Bloco mais alto do áudio próprio da janela (P153), na mesma escala do piso de ruído. Só existe
@@ -201,15 +211,19 @@ class DictationWindowAggregator(
         return start + bestBlock * blockBytes + bytesFor(PAUSE_BLOCK_MS * run / 2)
     }
 
-    private fun blockLevel(offset: Int): Int =
-        (energy(offset, levelBlockBytes) / (levelBlockBytes / format.bytesPerSample)).toInt()
+    private fun blockLevel(offset: Int): Int = levelOf(buffer, offset, levelBlockBytes)
 
-    private fun energy(offset: Int, length: Int): Long {
+    private fun levelOf(bytes: ByteArray, offset: Int, length: Int): Int =
+        (energy(bytes, offset, length) / (length / format.bytesPerSample)).toInt()
+
+    private fun energy(offset: Int, length: Int): Long = energy(buffer, offset, length)
+
+    private fun energy(bytes: ByteArray, offset: Int, length: Int): Long {
         var sum = 0L
         var index = offset
         while (index + 1 < offset + length) {
-            val low = buffer[index].toInt() and 0xFF
-            val high = buffer[index + 1].toInt() shl 8
+            val low = bytes[index].toInt() and 0xFF
+            val high = bytes[index + 1].toInt() shl 8
             sum += abs((high or low).toShort().toInt())
             index += 2
         }

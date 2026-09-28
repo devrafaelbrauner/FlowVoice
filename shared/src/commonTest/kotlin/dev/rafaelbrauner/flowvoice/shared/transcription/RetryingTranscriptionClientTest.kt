@@ -161,6 +161,41 @@ class RetryingTranscriptionClientTest {
         assertEquals(delays.single().toString(), retry.metadata["delayMs"])
     }
 
+    // Y1: a OpenRouter pode responder 200 com o erro do provedor no corpo, quando o erro vem depois de
+    // a resposta ter começado. Isso não é transcrição vazia: com código 5xx é falha passageira, e a
+    // janela é pedida de novo em vez de virar "nada foi dito".
+    @Test
+    fun anOkResponseCarryingAServerErrorIsRetriedNotTakenAsSilence() = runTest {
+        var calls = 0
+        val engine = MockEngine {
+            calls++
+            val body = if (calls == 1) {
+                """{"error":{"message":"Provider returned error","code":502}}"""
+            } else {
+                """{"text":"Nega febre."}"""
+            }
+            respond(content = ByteReadChannel(body), status = HttpStatusCode.OK, headers = jsonHeaders())
+        }
+        val client = retryingClient(engine, mutableListOf())
+
+        val result = client.transcribe(testWindow(), SECRET_KEY)
+
+        assertEquals("Nega febre.", result.text)
+        assertEquals(2, calls)
+    }
+
+    // Y1: 200 sem o campo `text` não diz que a janela era silêncio. É resposta inválida, e nunca
+    // texto vazio.
+    @Test
+    fun anOkResponseWithoutTextIsAnInvalidResponseNotAnEmptyTranscription() = runTest {
+        val engine = MockEngine {
+            respond(content = ByteReadChannel("""{"usage":{"cost":0.001}}"""), status = HttpStatusCode.OK, headers = jsonHeaders())
+        }
+        val client = retryingClient(engine, mutableListOf())
+
+        assertFailsWith<TranscriptionError.InvalidResponse> { client.transcribe(testWindow(), SECRET_KEY) }
+    }
+
     private fun retryingClient(
         engine: MockEngine,
         delays: MutableList<Long>,

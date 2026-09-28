@@ -37,7 +37,7 @@ class LiveDictationTextTest {
 
     @Test
     fun overlapWithFinalizedTextIsNotRepeated() {
-        val preview = LiveDictationText.split(listOf(ok(0, "o médico pediu"), ok(1, "pediu o exame")))
+        val preview = LiveDictationText.split(listOf(ok(0, "o médico pediu"), ok(1, "pediu o exame", 1_000L)))
 
         assertEquals("o médico pediu", preview.finalized)
         assertEquals("o exame", preview.provisional)
@@ -51,6 +51,22 @@ class LiveDictationTextTest {
         assertEquals("o exame", preview.provisional)
     }
 
+    // N1: com contexto sobreposto (P143), a emenda aproximada da P150 vale também no texto ao vivo. A
+    // prévia da revisão mostrava "muito bonito" duas vezes, que o texto final já não tinha.
+    @Test
+    fun theLivePreviewDeduplicatesTheContextLikeTheFinalText() {
+        val segments = listOf(
+            ok(0, "Hoje o dia está muito bonito."),
+            TranscriptionSegment(1, TranscriptionSegment.Status.Ok, "Tá muito bonito, por isso iremos à praia.", contextDurationMs = 1_000),
+            TranscriptionSegment(2, TranscriptionSegment.Status.Transcribing)
+        )
+
+        val preview = LiveDictationText.split(segments)
+
+        assertEquals("Hoje o dia está muito bonito.", preview.finalized)
+        assertEquals("por isso iremos à praia. …", preview.provisional)
+    }
+
     @Test
     fun noSegmentsProduceEmptyText() {
         val preview = LiveDictationText.split(emptyList())
@@ -59,6 +75,6 @@ class LiveDictationTextTest {
         assertEquals("", preview.provisional)
     }
 
-    private fun ok(index: Int, text: String) =
-        TranscriptionSegment(index, TranscriptionSegment.Status.Ok, text)
+    private fun ok(index: Int, text: String, contextDurationMs: Long = 0L) =
+        TranscriptionSegment(index, TranscriptionSegment.Status.Ok, text, contextDurationMs = contextDurationMs)
 }

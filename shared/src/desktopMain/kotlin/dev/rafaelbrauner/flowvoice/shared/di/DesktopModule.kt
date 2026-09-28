@@ -44,9 +44,10 @@ fun desktopModule(os: DesktopOs = DesktopOs.current()): Module = module {
     factory {
         DictationSessionController(
             get(),
+            windowTargetDurationMs = SpeechEndpointing.LIVE_TARGET_DURATION_MS,
             windowPauseSearchBeforeMs = DictationWindowAggregator.SPEECH_PAUSE_SEARCH_BEFORE_MS,
             windowPauseSearchAfterMs = DictationWindowAggregator.SPEECH_PAUSE_SEARCH_AFTER_MS,
-            windowEndpointing = SpeechEndpointing(),
+            windowEndpointing = SpeechEndpointing.LIVE,
             windowContextDurationMs = DictationWindowAggregator.SPEECH_CONTEXT_MS
         )
     }

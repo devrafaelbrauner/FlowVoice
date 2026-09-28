@@ -58,6 +58,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.compose.LifecycleResumeEffect
+import dev.rafaelbrauner.flowvoice.shared.localasr.TranscriptionEngineSelection
 import dev.rafaelbrauner.flowvoice.shared.notes.Note
 import dev.rafaelbrauner.flowvoice.shared.notes.NoteDictationCoordinator
 import dev.rafaelbrauner.flowvoice.shared.notes.NoteStore
@@ -65,6 +67,8 @@ import dev.rafaelbrauner.flowvoice.shared.pipeline.DictationPipeline
 import dev.rafaelbrauner.flowvoice.shared.pipeline.DictationPipelineStatus
 import dev.rafaelbrauner.flowvoice.shared.pipeline.DictationTarget
 import dev.rafaelbrauner.flowvoice.shared.preview.LivePreviewAssembler
+import dev.rafaelbrauner.flowvoice.shared.transcription.SecretStore
+import dev.rafaelbrauner.flowvoice.ui.components.MissingKeyNotice
 import dev.rafaelbrauner.flowvoice.ui.components.PillButton
 import dev.rafaelbrauner.flowvoice.ui.components.ProvisionalText
 import dev.rafaelbrauner.flowvoice.ui.components.ThemePreviewParameter
@@ -76,22 +80,34 @@ import dev.rafaelbrauner.flowvoice.ui.theme.FlowVoiceRadius
 import dev.rafaelbrauner.flowvoice.ui.theme.FlowVoiceTheme
 
 @Composable
-fun NotesRoute(initialNoteId: String?, modifier: Modifier = Modifier) {
+fun NotesRoute(initialNoteId: String?, onOpenKeySetup: () -> Unit, modifier: Modifier = Modifier) {
     val store = rememberKoin<NoteStore>()
     val pipeline = rememberKoin<DictationPipeline>()
     val coordinator = rememberKoin<NoteDictationCoordinator>()
+    val secretStore = rememberKoin<SecretStore>()
     val state = remember(store, coordinator) { NotesScreenState(store, initialNoteId, coordinator) }
     val context = LocalContext.current
     val status by pipeline.status.collectAsState()
     val segments by pipeline.segments.collectAsState()
+    val partial by pipeline.livePartial.collectAsState()
     val dictationState by coordinator.state.collectAsState()
     var pendingStartNoteId by rememberSaveable { mutableStateOf<String?>(null) }
+    var keyNotice by rememberSaveable { mutableStateOf(false) }
+    // Com o modelo no aparelho em uso, a chave deixa de ser pré-requisito do ditado.
+    fun transcriptionReady(): Boolean = TranscriptionEngineSelection.canDictate(
+        pipeline.effectiveEngine(),
+        keyConfigured = !secretStore.readOpenRouterKey().isNullOrBlank()
+    )
 
     LaunchedEffect(initialNoteId) {
         state.refresh()
         state.selectInitial(initialNoteId)
     }
     LaunchedEffect(dictationState, status) { state.refresh() }
+    LifecycleResumeEffect(Unit) {
+        if (keyNotice && transcriptionReady()) keyNotice = false
+        onPauseOrDispose { }
+    }
 
     val startDictation: (String) -> Unit = { noteId ->
         val current = pipeline.session.value
@@ -111,19 +127,24 @@ fun NotesRoute(initialNoteId: String?, modifier: Modifier = Modifier) {
         }
     }
     val requestDictation: (String) -> Unit = { noteId ->
-        val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
+        val microphoneGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
             PackageManager.PERMISSION_GRANTED
-        if (granted) {
-            startDictation(noteId)
-        } else {
-            pendingStartNoteId = noteId
-            permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        when (NoteDictationGate.decide(transcriptionReady(), microphoneGranted)) {
+            NoteStartAction.ConfigureKey -> keyNotice = true
+            NoteStartAction.RequestMicrophone -> {
+                pendingStartNoteId = noteId
+                permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+            }
+            NoteStartAction.Start -> startDictation(noteId)
         }
     }
 
     val dictatingHere = dictationState.noteId != null && status.isBusy
     val provisional = if (dictatingHere) {
-        LivePreviewAssembler.assemble(segments, sessionComplete = false).full
+        // Com o motor no aparelho, o que está sendo dito entra no fim da prévia, ainda provisório.
+        listOf(LivePreviewAssembler.assemble(segments, sessionComplete = false).full, partial)
+            .filter { it.isNotBlank() }
+            .joinToString(" ")
     } else {
         ""
     }
@@ -141,10 +162,11 @@ fun NotesRoute(initialNoteId: String?, modifier: Modifier = Modifier) {
         dictationNoteId = dictationState.noteId,
         provisional = provisional,
         message = state.message,
+        keyNotice = keyNotice,
         pendingDeleteId = state.pendingDeleteId,
         onTogglePanel = state::togglePanel,
         onSelect = state::select,
-        onNewNote = { requestDictation(state.createNote().id) },
+        onNewNote = { if (transcriptionReady()) requestDictation(state.createNote().id) else keyNotice = true },
         onTitleChange = state::updateTitle,
         onBodyChange = state::updateBody,
         onDeleteTap = { id ->
@@ -154,6 +176,8 @@ fun NotesRoute(initialNoteId: String?, modifier: Modifier = Modifier) {
         onDictate = requestDictation,
         onStop = { pipeline.requestFinalize() },
         onDismissMessage = state::dismissMessage,
+        onConfigureKey = onOpenKeySetup,
+        onDismissKeyNotice = { keyNotice = false },
         modifier = modifier
     )
 }
@@ -170,6 +194,7 @@ internal fun NotesScreen(
     dictationNoteId: String?,
     provisional: String,
     message: NotesMessage?,
+    keyNotice: Boolean,
     pendingDeleteId: String?,
     onTogglePanel: () -> Unit,
     onSelect: (String) -> Unit,
@@ -180,6 +205,8 @@ internal fun NotesScreen(
     onDictate: (String) -> Unit,
     onStop: () -> Unit,
     onDismissMessage: () -> Unit,
+    onConfigureKey: () -> Unit,
+    onDismissKeyNotice: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val colors = FlowVoiceTheme.colors
@@ -200,28 +227,41 @@ internal fun NotesScreen(
         } else {
             CollapsedNotesPanel(count = notes.size, onExpand = onTogglePanel)
         }
-        Box(
+        Column(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxHeight()
         ) {
-            if (selected == null) {
-                EmptyNoteDetail(onNewNote = onNewNote)
-            } else {
-                NoteDetail(
-                    note = selected,
-                    nowMs = nowMs,
-                    dictation = if (dictationNoteId == selected.id) dictation else NoteDictationBar.Idle,
-                    provisional = if (dictationNoteId == selected.id) provisional else "",
-                    message = message,
-                    deletePending = pendingDeleteId == selected.id,
-                    onTitleChange = { onTitleChange(selected.id, it) },
-                    onBodyChange = { onBodyChange(selected.id, it) },
-                    onDeleteTap = { onDeleteTap(selected.id) },
-                    onDictate = { onDictate(selected.id) },
-                    onStop = onStop,
-                    onDismissMessage = onDismissMessage
+            if (keyNotice) {
+                MissingKeyNotice(
+                    onConfigureKey = onConfigureKey,
+                    onDismiss = onDismissKeyNotice,
+                    modifier = Modifier.padding(start = 14.dp, end = 14.dp, top = 8.dp)
                 )
+            }
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+            ) {
+                if (selected == null) {
+                    EmptyNoteDetail(onNewNote = onNewNote)
+                } else {
+                    NoteDetail(
+                        note = selected,
+                        nowMs = nowMs,
+                        dictation = if (dictationNoteId == selected.id) dictation else NoteDictationBar.Idle,
+                        provisional = if (dictationNoteId == selected.id) provisional else "",
+                        message = message,
+                        deletePending = pendingDeleteId == selected.id,
+                        onTitleChange = { onTitleChange(selected.id, it) },
+                        onBodyChange = { onBodyChange(selected.id, it) },
+                        onDeleteTap = { onDeleteTap(selected.id) },
+                        onDictate = { onDictate(selected.id) },
+                        onStop = onStop,
+                        onDismissMessage = onDismissMessage
+                    )
+                }
             }
         }
     }
@@ -717,6 +757,7 @@ private fun NotesScreenPreview(@PreviewParameter(ThemePreviewParameter::class) d
             dictationNoteId = "1",
             provisional = "precisa confirmar com o financeiro na sexta",
             message = null,
+            keyNotice = false,
             pendingDeleteId = null,
             onTogglePanel = {},
             onSelect = {},
@@ -726,7 +767,9 @@ private fun NotesScreenPreview(@PreviewParameter(ThemePreviewParameter::class) d
             onDeleteTap = {},
             onDictate = {},
             onStop = {},
-            onDismissMessage = {}
+            onDismissMessage = {},
+            onConfigureKey = {},
+            onDismissKeyNotice = {}
         )
     }
 }
@@ -746,6 +789,7 @@ private fun NotesScreenCollapsedPreview(@PreviewParameter(ThemePreviewParameter:
             dictationNoteId = null,
             provisional = "",
             message = NotesMessage.Warning("Trecho 2 de 3 falhou (timeout): texto incompleto"),
+            keyNotice = false,
             pendingDeleteId = null,
             onTogglePanel = {},
             onSelect = {},
@@ -755,7 +799,9 @@ private fun NotesScreenCollapsedPreview(@PreviewParameter(ThemePreviewParameter:
             onDeleteTap = {},
             onDictate = {},
             onStop = {},
-            onDismissMessage = {}
+            onDismissMessage = {},
+            onConfigureKey = {},
+            onDismissKeyNotice = {}
         )
     }
 }
