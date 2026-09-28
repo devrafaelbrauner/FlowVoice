@@ -154,7 +154,7 @@ FlowVoice (P161).
       sem internet e sem custo, e o áudio não sai do celular (ver "Motor de transcrição").
       Para a nuvem, a mesma tela explica a OpenRouter, abre
       openrouter.ai/keys e avisa dos créditos pré-pagos no cartão (compra mínima
-      de US$ 5). Mostra uma **estimativa** de custo: ≈ R$ 1,90 a 2,70 por hora de
+      de US$ 5). Mostra uma **estimativa** de custo: ≈ R$ 1,90 a 3,30 por hora de
       ditado (set/2026), calculada com os preços da OpenRouter, as taxas e o câmbio
       de 2026-09-25, e não medida em uso real. "Validar e salvar" é o mesmo de
       Ajustes. A chave fica cifrada no aparelho, fora do backup e da sincronização,
@@ -183,8 +183,12 @@ Em **Ajustes → Motor de transcrição**:
   aviso, e o app **não** passa sozinho para a nuvem. Sem hotwords: termos médicos saem pior que
   na nuvem.
 - **Nuvem (OpenRouter):** o padrão, como antes; precisa da chave.
-- A **revisão por IA** (Ajustes) envia o texto à OpenRouter nos dois motores e precisa da
-  chave; sem ela, é pulada.
+- A **revisão final por IA** (Ajustes) precisa da chave; sem ela, é pulada. No motor do aparelho ela
+  faz **duas passadas**: o Nemotron digita o rascunho ao vivo e, ao parar, o **áudio inteiro** do
+  ditado vai uma vez à OpenRouter (`gpt-transcribe` + formatação por `claude-haiku-4.5`); o texto
+  final troca o rascunho no campo, na nota ou na barra ~3,5–4,5 s depois (cartão "revisando…"). Sem
+  rede, com erro ou passados 8 s, fica o rascunho, com aviso. Custo ≈ US$ 0,0073 por minuto de
+  ditado. Na nuvem ela revisa só o texto já transcrito. Ver `docs/medicao-duas-passadas.md`.
 - "Apagar modelo" volta o motor para a nuvem.
 
 ## Ditando
@@ -197,10 +201,11 @@ Em **Ajustes → Motor de transcrição**:
   sem pausa, até ~4 s; no motor do aparelho, até ~1,2 s (pausa a partir de ~0,8 s), então as
   palavras entram no campo cerca de 1 s depois de ditas. O trecho é **digitado no campo** assim que é
   transcrito, em ordem e com espaço entre os trechos. Toque na bolha de novo para encerrar: o último trecho
-  entra em seguida. Com a **revisão por IA** ligada (Ajustes), o ditado inteiro é
-  revisto de uma vez no fim — só pontuação, maiúsculas e acentos, sem trocar palavra —
-  e substitui no campo o que o FlowVoice tinha escrito; a prévia mostra "revisando…"
-  durante o ~1 s da chamada. Se a revisão falhar, se o texto não estiver mais logo
+  entra em seguida. Com a **revisão final por IA** ligada (Ajustes), o ditado inteiro é
+  revisto de uma vez no fim — pontuação, vírgulas, maiúsculas, acentos e concordância só pela
+  terminação, sem trocar palavra; no motor do aparelho, a partir do áudio inteiro (ver "Motor de
+  transcrição") — e substitui no campo o que o FlowVoice tinha escrito; a prévia mostra "revisando…"
+  durante a chamada. Se a revisão falhar, se o texto não estiver mais logo
   antes do cursor ou se o ditado passar de 4000 caracteres, fica como foi digitado.
 - **Cartão da prévia:** no ditado normal não há cartão — o texto aparece no próprio campo
   e a bolha encerra. Ele só abre quando há algo que só ele mostra: texto **PENDENTE**

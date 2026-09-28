@@ -8,6 +8,28 @@ estão em [`docs/tasks/`](docs/tasks/README.md).
 
 ### Adicionado
 
+- **Duas passadas no motor do aparelho.** Com a "Revisão final por IA" ligada (o antigo "Revisão por
+  IA", mesma chave, sem ajuste novo), o Nemotron segue digitando o rascunho ao vivo e, ao parar, o
+  **áudio inteiro** do ditado vai uma vez à OpenRouter: transcrição (`openai/gpt-transcribe`, o modelo
+  da nuvem escolhido em Ajustes) → pontuação falada no texto inteiro → formatação (`anthropic/claude-haiku-4.5`)
+  → guarda contra a transcrição da nuvem → vocabulário do usuário → troca do rascunho pelo caminho da
+  revisão final (mesmas travas: sem pendente, contíguo, nunca depois de "Inserir aqui" noutro campo,
+  até 4000 caracteres, apagando só o que o campo confirma). Nota e barra de revisão recebem o texto
+  final. O áudio é o das janelas que o pipeline já guarda em memória (nunca em disco; cancelar o
+  descarta); acima de 50 s vai em pedaços cortados em fim de janela em silêncio, transcritos em
+  paralelo e emendados na ordem. Teto de 8 s (`FinalPass.TIMEOUT`). Sem chave, sem rede, erro, prazo
+  ou transcrição com menos de 60 % das palavras do rascunho: fica o rascunho, e o cartão avisa "Versão
+  final da nuvem não veio: ficou o texto do aparelho". Se só a formatação falhar ou for recusada, vale
+  a transcrição da nuvem como veio. Logs só com contagens e tempos (`final_pass_done`,
+  `final_pass_applied`, `final_pass_kept_draft`, `final_pass_skipped reason=…`). Na nuvem a revisão
+  final continua só de texto (sem reenviar o áudio). Medição e escolha dos modelos em
+  `docs/medicao-duas-passadas.md` (US$ 0,20 gastos); custo da passada final ≈ US$ 0,0073 por minuto.
+- **Concordância só pela terminação** na guarda (`ProofreadingGuard.wordEdit`): radical comum de 4+
+  letras e fim de até 3 letras (ou "-ou/-aram", "-eu/-eram"), ou um par da lista fechada de verbos
+  (é/são, foi/foram, está/estão…). Número, negação, hiper/hipo, "prednisona"→"prednisolona",
+  "amoxicilina"→"ampicilina", "direito"→"esquerdo", "normal"→"anormal" continuam recusados. A mistura
+  (P157) volta ao ditado as trocas de concordância da frase em que alguma palavra foi recusada.
+
 - **Pontuação falada**, portada do Intelligent Keyboard (`SpokenPunctuation`, com os casos de teste
   de lá): "vírgula", "ponto final", "dois pontos" (também "2 pontos"), "ponto e vírgula",
   "interrogação", "exclamação", "reticências", aspas, parênteses, "nova linha", "novo parágrafo"
@@ -29,12 +51,39 @@ estão em [`docs/tasks/`](docs/tasks/README.md).
 
 ### Alterado
 
+- **Formatação:** prompt novo (pontuação, vírgulas, maiúsculas, acentos, concordância só pela terminação,
+  listas só onde houve comando), temperatura 0 e modelo padrão `anthropic/claude-haiku-4.5` no lugar do
+  `openai/gpt-4o-mini`, também na revisão final da nuvem. Estimativa de custo da tela da chave: ≈ R$ 1,90
+  a 3,30 por hora na nuvem, e uma linha nova para o motor do aparelho com a revisão (≈ R$ 2,40 a 2,80).
+- **Textos:** Ajustes, "O que o FlowVoice vê", tela da chave, motor de transcrição e política de
+  privacidade dizem que, com a revisão final ligada, o áudio vai à OpenRouter no fim mesmo no motor do
+  aparelho.
+
 - **Motor do aparelho: o texto entra no campo a cada ~1,2 s**, e não mais só nas pausas ou a
   cada ~4 s. Cada corte ali só fecha o texto do fluxo contínuo e não custa requisição, então a
   sessão local usa teto de 1,2 s e pausa a partir de 0,8 s de áudio
   (`DictationPipeline.LOCAL_WINDOW_TARGET_MS`, `LOCAL_MIN_BUFFERED_MS`); a nuvem segue com 4 s e
   2 s. Continua fechando só palavras inteiras e segurando começo de comando falado. Não medido
   com fala no S26.
+
+### Conferido no S26 (duas passadas, release, 2026-09-28)
+
+Frases de `audio-pessoal` e ditados longos tocados pelo alto-falante do Mac, bolha → Samsung Notes, motor
+do aparelho, revisão final ligada (capturas em `/tmp/flowvoice-duas-passadas/`):
+
+- 01+11+12+13 com pausas (26,4 s): rascunho "Bom dia tudo bem consegue me ligar mais tarde paciente do
+  leito doze segue com é pedi uma radiografia de toques aumentei de pirana…" → final "Bom dia, tudo bem?
+  Consegue me ligar mais tarde? Paciente do leito 12 segue com dispneia, pedi uma radiografia de tórax.
+  Aumentei a dipirona para 6 em 6 horas. Ela está eupneica, sem sinais de desconforto respiratório." em
+  4,3 s do toque de parar (transcrição 2,4 s + formatação 1,7 s).
+- Contínua de 20 s (26,7 s): igual ao gabarito salvo o que o gabarito difere da fala; 3,5 s. Os
+  espaços comidos e a quebra de parágrafo do Samsung Notes no rascunho ("elaestá") somem na troca.
+- Conversa com pausas (65 s) e texto 3 (55,5 s): **dois pedaços** cortados em pausa (45,7 + 19,3 s;
+  44,2 + 11,3 s), transcritos em paralelo; 4,4 s e 4,6 s até o texto final.
+- Modo avião antes de parar: 4 tentativas com `kind=network`, `final_pass_skipped reason=erro_transcricao`
+  ~3 s depois, rascunho intacto e cartão "Versão final da nuvem não veio: ficou o texto do aparelho".
+- **Não conferido:** fala ao vivo, rede móvel lenta, notas do FlowVoice e barra de revisão no aparelho
+  (só JVM), outros apps além do Samsung Notes.
 
 ### Removido
 
