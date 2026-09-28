@@ -25,8 +25,8 @@ class OpenRouterTranscriptionClient(
 ) : TranscriptionClient {
     // Modelos que não devolvem tempos (P146), porque recusaram `verbose_json` ou responderam sem
     // `words`/`segments`. Guardado por modelo, não por sessão: quem não devolve tempo hoje não passa a
-    // devolver no meio do ditado, e assim a recusa não se repete a cada janela. Escrita por cópia —
-    // as janelas são transcritas uma de cada vez, mas o cliente é único.
+    // devolver no meio do ditado, e assim a recusa não se repete a cada janela. Escrita por cópia: até
+    // três janelas vão ao mesmo tempo, e no pior caso a segunda também tenta o `verbose_json` uma vez.
     @Volatile
     private var withoutTimestamps: Set<String> = emptySet()
 
@@ -98,7 +98,8 @@ class OpenRouterTranscriptionClient(
                         "contextMs" to window.contextDurationMs.toString(),
                         "droppedMs" to trimmed.droppedMs.toString(),
                         "droppedWords" to trimmed.droppedWords.toString(),
-                        "droppedSegments" to trimmed.droppedSegments.toString()
+                        "droppedSegments" to trimmed.droppedSegments.toString(),
+                        "contextLeftMs" to trimmed.contextInTextMs.toString()
                     )
                 )
             }
@@ -107,7 +108,8 @@ class OpenRouterTranscriptionClient(
                 text = text,
                 model = usedModel,
                 durationMs = window.durationMs,
-                costUsd = payload.costUsd
+                costUsd = payload.costUsd,
+                contextInTextMs = trimmed.contextInTextMs
             )
             eventLog.log(
                 "transcription_success",

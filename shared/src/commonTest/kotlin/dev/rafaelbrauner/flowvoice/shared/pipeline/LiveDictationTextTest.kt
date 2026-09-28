@@ -37,7 +37,7 @@ class LiveDictationTextTest {
 
     @Test
     fun overlapWithFinalizedTextIsNotRepeated() {
-        val preview = LiveDictationText.split(listOf(ok(0, "o médico pediu"), ok(1, "pediu o exame")))
+        val preview = LiveDictationText.split(listOf(ok(0, "o médico pediu"), ok(1, "pediu o exame", 1_000L)))
 
         assertEquals("o médico pediu", preview.finalized)
         assertEquals("o exame", preview.provisional)
@@ -75,6 +75,6 @@ class LiveDictationTextTest {
         assertEquals("", preview.provisional)
     }
 
-    private fun ok(index: Int, text: String) =
-        TranscriptionSegment(index, TranscriptionSegment.Status.Ok, text)
+    private fun ok(index: Int, text: String, contextDurationMs: Long = 0L) =
+        TranscriptionSegment(index, TranscriptionSegment.Status.Ok, text, contextDurationMs = contextDurationMs)
 }

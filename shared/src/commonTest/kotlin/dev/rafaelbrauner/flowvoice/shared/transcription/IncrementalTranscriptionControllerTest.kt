@@ -189,7 +189,8 @@ class IncrementalTranscriptionControllerTest {
         controller.submit(testWindow(2))
         advanceUntilIdle()
 
-        assertTrue(client.started.size <= 1)
+        assertTrue(client.started.size <= IncrementalTranscriptionController.MAX_PARALLEL_WINDOWS)
+        assertTrue(controller.segments.value.none { it.status == TranscriptionSegment.Status.Ok })
         assertEquals("", controller.provisionalText.value)
         assertEquals(0, controller.segments.value.count { it.windowIndex == 2 })
     }

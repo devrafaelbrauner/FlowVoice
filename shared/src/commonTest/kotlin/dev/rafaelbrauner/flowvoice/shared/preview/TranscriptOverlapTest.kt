@@ -23,7 +23,7 @@ class TranscriptOverlapTest {
     // a janela trouxe já estava digitado: não há o que acrescentar.
     @Test
     fun aWindowThatOnlyRepeatsTheWordBeforeTheLastOneAddsNothingAndDoesNotCrash() {
-        val match = TranscriptOverlap.match("… muito muito obrigado", "muito")
+        val match = TranscriptOverlap.match("… muito muito obrigado", "muito", CONTEXT_MS)
 
         assertEquals("", match.text)
         assertFalse(match.glued)
@@ -31,7 +31,7 @@ class TranscriptOverlapTest {
 
     @Test
     fun theLongestRepeatedRunAtTheBoundaryIsDropped() {
-        val match = TranscriptOverlap.match("o médico pediu o exame", "o exame de sangue")
+        val match = TranscriptOverlap.match("o médico pediu o exame", "o exame de sangue", CONTEXT_MS)
 
         assertEquals("de sangue", match.text)
         assertFalse(match.glued)
@@ -39,7 +39,7 @@ class TranscriptOverlapTest {
 
     @Test
     fun theRepeatedRunIsRecognizedWithOtherAccentsCaseAndPunctuation() {
-        val match = TranscriptOverlap.match("evoluiu posteriormente com diarreia", "Com diarréia, há três dias")
+        val match = TranscriptOverlap.match("evoluiu posteriormente com diarreia", "Com diarréia, há três dias", CONTEXT_MS)
 
         assertEquals("há três dias", match.text, "a repetição não é idêntica, mas é a mesma fala")
         assertFalse(match.glued)
@@ -47,7 +47,7 @@ class TranscriptOverlapTest {
 
     @Test
     fun unrelatedTextKeepsEveryWordOfTheNewWindow() {
-        val match = TranscriptOverlap.match("de Grandmont.", "Queda da pressão arterial.")
+        val match = TranscriptOverlap.match("de Grandmont.", "Queda da pressão arterial.", CONTEXT_MS)
 
         assertEquals("Queda da pressão arterial.", match.text)
         assertFalse(match.glued)
@@ -55,7 +55,7 @@ class TranscriptOverlapTest {
 
     @Test
     fun aWindowFullyRepeatedInTheContextAddsNothing() {
-        assertEquals("", TranscriptOverlap.match("pediu o exame", "o exame").text)
+        assertEquals("", TranscriptOverlap.match("pediu o exame", "o exame", CONTEXT_MS).text)
     }
 
     @Test
@@ -68,23 +68,38 @@ class TranscriptOverlapTest {
     // própria palavra repetida.
     @Test
     fun aWordTheSpeakerReallyRepeatedSurvivesWhenTheContextAnchorsIt() {
-        val match = TranscriptOverlap.match("é muito", "é muito, muito importante")
+        val match = TranscriptOverlap.match("é muito", "é muito, muito importante", CONTEXT_MS)
 
         assertEquals("muito importante", match.text)
     }
 
-    // Limite conhecido e aceito: sem âncora, a palavra repetida de propósito some. Ela é o preço da
-    // deduplicação, que não pode desfazer o que já foi digitado (P139).
+    // P127: sem áudio repetido não há repetição possível. Antes a emenda tirava do começo da janela o que
+    // repetia o fim da anterior mesmo sem contexto, e no S26 (2026-09-28) a frase que o usuário disse de
+    // novo depois de uma pausa sumiu inteira do campo.
     @Test
-    fun withoutAnchorAWordRepeatedOnPurposeIsLost() {
-        assertEquals("importante", TranscriptOverlap.match("é muito", "muito importante").text)
+    fun withoutContextAPhraseSaidAgainAfterAPauseIsKept() {
+        val left = "Hoje tem sol. Amanhã de manhã vamos à praia."
+
+        assertEquals("muito importante", TranscriptOverlap.match("é muito", "muito importante").text)
+        assertEquals("Amanhã de manhã vamos à praia.", TranscriptOverlap.match(left, "Amanhã de manhã vamos à praia.").text)
+    }
+
+    // Com contexto a repetição exata ainda sai, mas nunca além do que ele comporta: com só o fim de uma
+    // palavra no contexto (o que sobra depois do corte pelo tempo), a frase repetida inteira fica.
+    @Test
+    fun aShortContextLeftAfterTheTimeCutCannotEatARepeatedPhrase() {
+        val left = "Hoje tem sol. Amanhã de manhã vamos à praia."
+
+        assertEquals("", TranscriptOverlap.match(left, "Amanhã de manhã vamos à praia.", CONTEXT_MS).text)
+        assertEquals("Amanhã de manhã vamos à praia.", TranscriptOverlap.match(left, "Amanhã de manhã vamos à praia.", 200L).text)
+        assertEquals("seguinte", TranscriptOverlap.match("vamos à praia", "praia seguinte", 200L).text)
     }
 
     @Test
     fun aWordBrokenAtTheCutIsCompletedWithoutASpace() {
         // "di|arreia": a janela anterior acabou no pedaço, e o contexto faz a janela nova transcrever
         // a palavra inteira. O que já foi digitado não se apaga, então só falta colar o resto.
-        val match = TranscriptOverlap.match("com episódios de di", "de diarreia")
+        val match = TranscriptOverlap.match("com episódios de di", "de diarreia", CONTEXT_MS)
 
         assertEquals("arreia", match.text)
         assertTrue(match.glued, "tem de entrar sem espaço, para fechar a palavra")
@@ -92,7 +107,7 @@ class TranscriptOverlapTest {
 
     @Test
     fun aLongBrokenWordIsAlsoCompleted() {
-        val match = TranscriptOverlap.match("quadro de hipertens", "de hipertensão arterial")
+        val match = TranscriptOverlap.match("quadro de hipertens", "de hipertensão arterial", CONTEXT_MS)
 
         assertEquals("ão arterial", match.text)
         assertTrue(match.glued)
@@ -101,7 +116,7 @@ class TranscriptOverlapTest {
     // Sem âncora o degrau 2 não vale: "a" é artigo, não pedaço de "amostra".
     @Test
     fun aShortWordIsNotGluedIntoTheNextWordWhenNothingAnchorsIt() {
-        val match = TranscriptOverlap.match("enviamos para a", "amostra de sangue")
+        val match = TranscriptOverlap.match("enviamos para a", "amostra de sangue", CONTEXT_MS)
 
         assertEquals("amostra de sangue", match.text)
         assertFalse(match.glued)
@@ -110,7 +125,7 @@ class TranscriptOverlapTest {
     // Uma letra só nunca cola: seria artigo ou preposição virando começo de palavra.
     @Test
     fun aSingleLetterIsNeverGluedEvenWithAnAnchor() {
-        val match = TranscriptOverlap.match("com a", "com amostra")
+        val match = TranscriptOverlap.match("com a", "com amostra", CONTEXT_MS)
 
         assertEquals("amostra", match.text)
         assertFalse(match.glued, "\"com a amostra\" é mais provável que \"com amostra\"")
@@ -120,7 +135,7 @@ class TranscriptOverlapTest {
     // Repetir é feio, mas trocar a palavra seria erro.
     @Test
     fun aFragmentThatDoesNotMatchTheWholeWordStillDropsTheAnchor() {
-        val match = TranscriptOverlap.match("episódios de xyz", "de diarreia")
+        val match = TranscriptOverlap.match("episódios de xyz", "de diarreia", CONTEXT_MS)
 
         assertEquals("diarreia", match.text)
         assertFalse(match.glued)
@@ -586,5 +601,9 @@ class TranscriptOverlapTest {
 
         assertEquals("— começo da outra", match.text)
         assertFalse(match.glued)
+    }
+
+    private companion object {
+        const val CONTEXT_MS = 1_000L
     }
 }

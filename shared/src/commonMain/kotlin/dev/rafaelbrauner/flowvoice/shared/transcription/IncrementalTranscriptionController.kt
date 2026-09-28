@@ -13,8 +13,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 
 class IncrementalTranscriptionController(
     private val client: TranscriptionClient,
@@ -25,7 +25,11 @@ class IncrementalTranscriptionController(
     private val eventLog: TranscriptionEventLog = TranscriptionEventLog.NoOp,
     private val textLog: TranscriptionEventLog = TranscriptionEventLog.NoOp
 ) : SessionTranscription {
-    private val processMutex = Mutex()
+    // Janelas em voo ao mesmo tempo. Uma de cada vez, uma resposta lenta segurava todas as seguintes: no
+    // Mac (2026-09-28) o qwen/qwen3-asr-1.7b levou 7,5 s na primeira janela, e o texto só começou a
+    // entrar no campo 11 s depois da fala. A ordem no campo não depende disto: o DirectInsertionPlanner
+    // digita a janela n só depois das anteriores.
+    private val inFlight = Semaphore(MAX_PARALLEL_WINDOWS)
     private val provisional = MutableStateFlow("")
     private val segmentState = MutableStateFlow<List<TranscriptionSegment>>(emptyList())
     private val budgetState = MutableStateFlow(false)
@@ -59,7 +63,7 @@ class IncrementalTranscriptionController(
                 if (!withinBudget) {
                     rejectOverBudget(window, session)
                 } else {
-                    processMutex.withLock {
+                    inFlight.withPermit {
                         if (isLive(session)) {
                             process(window, session)
                         }
@@ -167,7 +171,7 @@ class IncrementalTranscriptionController(
             val result = client.transcribe(window, apiKey, modelProvider())
             if (result.text.isNotBlank()) {
                 locked(lock) { if (session == generation) emptyAudio.rememberSpoken(window.peakLevel, window.noiseFloor) }
-                acceptText(window, result.text, session)
+                acceptText(window, result.text, session, result.contextInTextMs)
             } else {
                 val silence = locked(lock) {
                     if (session != generation) return
@@ -195,13 +199,14 @@ class IncrementalTranscriptionController(
         return key
     }
 
-    private fun acceptText(window: DictationWindow, text: String, session: Int) {
+    // O corte pelo tempo (ContextTrim) diz quanto do contexto sobrou no texto; sem ele, o contexto inteiro.
+    private fun acceptText(window: DictationWindow, text: String, session: Int, contextInTextMs: Long? = null) {
         upsert(
             TranscriptionSegment(
                 windowIndex = window.index,
                 status = TranscriptionSegment.Status.Ok,
                 text = SpokenPunctuation.applyToSegment(text),
-                contextDurationMs = window.contextDurationMs
+                contextDurationMs = (contextInTextMs ?: window.contextDurationMs).coerceAtMost(window.contextDurationMs)
             ),
             session,
             rebuildProvisional = true
@@ -304,5 +309,6 @@ class IncrementalTranscriptionController(
     companion object {
         // Trecho com voz alta que voltou sem texto (R1).
         const val EMPTY_VOICE_KIND = "empty_voice"
+        const val MAX_PARALLEL_WINDOWS = 3
     }
 }

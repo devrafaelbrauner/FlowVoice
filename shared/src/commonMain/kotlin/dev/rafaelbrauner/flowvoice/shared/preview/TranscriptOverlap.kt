@@ -34,8 +34,10 @@ object TranscriptOverlap {
         val glued: Boolean
     )
 
-    // `contextDurationMs`: quanto áudio da janela anterior foi repetido à frente desta (P143). Zero
-    // significa "esta janela não repetiu nada", e aí os degraus 4 e 5 nem são tentados.
+    // `contextDurationMs`: quanto áudio da janela anterior ainda pode estar transcrito no começo de `right`
+    // (P143; depois do corte pelo tempo, só o que sobrou dele). Zero significa "esta janela não repetiu
+    // nada": sem áudio repetido não há repetição possível, e nada é removido (P127) — a frase que o
+    // usuário disse de novo depois de uma pausa entra inteira.
     // `continuous`: `right` continua `left` num fluxo único, sem repetição possível (motor no
     // aparelho). Emenda nenhuma é tentada: apagar a palavra que o usuário repetiu seria alterar o ditado.
     // `glued` vem do próprio fluxo (o pedaço começa no meio de uma palavra ou com pontuação).
@@ -50,14 +52,14 @@ object TranscriptOverlap {
         if (continuous) return Match(right.trim(' '), glued = glued)
         if (right.isBlank()) return Match("", glued = false)
         if (left.isBlank()) return Match(right.trim(), glued = false)
+        if (contextDurationMs <= 0L) return Match(right.trim(' '), glued = false)
 
         val leftTokens = tokenize(left)
         val rightTokens = tokenize(right)
 
-        // Com contexto, nem o casamento exato apaga mais do que o contexto comporta (N11): 1 s explica
-        // umas quatro palavras, e dez palavras iguais na emenda são repetição de quem ditou. Sem
-        // contexto vale o teto de palavras da P127.
-        val exactLimit = if (contextDurationMs > 0L) removableChars(contextDurationMs) else Int.MAX_VALUE
+        // Nem o casamento exato apaga mais do que o contexto comporta (N11): 1 s explica umas quatro
+        // palavras, e dez palavras iguais na emenda são repetição de quem ditou.
+        val exactLimit = removableChars(contextDurationMs)
         val exact = overlapSize(leftTokens, rightTokens, exactLimit)
         if (exact > 0) return Match(rightTokens.drop(exact).joinToString(" "), glued = false)
 
