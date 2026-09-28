@@ -265,6 +265,7 @@ fun DictationOverlay(
             DictationBubble(
                 label = bubbleLabel,
                 pulsing = status.isBusy,
+                compact = !status.isBusy,
                 touchSlopPx = touchSlop,
                 onTap = onBubbleTap,
                 onDrag = host::onDrag,
@@ -307,7 +308,9 @@ fun DictationBubble(
     onDrag: (Float, Float) -> Unit,
     onDragEnd: () -> Unit,
     onMove: (BubbleMove) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    // Sem ditado em andamento, só um ponto: a bolha inteira ocupava tela demais.
+    compact: Boolean = false
 ) {
     val colors = FlowVoiceTheme.colors
     val gesture = remember(touchSlopPx) { BubbleGesture(touchSlopPx) }
@@ -349,6 +352,15 @@ fun DictationBubble(
             .clip(CircleShape)
             .padding(10.dp)
     ) {
+        if (compact) {
+            Box(
+                Modifier
+                    .size(16.dp)
+                    .background(colors.accent, CircleShape)
+                    .border(1.dp, colors.accentBorder, CircleShape)
+            )
+            return@Box
+        }
         Box(
             modifier = Modifier
                 .shadow(4.dp, CircleShape, ambientColor = Color.Black, spotColor = Color.Black)
