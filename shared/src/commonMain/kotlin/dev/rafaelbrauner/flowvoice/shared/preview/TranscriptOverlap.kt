@@ -46,9 +46,10 @@ object TranscriptOverlap {
         continuous: Boolean = false,
         glued: Boolean = false
     ): Match {
+        // Só espaço sai das pontas: o "\n" de "nova linha" é o próprio pedaço ou a ponta dele.
+        if (continuous) return Match(right.trim(' '), glued = glued)
         if (right.isBlank()) return Match("", glued = false)
         if (left.isBlank()) return Match(right.trim(), glued = false)
-        if (continuous) return Match(right.trim(), glued = glued)
 
         val leftTokens = tokenize(left)
         val rightTokens = tokenize(right)

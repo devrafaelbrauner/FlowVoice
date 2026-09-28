@@ -3,6 +3,8 @@ package dev.rafaelbrauner.flowvoice.shared.text
 import dev.rafaelbrauner.flowvoice.shared.pipeline.DirectInsertionPlan
 import dev.rafaelbrauner.flowvoice.shared.pipeline.DirectInsertionPlanner
 import dev.rafaelbrauner.flowvoice.shared.transcription.TranscriptionSegment
+import dev.rafaelbrauner.flowvoice.shared.localasr.StreamingText
+import dev.rafaelbrauner.flowvoice.shared.preview.LivePreviewAssembler
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -184,6 +186,35 @@ class SpokenPunctuationTest {
         assertEquals("Nova Lí e mais coisa", segment("Nova Lí e mais coisa"))
     }
 
+    // S26, 2026-09-28: "Nova linha" dito sozinho depois da pausa virou um pedaço só com "\n", e o trim
+    // da emenda o jogava fora (10 caracteres no pedaço, nada no campo). No campo e na nota.
+    @Test
+    fun aLineBreakSaidAloneInItsOwnPieceReachesTheFieldAndTheNote() {
+        val pieces = listOf(
+            local(0, segment("Amanhã vamos à praia.")),
+            local(1, segment("Nova linha.")),
+            local(2, segment("Levar o guarda-sol."))
+        )
+        val expected = "Amanhã vamos à praia.\nLevar o guarda-sol."
+
+        assertEquals(expected, DirectInsertionPlanner.advance(DirectInsertionPlan(), pieces).plan.transcript)
+        assertEquals(expected, LivePreviewAssembler.assemble(pieces, sessionComplete = true).finalized)
+    }
+
+    // S26, 2026-09-28: falando sem pausa, o corte no teto fechou "nova" num pedaço e "linha" no seguinte,
+    // e o comando saiu por extenso ("nova linha: amanhã…"). O começo de comando espera o resto.
+    @Test
+    fun theCeilingCutKeepsTheStartOfACommandForTheNextPiece() {
+        fun closes(vararg tokens: String) =
+            tokens.toList().let { StreamingText.text(it, 0, StreamingText.wholeWordsEnd(it, 0)) }
+
+        assertEquals("Testando", closes(" Testando", " nova", " linha"))
+        assertEquals("Tudo bem", closes(" Tudo", " bem", " ponto", " de", " inter"))
+        assertEquals("Testando nova linha", closes(" Testando", " nova", " linha", " Amanhã"))
+        assertEquals("Tomar", closes(" Tomar", " dois", " compr"))
+        assertEquals("Paciente estável", closes(" Paciente", " estável", " sem"))
+    }
+
     @Test
     fun outsideASingleSegmentTheMisheardCommandIsNotRecognized() {
         assertEquals(" Nova Lí", p(" Nova Lí"))
@@ -195,6 +226,13 @@ class SpokenPunctuationTest {
         val text = "O paciente está com muita dor abdominal."
         assertEquals(text, p(text))
     }
+
+    private fun local(window: Int, text: String) = TranscriptionSegment(
+        windowIndex = window,
+        status = TranscriptionSegment.Status.Ok,
+        text = text,
+        continuous = true
+    )
 
     private fun ok(window: Int, text: String) =
         TranscriptionSegment(windowIndex = window, status = TranscriptionSegment.Status.Ok, text = text)

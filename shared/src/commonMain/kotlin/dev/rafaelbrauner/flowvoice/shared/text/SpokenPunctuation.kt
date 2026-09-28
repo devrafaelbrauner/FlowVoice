@@ -30,6 +30,21 @@ object SpokenPunctuation {
         return converted
     }
 
+    // Quantas palavras do fim de `text` começam um comando de várias palavras sem terminá-lo ("nova",
+    // "ponto de"). O corte no meio da fala segura essas palavras para o pedaço seguinte, senão
+    // "nova" | "linha" sai por extenso (S26, 2026-09-28). Se não era comando, só entra um pedaço depois.
+    fun trailingCommandPrefixWords(text: String): Int {
+        val words = WORD.findAll(text).map { it.value }.toList()
+        return COMMANDS.filter { it.words.size > 1 }.maxOf { command ->
+            (command.words.size - 1 downTo 1).firstOrNull { n ->
+                n <= words.size && (0 until n).all { k ->
+                    val token = words[words.size - n + k]
+                    token.last() !in PUNCTUATION && similar(clean(token), command.words[k])
+                }
+            } ?: 0
+        }
+    }
+
     private fun misheardCommand(text: String): String? {
         val words = WORD.findAll(text).map { clean(it.value) }.filter { it.isNotEmpty() }.toList()
         if (words.isEmpty() || words.size > 3 || words.sumOf { it.length } > SHORT_SEGMENT_LETTERS) return null

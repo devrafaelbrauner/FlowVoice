@@ -16,6 +16,17 @@ estão em [`docs/tasks/`](docs/tasks/README.md).
   o ponto que o modelo pôs no trecho anterior pela regra da P144. Na captura do usuário no S26
   (2026-09-28) "ponto final Nova Linha" saía escrito. Não conferido no aparelho com fala.
 
+### Corrigido
+
+- **"Nova linha" dito sozinho depois de uma pausa sumia.** O pedaço virava só "\n", e a emenda
+  (`TranscriptOverlap`, `LivePreviewAssembler`) tirava as pontas com `trim()` e o descartava como
+  vazio: no S26 (2026-09-28) o pedaço tinha 10 caracteres e nada chegou ao campo. Agora só espaço sai
+  das pontas, no campo e na nota.
+- **Comando partido pelo corte no teto saía por extenso** ("nova linha: amanhã…", S26 2026-09-28).
+  No motor do aparelho, o corte sem pausa segura para o pedaço seguinte as palavras que começam um
+  comando sem terminá-lo ("nova", "ponto de", "dois"). Se não era comando, a palavra só entra um pedaço
+  depois.
+
 ### Removido
 
 - **Cartão "Digitado no campo · N palavras" depois do ditado.** O texto já está no campo; o

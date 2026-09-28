@@ -1,5 +1,7 @@
 package dev.rafaelbrauner.flowvoice.shared.localasr
 
+import dev.rafaelbrauner.flowvoice.shared.text.SpokenPunctuation
+
 // Texto dos tokens do fluxo contínuo e onde um pedaço pode fechar.
 object StreamingText {
     private val SPACES = Regex("\\s+")
@@ -20,10 +22,12 @@ object StreamingText {
     // ("B" + "om") e fica para o pedaço seguinte. Sem palavra seguinte, nada fecha (`from`).
     fun wholeWordsEnd(tokens: List<String>, from: Int): Int {
         val start = from.coerceIn(0, tokens.size)
-        for (index in tokens.size - 1 downTo start + 1) {
-            if (startsWord(tokens[index])) return index
+        var end = (tokens.size - 1 downTo start + 1).firstOrNull { startsWord(tokens[it]) } ?: return start
+        // Começo de comando falado ("nova", "ponto de") fica para o pedaço seguinte, junto do resto dele.
+        repeat(SpokenPunctuation.trailingCommandPrefixWords(text(tokens, start, end))) {
+            end = (end - 1 downTo start + 1).firstOrNull { startsWord(tokens[it]) } ?: start
         }
-        return start
+        return end
     }
 
     // O pedaço que começa em `from` continua a última palavra já fechada: o primeiro token não traz o
