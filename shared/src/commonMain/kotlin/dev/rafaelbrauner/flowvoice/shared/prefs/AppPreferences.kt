@@ -19,7 +19,9 @@ data class AppPreferences(
     val transcriptionEngine: TranscriptionEngine = TranscriptionEngine.Cloud
 ) {
     companion object {
-        const val DEFAULT_PROOFREADING_MODEL = "openai/gpt-4o-mini"
+        // Formatação da passada final e da revisão por IA: a melhor vírgula e a menor cauda de latência
+        // entre os quatro modelos medidos em docs/medicao-duas-passadas.md (2026-09-28).
+        const val DEFAULT_PROOFREADING_MODEL = "anthropic/claude-haiku-4.5"
     }
 }
 
