@@ -727,8 +727,9 @@ class DictationPipeline(
         }
         // Sem o texto final no campo (revisão desligada, sem resposta, recusada), o campo ainda passa pela
         // mesma conferência do fim (E): no corpo de nota do Samsung Notes (S26, 2026-09-28) a emenda entre
-        // trechos virava linha nova ou perdia o espaço ("tarde?\nPaciente", "bem?Consegue"), e só a troca da
-        // passada final limpava. O ditado volta ao que o app escreveu, conferido letra a letra.
+        // trechos virava linha nova ou perdia o espaço ("tarde?\nPaciente", "bem?Consegue"). A causa, o commit
+        // longo tratado como colagem, é evitada na escrita (CommitChunks); isto fica como rede para o editor
+        // que ainda mexer no espaço. O ditado volta ao que o app escreveu, conferido letra a letra.
         if (!finalPassCovered) directState.value.typed.takeIf { it.isNotBlank() }?.let { rewriteDictation(it, spacingOnly = true) }
         val latencyMs = mark.elapsedNow().inWholeMilliseconds
         val progress = directState.value

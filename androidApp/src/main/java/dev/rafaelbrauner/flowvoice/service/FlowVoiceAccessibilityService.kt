@@ -18,6 +18,7 @@ import android.view.accessibility.AccessibilityWindowInfo
 import android.view.inputmethod.EditorInfo
 import androidx.annotation.RequiresApi
 import androidx.core.os.BundleCompat
+import dev.rafaelbrauner.flowvoice.shared.insertion.CommitChunks
 import dev.rafaelbrauner.flowvoice.shared.insertion.CursorInsertion
 import dev.rafaelbrauner.flowvoice.shared.insertion.FocusedFieldDiagnostic
 import dev.rafaelbrauner.flowvoice.shared.insertion.FocusedPackage
@@ -279,7 +280,9 @@ class FlowVoiceAccessibilityService : AccessibilityService(), FocusedFieldAccess
                 // Roda depois das travas de destino e de senha, nunca antes.
                 connection.deleteSurroundingText(deleteBefore, 0)
             }
-            connection.commitText(text, 1, null)
+            // Em pedaços curtos (CommitChunks): o corpo de nota do Samsung Notes trata um commit longo como
+            // colagem, fora de ordem e com linha nova no fim. As travas acima valem para todos os pedaços.
+            CommitChunks.split(text).forEach { connection.commitText(it, 1, null) }
         } catch (error: Throwable) {
             Log.e(TAG, "commitText falhou", error)
             return InsertResult(false, "commitText", "commitText falhou: ${error.message}")
