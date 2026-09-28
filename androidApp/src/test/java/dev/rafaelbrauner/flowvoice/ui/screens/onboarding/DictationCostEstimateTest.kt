@@ -30,8 +30,8 @@ class DictationCostEstimateTest {
 
     @Test
     fun brlRangeAppliesFeeIofAndRate() {
-        assertEquals(0.766399, DictationCostEstimate.lowBrlPerHour(), eps)
-        assertEquals(1.685351, DictationCostEstimate.highBrlPerHour(), eps)
+        assertEquals(0.919679, DictationCostEstimate.lowBrlPerHour(), eps)
+        assertEquals(2.022421, DictationCostEstimate.highBrlPerHour(), eps)
         assertEquals(31.210197, DictationCostEstimate.minPurchaseBrl(), eps)
     }
 
@@ -39,7 +39,7 @@ class DictationCostEstimateTest {
     fun labelRoundsTheRangeOutward() {
         val label = DictationCostEstimate.perHourLabel()
 
-        assertTrue(label.startsWith("≈ R$ 0,70 a 1,70 "), label)
+        assertTrue(label.startsWith("≈ R$ 0,90 a 2,10 "), label)
         assertTrue(DictationCostEstimate.minPurchaseLabel().contains("R$ 32"))
     }
 

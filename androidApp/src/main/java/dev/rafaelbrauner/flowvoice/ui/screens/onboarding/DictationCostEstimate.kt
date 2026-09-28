@@ -1,6 +1,7 @@
 package dev.rafaelbrauner.flowvoice.ui.screens.onboarding
 
 import dev.rafaelbrauner.flowvoice.shared.dictation.DictationWindowAggregator
+import dev.rafaelbrauner.flowvoice.shared.dictation.SpeechEndpointing
 import java.util.Locale
 import kotlin.math.ceil
 import kotlin.math.floor
@@ -17,11 +18,11 @@ object DictationCostEstimate {
     // conta é por hora de fala.
     const val TRANSCRIPTION_USD_PER_AUDIO_SECOND = 0.00003
 
-    // Cada janela leva 1 s do fim da anterior como contexto (P143). As janelas cortam na pausa
-    // entre ~2 s e o alvo de 4 s (P140): quanto mais curtas, mais contexto repetido se paga.
+    // Cada janela leva 1 s do fim da anterior como contexto (P143). As janelas ao vivo cortam na pausa
+    // entre ~1 s e o alvo de 2 s (SpeechEndpointing.LIVE): quanto mais curtas, mais contexto repetido se paga.
     val CONTEXT_SECONDS = DictationWindowAggregator.SPEECH_CONTEXT_MS / 1000.0
-    val LONG_WINDOW_SECONDS = DictationWindowAggregator.DEFAULT_TARGET_DURATION_MS / 1000.0
-    const val SHORT_WINDOW_SECONDS = 2.0
+    val LONG_WINDOW_SECONDS = SpeechEndpointing.LIVE_TARGET_DURATION_MS / 1000.0
+    const val SHORT_WINDOW_SECONDS = 1.0
 
     // Passada final com a revisão por IA ligada (nos dois motores, com o padrão, sem formatação): o áudio inteiro
     // no openai/gpt-4o-mini-transcribe, US$ 0,0018 por minuto (`usage.cost` medido em

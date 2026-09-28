@@ -50,7 +50,7 @@ class DesktopModuleTest {
         assertIs<JavaSoundAudioCaptureEngine>(koin.get<AudioCaptureEngine>())
         assertIs<UnsupportedTextInserter>(koin.get<TextInserter>())
         assertIs<UnavailableSecretStore>(koin.get<SecretStore>())
-        assertEquals(SpeechEndpointing(), koin.get<DictationSessionController>().windowEndpointing)
+        assertEquals(SpeechEndpointing.LIVE, koin.get<DictationSessionController>().windowEndpointing)
         koin.get<TranscriptionClient>()
         koin.close()
     }

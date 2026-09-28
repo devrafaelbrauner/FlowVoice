@@ -16,7 +16,7 @@ class OpenRouterConfigTest {
         assertEquals(10_000L, config.connectTimeoutMs)
         assertEquals(30_000L, config.requestTimeoutMs)
         assertEquals(3, config.maxRetries)
-        assertEquals(90, config.maxRequestsPerSession)
+        assertEquals(180, config.maxRequestsPerSession)
     }
 
     @Test
