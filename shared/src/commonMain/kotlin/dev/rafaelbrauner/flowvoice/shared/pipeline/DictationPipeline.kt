@@ -773,7 +773,8 @@ class DictationPipeline(
             typed = before.typed,
             pending = before.pending,
             contiguous = wholeDictationBeforeCursor(),
-            enabled = prefs.proofreadingEnabled
+            enabled = prefs.proofreadingEnabled,
+            windowsFailed = TranscriptionFailureSummary.from(resolvedSegments(), controller.emittedWindowCount) != null
         )
         val draft = when (request) {
             is DictationProofread.Request.Skip -> return skipFinalPass(request.reason)
@@ -902,7 +903,8 @@ class DictationPipeline(
         // campo, a troca apagou de menos e sobrou a primeira letra do ditado ("HHoje o dia..."). Quem
         // não souber ler o que está antes do cursor continua com a conta do app.
         val before = inserter.readBeforeCursor(sent.length + DictationFieldTail.SLACK)
-        val erase = if (before == null) {
+        // Rascunho vazio (todas as janelas falharam): nada a apagar, o texto final só entra.
+        val erase = if (before == null || sent.isEmpty()) {
             outcome.deleteBefore
         } else {
             DictationFieldTail.eraseLength(before, sent)

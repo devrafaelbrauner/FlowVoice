@@ -1946,6 +1946,28 @@ class DictationPipelineTest {
         }
     }
 
+    // NV-qwen (S26, 2026-09-28): nenhuma janela ao vivo respondeu e o ditado acabava em "Nenhum trecho
+    // transcrito" sem tentar a passada final. Com trecho falho ela vai mesmo sem rascunho; áudio sem fala não.
+    @Test
+    fun whenEveryLiveWindowFailsTheFinalPassStillBringsTheText() = runTest {
+        val inserter = DirectInserter()
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = listOf(frame(100L), frame(50L)),
+            failures = mapOf(0 to TranscriptionError.Timeout(), 1 to TranscriptionError.Timeout()),
+            preferences = AppPreferences(formattingMode = FormattingMode.None, proofreadingEnabled = true),
+            textInserter = inserter
+        )
+        env.client.finalText = "Paciente relata dor. Nega febre."
+
+        env.pipeline.start()
+        val completed = assertIs<DictationPipelineStatus.Completed>(env.pipeline.finalize())
+
+        assertEquals("Paciente relata dor. Nega febre.", inserter.field.toString())
+        assertEquals("Paciente relata dor. Nega febre.", completed.text)
+        assertNull(completed.warning, "o áudio inteiro cobriu os trechos que falharam")
+    }
+
     // Rede pendurada no fim do ditado: sem teto próprio valeria o `requestTimeoutMs` do
     // `OpenRouterConfig` (30 s) com o usuário esperando de olho no campo. A formatação desiste no teto da
     // passada final e fica a transcrição do áudio inteiro — aqui igual ao que foi digitado.

@@ -43,12 +43,17 @@ object DictationProofread {
         data class Skip(val reason: String) : Outcome
     }
 
-    fun request(typed: String, pending: String, contiguous: Boolean, enabled: Boolean): Request = when {
+    // `windowsFailed`: algum trecho ao vivo falhou. Sem nada digitado, é justamente quando a passada final
+    // mais importa (NV-qwen, S26 2026-09-28: o provedor não respondeu nenhuma janela e o ditado terminou em
+    // "Nenhum trecho transcrito"): ela vai com o rascunho vazio e o texto final entra no campo. Sem trecho
+    // falho, rascunho vazio é áudio sem fala, e não há o que pedir.
+    fun request(typed: String, pending: String, contiguous: Boolean, enabled: Boolean, windowsFailed: Boolean = false): Request = when {
         !enabled -> Request.Skip(REASON_DISABLED)
         // Com pendente, parte do ditado nem chegou ao campo: o que está lá não é o texto todo. Vem
         // antes do texto vazio porque um ditado inteiro pendente não é um ditado vazio.
         pending.isNotBlank() -> Request.Skip(REASON_PENDING)
-        typed.isBlank() -> Request.Skip(REASON_EMPTY)
+        typed.isBlank() && !windowsFailed -> Request.Skip(REASON_EMPTY)
+        typed.isBlank() -> Request.Send("")
         // Sem contiguidade o que o FlowVoice escreveu não está mais logo antes do cursor (recusa,
         // "Inserir aqui" noutro campo, digitação do usuário no meio): apagar dali apagaria texto do
         // usuário. É a mesma trava da P144, e aqui pesa mais, porque o apagar é do ditado inteiro.
