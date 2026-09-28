@@ -79,6 +79,13 @@ do telefone, não com fala ao vivo.
   leitura (PSS 1,47 GB e RSS 467 MB com o modelo carregado e ocioso), outros apps além do
   Samsung Notes.
 
+### Corrigido
+
+- **Emenda da nuvem não quebra mais com janela que só repete uma palavra (LOC-overlap).**
+  `TranscriptOverlap.match("… muito muito obrigado", "muito")` indexava além da janela
+  (`IndexOutOfBoundsException`). Quando a janela inteira já estava no texto antes do último pedaço,
+  a emenda agora não acrescenta nada.
+
 ### Build
 
 - sherpa-onnx 1.13.8 pelo JitPack (`com.github.k2-fsa.sherpa-onnx:sherpa-onnx:v1.13.8`), o mesmo

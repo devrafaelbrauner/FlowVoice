@@ -18,6 +18,17 @@ import kotlin.test.assertTrue
 // Os degraus 2 e 3 só valem com ao menos uma palavra de âncora antes do pedaço, o que o contexto
 // sobreposto garante. Sem âncora nada é removido.
 class TranscriptOverlapTest {
+    // LOC-overlap: a janela que volta só com a palavra que já estava antes do último pedaço de `left`
+    // tinha a âncora igual ao tamanho de `right`, e `rightTokens[anchor]` estourava o índice. Tudo o que
+    // a janela trouxe já estava digitado: não há o que acrescentar.
+    @Test
+    fun aWindowThatOnlyRepeatsTheWordBeforeTheLastOneAddsNothingAndDoesNotCrash() {
+        val match = TranscriptOverlap.match("… muito muito obrigado", "muito")
+
+        assertEquals("", match.text)
+        assertFalse(match.glued)
+    }
+
     @Test
     fun theLongestRepeatedRunAtTheBoundaryIsDropped() {
         val match = TranscriptOverlap.match("o médico pediu o exame", "o exame de sangue")

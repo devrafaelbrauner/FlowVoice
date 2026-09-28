@@ -68,6 +68,9 @@ object TranscriptOverlap {
             return Match(rightTokens.drop(approximate).joinToString(" "), glued = false)
         }
 
+        // A janela inteira já estava em `left` antes do último pedaço (LOC-overlap): não há palavra depois
+        // da âncora para completar nem para acrescentar.
+        if (anchor >= rightTokens.size) return Match("", glued = false)
         val fragment = leftTokens.last()
         val whole = rightTokens[anchor]
         if (completes(fragment, whole)) {
