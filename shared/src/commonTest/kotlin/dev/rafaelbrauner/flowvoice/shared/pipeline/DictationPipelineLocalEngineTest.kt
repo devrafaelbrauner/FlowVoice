@@ -151,6 +151,28 @@ class DictationPipelineLocalEngineTest {
     }
 
     @Test
+    fun aPeriodThatArrivesInTheNextPieceStaysGluedToTheWordInTheNote() = runTest {
+        // No S26 o ponto de "desconforto respiratório." saiu sozinho no pedaço seguinte à pausa, e a
+        // nota ficou "respiratório . O hemograma".
+        val env = LocalEnv(
+            this,
+            FakeSpeechEngine(emitted = mapOf(1 to listOf(" desconforto", " respiratório", " "), 2 to listOf(".", " O"), 3 to listOf(" hemograma", " ")))
+        )
+        val store = InMemoryNoteStore()
+        val note = store.create(body = "")
+        NoteDictationCoordinator(store).apply { attach(env.pipeline.session, backgroundScope) }.begin(note.id, env.pipeline.session.value)
+
+        env.pipeline.start(DictationTarget.Note)
+        env.speak(1)
+        env.speak(2)
+        env.speak(3)
+        val completed = assertIs<DictationPipelineStatus.Completed>(env.pipeline.finalize())
+
+        assertEquals(".", env.pipeline.segments.value.single { it.windowIndex == 1 }.text, "o ponto veio sozinho")
+        assertEquals("desconforto respiratório. O hemograma", completed.text)
+    }
+
+    @Test
     fun anEngineFailureMidDictationKeepsTheTextFinishesWithWarningAndNeverSwitchesToTheCloud() = runTest {
         val env = LocalEnv(
             this,

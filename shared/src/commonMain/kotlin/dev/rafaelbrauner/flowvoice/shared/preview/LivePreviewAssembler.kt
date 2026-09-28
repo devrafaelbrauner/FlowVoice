@@ -10,7 +10,7 @@ object LivePreviewAssembler {
         val merged = segments
             .sortedBy { it.windowIndex }
             .filter { it.status == TranscriptionSegment.Status.Ok && it.text.isNotBlank() }
-            .fold("") { acc, segment -> mergeAdjacent(acc, segment.text.trim(), segment.contextDurationMs, segment.continuous) }
+            .fold("") { acc, segment -> mergeAdjacent(acc, segment.text.trim(), segment.contextDurationMs, segment.continuous, segment.glued) }
 
         val transcribing = segments.any { it.status == TranscriptionSegment.Status.Transcribing }
         return if (sessionComplete && !transcribing) {
@@ -24,10 +24,16 @@ object LivePreviewAssembler {
         }
     }
 
-    fun mergeAdjacent(left: String, right: String, contextDurationMs: Long = 0L, continuous: Boolean = false): String {
+    fun mergeAdjacent(
+        left: String,
+        right: String,
+        contextDurationMs: Long = 0L,
+        continuous: Boolean = false,
+        glued: Boolean = false
+    ): String {
         if (left.isBlank()) return right.trim()
         if (right.isBlank()) return left.trim()
-        val match = TranscriptOverlap.match(left, right, contextDurationMs, continuous)
+        val match = TranscriptOverlap.match(left, right, contextDurationMs, continuous, glued)
         val head = left.trimEnd()
         return when {
             match.text.isEmpty() -> head

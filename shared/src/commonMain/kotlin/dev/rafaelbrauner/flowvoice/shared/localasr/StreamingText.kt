@@ -3,6 +3,7 @@ package dev.rafaelbrauner.flowvoice.shared.localasr
 // Texto dos tokens do fluxo contínuo e onde um pedaço pode fechar.
 object StreamingText {
     private val SPACES = Regex("\\s+")
+    private const val CLOSING_PUNCTUATION = ",.;:!?…%)]}»"
 
     // O Nemotron escreve o espaço como token próprio e às vezes o repete ("tudo bem?  Consegue"):
     // espaço repetido vira um só, e as pontas saem.
@@ -23,6 +24,15 @@ object StreamingText {
             if (startsWord(tokens[index])) return index
         }
         return start
+    }
+
+    // O pedaço que começa em `from` continua a última palavra já fechada: o primeiro token não traz o
+    // espaço de palavra nova ("minuto" + "s"), ou o pedaço abre com a pontuação dela (o ponto que saiu
+    // depois da pausa, às vezes depois de um token só de espaço). O primeiro pedaço nunca cola.
+    fun continuesPrevious(tokens: List<String>, from: Int, to: Int = tokens.size): Boolean {
+        if (from !in 1 until to.coerceAtMost(tokens.size)) return false
+        if (!startsWord(tokens[from])) return true
+        return text(tokens, from, to).firstOrNull()?.let { it in CLOSING_PUNCTUATION } == true
     }
 
     private fun startsWord(token: String): Boolean = token.firstOrNull()?.isWhitespace() == true

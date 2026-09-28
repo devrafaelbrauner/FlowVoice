@@ -77,6 +77,34 @@ class LocalDictationDriverTest {
     }
 
     @Test
+    fun theEndOfAWordThatComesOnlyAfterAPauseCutIsMarkedToGlueToThePreviousPiece() = runTest {
+        // No S26 o "s" de "minutos" só saiu depois do fechamento da pausa: o pedaço seguinte começa no
+        // meio da palavra e não pode ganhar espaço ("minuto s").
+        val engine = FakeSpeechEngine(emitted = mapOf(1 to listOf(" quarenta", " minuto"), 2 to listOf("s", " vou")))
+        val run = DriverRun(this, engine)
+
+        run.driver.audio(chunk(1))
+        run.driver.cut(0, CommitRule.Finalize)
+        run.driver.audio(chunk(2))
+        run.driver.cut(1, CommitRule.Finalize, last = true)
+        runCurrent()
+
+        assertEquals(listOf("quarenta minuto" to false, "s vou" to true), run.commits.map { it.second.text to it.second.glued })
+    }
+
+    @Test
+    fun theFirstPieceOfTheDictationNeverGlues() = runTest {
+        val engine = FakeSpeechEngine(emitted = mapOf(1 to listOf("Bom", " dia", " ")))
+        val run = DriverRun(this, engine)
+
+        run.driver.audio(chunk(1))
+        run.driver.cut(0, CommitRule.WholeWords)
+        runCurrent()
+
+        assertEquals(false, run.commits.single().second.glued)
+    }
+
+    @Test
     fun aCeilingCutWithASingleUnfinishedWordCommitsNothing() = runTest {
         val engine = FakeSpeechEngine(emitted = mapOf(1 to listOf(" Leuco", "ci")))
         val run = DriverRun(this, engine)

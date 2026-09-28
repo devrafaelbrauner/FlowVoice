@@ -144,7 +144,8 @@ class LocalTranscription(
                             windowIndex = windowIndex,
                             status = TranscriptionSegment.Status.Ok,
                             text = commit.text,
-                            continuous = true
+                            continuous = true,
+                            glued = commit.glued
                         )
                     )
                 }
@@ -158,6 +159,7 @@ class LocalTranscription(
                     put("window", (windowIndex + 1).toString())
                     put("rule", if (commit.rule == CommitRule.Finalize) "finalize" else "whole_words")
                     put("chars", commit.text.length.toString())
+                    if (commit.glued) put("glued", "true")
                     put("audioMs", commit.audioMs.toString())
                     put("engineMs", commit.engineMs.toString())
                     put("finalizeMs", commit.finalizeMs.toString())

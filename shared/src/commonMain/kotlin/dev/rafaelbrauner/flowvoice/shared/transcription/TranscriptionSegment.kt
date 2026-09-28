@@ -12,7 +12,10 @@ data class TranscriptionSegment(
     // Pedaço de um fluxo contínuo (motor no aparelho): o texto começa exatamente onde o anterior
     // terminou, sem áudio repetido. Nada nele é repetição, nem uma palavra igual à última do pedaço
     // anterior — é o usuário falando de novo, e a deduplicação da emenda não se aplica.
-    val continuous: Boolean = false
+    val continuous: Boolean = false,
+    // Só no fluxo contínuo: o pedaço começa no meio da última palavra do anterior ou com a pontuação
+    // dela (o primeiro token não abre palavra), e entra colado, sem espaço.
+    val glued: Boolean = false
 ) {
     enum class Status { Transcribing, Ok, Failed }
 }

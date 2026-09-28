@@ -68,8 +68,10 @@ object OpenRouterKeyCopy {
             ". O valor real muda com o câmbio e com o seu cartão."
 
     const val LOCAL_LABEL = "Ou use o motor no aparelho"
-    const val LOCAL_DOWNLOAD = "Baixar o modelo (475 MB, funciona sem internet e sem custo)"
-    const val LOCAL_DETAIL = "O áudio é transcrito no celular e não sai dele. O modelo é baixado uma vez do " +
+    // O botão é de uma linha só: no S26 o rótulo longo saía cortado ("funciona sem internet e ...").
+    const val LOCAL_DOWNLOAD = "Baixar o modelo (475 MB)"
+    const val LOCAL_DETAIL = "Funciona sem internet e sem custo: o áudio é transcrito no celular e não sai dele. " +
+        "O modelo é baixado uma vez do " +
         "GitHub (k2-fsa/sherpa-onnx) e precisa de cerca de 1,2 GB livres durante a instalação. A revisão " +
         "por IA continua precisando da chave."
     const val LOCAL_VERIFYING = "Conferindo…"

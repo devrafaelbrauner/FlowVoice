@@ -22,6 +22,8 @@ enum class CommitRule {
 
 data class LocalCommit(
     val text: String,
+    // O texto continua a última palavra do pedaço anterior, sem espaço (ver StreamingText).
+    val glued: Boolean,
     val rule: CommitRule,
     // Áudio que chegou ao motor desde o corte anterior.
     val audioMs: Long,
@@ -176,11 +178,13 @@ class LocalDictationDriver(
                         }
                         engineTime += started.elapsedNow()
                         val text = StreamingText.text(tokens, committed, end)
+                        val glued = StreamingText.continuesPrevious(tokens, committed, end)
                         committed = end.coerceAtLeast(committed)
                         listener.onCommit(
                             command.windowIndex,
                             LocalCommit(
                                 text = text,
+                                glued = glued,
                                 rule = command.rule,
                                 audioMs = samples * 1_000L / SAMPLE_RATE,
                                 engineMs = engineTime.inWholeMilliseconds,

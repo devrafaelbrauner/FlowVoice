@@ -18,11 +18,12 @@ import java.util.concurrent.TimeUnit
 
 private const val SAMPLE_RATE = 16_000
 
-// Silêncio antes do começo do fluxo (0,5 s) e na cauda de cada fechamento (0,6 s). O encoder só
-// decodifica blocos inteiros de 560 ms: sem silêncio depois da última palavra ela fica presa no bloco
-// que não fechou.
+// Silêncio antes do começo do fluxo (0,5 s) e na cauda de cada fechamento (0,8 s), os padrões da
+// linha de comando do sherpa-onnx com que o modelo foi medido. O encoder só decodifica blocos inteiros
+// de 560 ms: sem silêncio bastante depois da última palavra, o fim dela fica preso no bloco que não
+// fechou. Com 0,6 s, no S26 (2026-09-28), o "s" de "minutos" só saiu no pedaço seguinte.
 private const val LEADING_PADDING = SAMPLE_RATE / 2
-private const val TAIL_PADDING = SAMPLE_RATE * 6 / 10
+private const val TAIL_PADDING = SAMPLE_RATE * 8 / 10
 
 // Núcleos por decodificação, os da medição no S26 (RTF ≈ 0,14).
 private const val THREADS = 4

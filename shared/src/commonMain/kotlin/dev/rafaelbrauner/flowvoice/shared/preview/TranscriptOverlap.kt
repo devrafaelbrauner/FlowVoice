@@ -38,9 +38,17 @@ object TranscriptOverlap {
     // significa "esta janela não repetiu nada", e aí os degraus 4 e 5 nem são tentados.
     // `continuous`: `right` continua `left` num fluxo único, sem repetição possível (motor no
     // aparelho). Emenda nenhuma é tentada: apagar a palavra que o usuário repetiu seria alterar o ditado.
-    fun match(left: String, right: String, contextDurationMs: Long = 0L, continuous: Boolean = false): Match {
+    // `glued` vem do próprio fluxo (o pedaço começa no meio de uma palavra ou com pontuação).
+    fun match(
+        left: String,
+        right: String,
+        contextDurationMs: Long = 0L,
+        continuous: Boolean = false,
+        glued: Boolean = false
+    ): Match {
         if (right.isBlank()) return Match("", glued = false)
-        if (left.isBlank() || continuous) return Match(right.trim(), glued = false)
+        if (left.isBlank()) return Match(right.trim(), glued = false)
+        if (continuous) return Match(right.trim(), glued = glued)
 
         val leftTokens = tokenize(left)
         val rightTokens = tokenize(right)
