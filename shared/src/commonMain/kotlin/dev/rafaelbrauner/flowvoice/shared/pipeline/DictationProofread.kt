@@ -73,8 +73,16 @@ object DictationProofread {
         revised.isBlank() -> Outcome.Skip(REASON_GUARD)
         // O guard da P132 barra troca de palavra, de número, de negação, aspas novas e as marcas.
         !ProofreadingGuard.accepts(typed, revised) -> Outcome.Skip(REASON_GUARD)
+        else -> replacement(typed, revised)
+    }
+
+    // Passada final do motor no aparelho: o texto final já passou pela guarda contra a transcrição da
+    // nuvem (FinalPass). Contra o rascunho não há guarda de palavra: trocar as palavras erradas do
+    // Nemotron é o objetivo.
+    fun replacement(typed: String, final: String): Outcome = when {
+        final.isBlank() -> Outcome.Skip(REASON_EMPTY)
         // Apagar e reescrever o mesmo texto só faria o campo piscar à toa.
-        revised == typed -> Outcome.Skip(REASON_UNCHANGED)
-        else -> Outcome.Replace(deleteBefore = typed.length, text = revised)
+        final == typed -> Outcome.Skip(REASON_UNCHANGED)
+        else -> Outcome.Replace(deleteBefore = typed.length, text = final)
     }
 }

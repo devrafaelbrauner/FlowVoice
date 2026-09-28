@@ -21,9 +21,12 @@ import dev.rafaelbrauner.flowvoice.shared.transcription.InMemorySecretStore
 import dev.rafaelbrauner.flowvoice.shared.transcription.OpenRouterConfig
 import dev.rafaelbrauner.flowvoice.shared.transcription.RecordingLog
 import dev.rafaelbrauner.flowvoice.shared.transcription.TranscriptionClient
+import dev.rafaelbrauner.flowvoice.shared.transcription.TranscriptionError
 import dev.rafaelbrauner.flowvoice.shared.transcription.TranscriptionResult
 import dev.rafaelbrauner.flowvoice.shared.transcription.voicedPcm
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
@@ -31,6 +34,7 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
@@ -71,7 +75,7 @@ class DictationPipelineLocalEngineTest {
     }
 
     @Test
-    fun theLocalEngineStartsWithoutKeyAndSkipsTheAiRevisionForLackOfIt() = runTest {
+    fun theLocalEngineStartsWithoutKeyAndKeepsTheDraftWithoutTheFinalPass() = runTest {
         val env = LocalEnv(
             this,
             FakeSpeechEngine(emitted = mapOf(1 to listOf(" exame", " normal"))),
@@ -85,11 +89,230 @@ class DictationPipelineLocalEngineTest {
         val completed = assertIs<DictationPipelineStatus.Completed>(env.pipeline.finalize())
 
         assertEquals("exame normal", completed.text)
+        assertEquals(null, completed.warning, "sem chave não é falha: nada foi tentado")
+        assertTrue(env.client.requested.isEmpty())
         assertTrue(env.proofreader.received.isEmpty())
         assertEquals(
             DictationProofread.REASON_NO_KEY,
-            env.log.events.single { it.event == "dictation_proofread_skipped" }.metadata["reason"]
+            env.log.events.single { it.event == "final_pass_skipped" }.metadata["reason"]
         )
+    }
+
+    // Duas passadas: o Nemotron digita o rascunho ao vivo; ao parar, o áudio inteiro vai uma vez à
+    // nuvem, a formatação acerta a concordância e o texto final troca o rascunho no campo.
+    @Test
+    fun theDraftIsTypedLiveAndReplacedByTheFinalTextFromTheWholeAudio() = runTest {
+        val env = finalPassEnv(this, FakeSpeechEngine(emitted = mapOf(1 to listOf(" os", " exame"), 2 to listOf(" foi", " pedido"), 3 to listOf(" ontem"))))
+        env.client.reply = { "os exame foi pedido ontem" }
+        env.proofreader.reply = { "Os exames foram pedidos ontem." }
+
+        env.pipeline.start(DictationTarget.ActiveField)
+        env.speak(1)
+        env.speak(2)
+        env.speak(3)
+        assertEquals("os exame foi pedido", env.field.toString(), "o rascunho entra ao vivo")
+
+        val completed = assertIs<DictationPipelineStatus.Completed>(env.pipeline.finalize())
+
+        assertEquals("Os exames foram pedidos ontem.", env.field.toString())
+        assertEquals("Os exames foram pedidos ontem.", completed.text)
+        assertEquals(null, completed.warning)
+        assertEquals(listOf(3 * FRAME_BYTES), env.client.pcmSizes, "um pedido só, com o áudio inteiro da sessão")
+        assertEquals(listOf("os exame foi pedido ontem"), env.proofreader.received, "a formatação recebe a transcrição da nuvem")
+        assertTrue(env.log.events.any { it.event == "final_pass_applied" })
+        val done = env.log.events.single { it.event == "final_pass_done" }.metadata
+        assertEquals("300", done["audioMs"])
+        assertEquals("ok", done["format"])
+        assertTrue(env.log.events.none { it.metadata.values.any { value -> value.contains("exame") } }, "texto ditado nunca vai ao log")
+        assertFalse(env.pipeline.directInsertion.value.proofreading)
+    }
+
+    @Test
+    fun aFailedCloudTranscriptionKeepsTheDraftAndSaysSo() = runTest {
+        val env = finalPassEnv(this, FakeSpeechEngine(emitted = mapOf(1 to listOf(" exame", " normal"))))
+        env.client.reply = { throw TranscriptionError.Network(IllegalStateException("sem rede")) }
+
+        env.pipeline.start(DictationTarget.ActiveField)
+        env.speak(1)
+        val completed = assertIs<DictationPipelineStatus.Completed>(env.pipeline.finalize())
+
+        assertEquals("exame normal", env.field.toString())
+        assertEquals(DictationPipeline.FINAL_PASS_FALLBACK_WARNING, completed.warning)
+        assertTrue(env.proofreader.received.isEmpty())
+        assertEquals(FinalPass.REASON_TRANSCRIPTION_ERROR, env.log.events.single { it.event == "final_pass_skipped" }.metadata["reason"])
+    }
+
+    @Test
+    fun aCloudThatDoesNotAnswerWithinTheCapKeepsTheDraft() = runTest {
+        val env = finalPassEnv(this, FakeSpeechEngine(emitted = mapOf(1 to listOf(" exame", " normal"))))
+        env.client.reply = {
+            delay(FinalPass.TIMEOUT + 1.seconds)
+            "Exame normal."
+        }
+
+        env.pipeline.start(DictationTarget.ActiveField)
+        env.speak(1)
+        val completed = assertIs<DictationPipelineStatus.Completed>(env.pipeline.finalize())
+
+        assertEquals("exame normal", env.field.toString())
+        assertEquals(DictationPipeline.FINAL_PASS_FALLBACK_WARNING, completed.warning)
+        assertEquals(FinalPass.REASON_TIMEOUT, env.log.events.single { it.event == "final_pass_skipped" }.metadata["reason"])
+    }
+
+    @Test
+    fun aCloudAnswerMuchShorterThanTheDraftKeepsTheDraft() = runTest {
+        val env = finalPassEnv(this, FakeSpeechEngine(emitted = mapOf(1 to listOf(" paciente", " estável", " sem", " febre", " desde", " ontem"))))
+        env.client.reply = { "Paciente." }
+
+        env.pipeline.start(DictationTarget.ActiveField)
+        env.speak(1)
+        env.pipeline.finalize()
+
+        assertEquals("paciente estável sem febre desde ontem", env.field.toString())
+        assertEquals(FinalPass.REASON_COVERAGE, env.log.events.single { it.event == "final_pass_skipped" }.metadata["reason"])
+    }
+
+    // Só a formatação falhou ou foi recusada: vale a transcrição da nuvem como veio, que já é melhor
+    // que o rascunho e não tem contra o que ser conferida além dela mesma.
+    @Test
+    fun whenOnlyTheFormattingFailsTheRawCloudTranscriptReplacesTheDraft() = runTest {
+        val env = finalPassEnv(this, FakeSpeechEngine(emitted = mapOf(1 to listOf(" eu", " pnica")), heldUntilFinalize = mapOf(1 to listOf(" hoje"))))
+        env.client.reply = { "Eupneica hoje." }
+        env.proofreader.reply = { throw TranscriptionError.Timeout() }
+
+        env.pipeline.start(DictationTarget.ActiveField)
+        env.speak(1)
+        val completed = assertIs<DictationPipelineStatus.Completed>(env.pipeline.finalize())
+
+        assertEquals("Eupneica hoje.", env.field.toString())
+        assertEquals(null, completed.warning)
+        assertEquals("erro_formatacao", env.log.events.single { it.event == "final_pass_done" }.metadata["format"])
+    }
+
+    @Test
+    fun aFormattingThatSwapsAWordIsMergedBackAgainstTheCloudTranscript() = runTest {
+        val env = finalPassEnv(this, FakeSpeechEngine(emitted = mapOf(1 to listOf(" suspendi", " a", " predinisona")))) 
+        env.client.reply = { "suspendi a prednisona" }
+        env.proofreader.reply = { "Suspendi a prednisolona." }
+
+        env.pipeline.start(DictationTarget.ActiveField)
+        env.speak(1)
+        env.pipeline.finalize()
+
+        assertEquals("Suspendi a prednisona.", env.field.toString(), "o remédio fica o da transcrição; a pontuação entra")
+        assertEquals("1", env.log.events.single { it.event == "final_pass_done" }.metadata["keptWords"])
+    }
+
+    @Test
+    fun cancelDiscardsTheSessionAudioAndNothingGoesToTheCloud() = runTest {
+        val env = finalPassEnv(this, FakeSpeechEngine(emitted = mapOf(1 to listOf(" Bom", " dia"))))
+
+        env.pipeline.start(DictationTarget.ActiveField)
+        env.speak(1)
+        env.speak(2)
+        assertEquals(2, env.pipeline.sessionWindows.value.size)
+        env.pipeline.cancel()
+        runCurrent()
+
+        assertTrue(env.pipeline.sessionWindows.value.isEmpty(), "o áudio da sessão sai da memória")
+        assertTrue(env.client.requested.isEmpty())
+        assertTrue(env.log.events.none { it.event.startsWith("final_pass") })
+    }
+
+    @Test
+    fun cancellingDuringTheFinalPassLeavesTheDraftInTheField() = runTest {
+        val env = finalPassEnv(this, FakeSpeechEngine(emitted = mapOf(1 to listOf(" exame", " normal"))))
+        env.client.reply = {
+            delay(2.seconds)
+            "Exame normal."
+        }
+
+        env.pipeline.start(DictationTarget.ActiveField)
+        env.speak(1)
+        val finalizing = backgroundScope.async { env.pipeline.finalize() }
+        advanceTimeBy(1.seconds)
+        assertTrue(env.pipeline.directInsertion.value.proofreading, "o cartão mostra revisando…")
+        env.pipeline.cancel()
+        advanceTimeBy(2.seconds)
+        runCurrent()
+
+        assertEquals(DictationPipelineStatus.Cancelled, finalizing.await())
+        assertEquals("exame normal", env.field.toString())
+        assertTrue(env.log.events.none { it.event == "final_pass_applied" })
+    }
+
+    // Y2: depois de "Inserir aqui" noutro campo o ditado não está mais inteiro antes do cursor, e a
+    // troca apagaria texto que não é do FlowVoice.
+    @Test
+    fun afterInsertHereInAnotherFieldTheFinalPassDoesNotReplace() = runTest {
+        val env = finalPassEnv(this, FakeSpeechEngine(emitted = mapOf(1 to listOf(" primeiro"), 2 to listOf(" segundo"), 3 to listOf(" terceiro"))))
+
+        env.pipeline.start(DictationTarget.ActiveField)
+        env.speak(1)
+        env.inserter.refuseNext = true
+        env.speak(2)
+        assertEquals("primeiro", env.pipeline.directInsertion.value.pending, "o foco foi para outro campo")
+        advanceTimeBy(1_100)
+        env.pipeline.insertPending()
+        env.speak(3)
+        env.pipeline.finalize()
+
+        assertEquals("primeiro segundo terceiro", env.field.toString())
+        assertTrue(env.client.requested.isEmpty(), "sem troca possível, o áudio nem vai à nuvem")
+        assertEquals(DictationProofread.REASON_NOT_CONTIGUOUS, env.log.events.single { it.event == "final_pass_skipped" }.metadata["reason"])
+    }
+
+    @Test
+    fun aNoteReceivesTheFinalTextInsteadOfTheDraft() = runTest {
+        val env = finalPassEnv(this, FakeSpeechEngine(emitted = mapOf(1 to listOf(" paciente", " estavel"))))
+        env.client.reply = { "paciente estável" }
+        env.proofreader.reply = { "Paciente estável." }
+        val store = InMemoryNoteStore()
+        val note = store.create(body = "")
+        NoteDictationCoordinator(store).apply { attach(env.pipeline.session, backgroundScope) }.begin(note.id, env.pipeline.session.value)
+
+        env.pipeline.start(DictationTarget.Note)
+        env.speak(1)
+        val completed = assertIs<DictationPipelineStatus.Completed>(env.pipeline.finalize())
+        runCurrent()
+
+        assertEquals("Paciente estável.", completed.text)
+        assertEquals("Paciente estável.", store.get(note.id)?.body)
+        assertTrue(env.inserter.writes.isEmpty())
+    }
+
+    @Test
+    fun theReviewBarReceivesTheFinalText() = runTest {
+        val env = finalPassEnv(
+            this,
+            FakeSpeechEngine(emitted = mapOf(1 to listOf(" hemograma", " sem", " alteracao"))),
+            reviewBeforeInsert = true
+        )
+        env.client.reply = { "hemograma sem alterações" }
+        env.proofreader.reply = { "Hemograma sem alterações." }
+
+        env.pipeline.start(DictationTarget.ActiveField)
+        env.speak(1)
+        val ready = assertIs<DictationPipelineStatus.Ready>(env.pipeline.finalizeForReview())
+
+        assertEquals("Hemograma sem alterações.", ready.text)
+        assertTrue(env.inserter.writes.isEmpty())
+    }
+
+    // Acima do limite de processamento de um pedido o áudio vai em pedaços de até 50 s, transcritos
+    // juntos e emendados na ordem.
+    @Test
+    fun aLongDictationGoesInPiecesOfAtMostFiftySecondsJoinedInOrder() = runTest {
+        val env = finalPassEnv(this, FakeSpeechEngine(emitted = mapOf(1 to listOf(" começo"), 600 to listOf(" fim"))))
+        env.client.reply = { window -> if (window.index == 0) "Começo do ditado" else "e o fim." }
+        env.proofreader.reply = { it }
+
+        env.pipeline.start(DictationTarget.ActiveField)
+        repeat(600) { env.speak(it + 1) }
+        env.pipeline.finalize()
+
+        assertEquals(listOf(50_000L * FRAME_BYTES / 100, 10_000L * FRAME_BYTES / 100).map { it.toInt() }, env.client.pcmSizes)
+        assertEquals("Começo do ditado e o fim.", env.field.toString())
     }
 
     @Test
@@ -269,6 +492,19 @@ class DictationPipelineLocalEngineTest {
     }
 }
 
+private const val FRAME_BYTES = 100 * 16 * 2
+
+private fun finalPassEnv(scope: TestScope, engine: FakeSpeechEngine, reviewBeforeInsert: Boolean = false) = LocalEnv(
+    scope,
+    engine,
+    preferences = AppPreferences(
+        transcriptionEngine = TranscriptionEngine.Local,
+        proofreadingEnabled = true,
+        reviewBeforeInsert = reviewBeforeInsert
+    ),
+    apiKey = "sk-or-v1-testkey123456"
+)
+
 private class LocalEnv(
     scope: TestScope,
     engine: FakeSpeechEngine,
@@ -295,6 +531,7 @@ private class LocalEnv(
         inserter = inserter,
         scope = scope.backgroundScope,
         eventLog = log,
+        timeSource = scope.testScheduler.timeSource,
         localEngines = engines,
         localWindowTargetDurationMs = 100L
     )
@@ -302,7 +539,7 @@ private class LocalEnv(
     // Um trecho de fala de 100 ms: fecha uma janela no teto (sem pausa).
     @Suppress("UNUSED_PARAMETER")
     suspend fun speak(chunk: Int) {
-        capture.push(AudioFrame(voicedPcm(100 * 16 * 2), AudioFormat.DEFAULT))
+        capture.push(AudioFrame(voicedPcm(FRAME_BYTES), AudioFormat.DEFAULT))
         testScope.runCurrent()
     }
 }
@@ -331,10 +568,12 @@ private class PushedAudioCaptureEngine : AudioCaptureEngine {
     }
 }
 
-// Campo de texto que o app lê e escreve, como o da acessibilidade quando tudo dá certo.
+// Campo de texto que o app lê e escreve, como o da acessibilidade quando tudo dá certo. `refuseNext`
+// recusa a próxima escrita sem toque, como a trava de destino quando o foco foi para outro app.
 private class FieldInserter : TextInserter {
     val field = StringBuilder()
     val writes = mutableListOf<String>()
+    var refuseNext = false
 
     override val isAvailable: Boolean = true
 
@@ -344,6 +583,10 @@ private class FieldInserter : TextInserter {
     }
 
     override fun insertWithoutTap(text: String, deleteBefore: Int): TextInsertionResult {
+        if (refuseNext) {
+            refuseNext = false
+            return TextInsertionResult(success = false, route = "trava:destino", message = "outro app em foco")
+        }
         field.setLength((field.length - deleteBefore).coerceAtLeast(0))
         field.append(text)
         writes += text
@@ -355,18 +598,22 @@ private class FieldInserter : TextInserter {
 
 private class RecordingProofreader : ProofreadingClient {
     val received = mutableListOf<String>()
+    var reply: suspend (String) -> String = { it }
 
     override suspend fun proofread(text: String, apiKey: String, model: String): String {
         received += text
-        return text
+        return reply(text)
     }
 }
 
 private class CloudClient : TranscriptionClient {
     val requested = mutableListOf<Int>()
+    val pcmSizes = mutableListOf<Int>()
+    var reply: suspend (DictationWindow) -> String = { "nuvem" }
 
     override suspend fun transcribe(window: DictationWindow, apiKey: String, model: String?): TranscriptionResult {
         requested += window.index
-        return TranscriptionResult("nuvem", "fake")
+        pcmSizes += window.transmittedPcm.size
+        return TranscriptionResult(reply(window), "fake")
     }
 }

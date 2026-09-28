@@ -75,6 +75,13 @@ class DictationPipeline(
     private val local = localEngines?.let { engines ->
         LocalTranscription(engines, scope, eventLog = { event, metadata -> log(event, metadata) }, timeSource = timeSource)
     }
+    private val finalPass = FinalPass(
+        client = client,
+        proofreading = proofreading,
+        log = { event, metadata -> log(event, metadata) },
+        textLog = transcriptTextLog,
+        timeSource = timeSource
+    )
     // Quem transcreve a sessão em curso, escolhido no início dela e fixo até o fim: uma falha do motor
     // no aparelho nunca troca de motor no meio do ditado.
     private var active: SessionTranscription = cloud
@@ -107,6 +114,9 @@ class DictationPipeline(
     private var captureInterruption: CaptureInterruption? = null
     // O fim do ditado passou do prazo (Y5): as janelas ainda sem resposta contam como falha.
     private var finalizeDeadlinePassed = false
+    // A passada final do motor no aparelho foi tentada e o campo ficou com o rascunho: o fim do ditado
+    // avisa que ficou o texto do aparelho.
+    private var finalPassFellBack = false
 
     val status: StateFlow<DictationPipelineStatus> = statusState.asStateFlow()
     val target: StateFlow<DictationTarget> = targetState.asStateFlow()
@@ -252,6 +262,7 @@ class DictationPipeline(
         dictationSplitAcrossFields = false
         captureInterruption = null
         finalizeDeadlinePassed = false
+        finalPassFellBack = false
         directState.value = DirectInsertionProgress(
             sessionId = sessionId,
             active = target == DictationTarget.ActiveField && !preferences.read().reviewBeforeInsert
@@ -471,8 +482,10 @@ class DictationPipeline(
             controller.cancel()
         } finally {
             publish(DictationPipelineStatus.Cancelled)
-            // O que já foi digitado fica no campo; o pendente é descartado.
+            // O que já foi digitado fica no campo; o pendente é descartado. O áudio da sessão também: um
+            // ditado cancelado não vai à passada final nem fica como clipe do Diagnóstico.
             directState.value = directState.value.copy(pending = "", pausedReason = null)
+            windowsState.value = emptyList()
             log("dictation_cancelled", emptyMap())
         }
     }
@@ -692,7 +705,7 @@ class DictationPipeline(
     // que encerra o ditado e o texto final estar no campo.
     private suspend fun directOutcome(mark: TimeMark): DictationPipelineStatus {
         advanceDirect()
-        proofreadDictation()
+        if (sessionEngine == TranscriptionEngine.Local) finalPassDictation() else proofreadDictation()
         if (statusState.value == DictationPipelineStatus.Cancelled) {
             return DictationPipelineStatus.Cancelled
         }
@@ -791,26 +804,119 @@ class DictationPipeline(
         }
     }
 
+    // Passada final do motor no aparelho (duas passadas): o rascunho do Nemotron já está no campo; o
+    // áudio inteiro vai uma vez à nuvem (FinalPass) e o texto final troca o rascunho pelo mesmo caminho
+    // da revisão final — as mesmas travas: sem pendente, contíguo, nunca depois de "Inserir aqui" noutro
+    // campo (Y2), até MAX_CHARS, e só apagando o que o campo confirma ser o rascunho (P148). Qualquer
+    // falha deixa o rascunho, e o fim do ditado avisa que ficou o texto do aparelho.
+    private suspend fun finalPassDictation() {
+        if (statusState.value == DictationPipelineStatus.Cancelled) {
+            return skipFinalPass(DictationProofread.REASON_CANCELLED)
+        }
+        val prefs = preferences.read()
+        val before = directState.value
+        val request = DictationProofread.request(
+            typed = before.typed,
+            pending = before.pending,
+            contiguous = wholeDictationBeforeCursor(),
+            enabled = prefs.proofreadingEnabled
+        )
+        val draft = when (request) {
+            is DictationProofread.Request.Skip -> return skipFinalPass(request.reason)
+            is DictationProofread.Request.Send -> request.text
+        }
+        val apiKey = sessionApiKey ?: return skipFinalPass(DictationProofread.REASON_NO_KEY)
+        directState.value = before.copy(proofreading = true)
+        val token = sessionToken
+        val result = try {
+            runFinalPass(draft, apiKey, prefs.proofreadingModel)
+        } finally {
+            directState.value = directState.value.copy(proofreading = false)
+        }
+        if (token != sessionToken || statusState.value == DictationPipelineStatus.Cancelled) {
+            return skipFinalPass(DictationProofread.REASON_CANCELLED)
+        }
+        val final = when (result) {
+            is FinalPass.Result.Kept -> return skipFinalPass(result.reason, attempted = true)
+            is FinalPass.Result.Final -> result.text
+        }
+        when (val outcome = DictationProofread.replacement(draft, final)) {
+            is DictationProofread.Outcome.Skip ->
+                if (outcome.reason == DictationProofread.REASON_UNCHANGED) {
+                    restoreDictation(draft, finalPass = true)
+                } else {
+                    skipFinalPass(outcome.reason, attempted = true)
+                }
+            is DictationProofread.Outcome.Replace -> replaceDictation(draft, outcome, finalPass = true)
+        }
+    }
+
+    // A barra de revisão e a nota recebem o texto final no lugar do rascunho; sem ele, o rascunho.
+    private suspend fun finalPassText(draft: String): String {
+        val prefs = preferences.read()
+        if (!prefs.proofreadingEnabled) return draft.also { skipFinalPass(DictationProofread.REASON_DISABLED) }
+        if (draft.isBlank()) return draft.also { skipFinalPass(DictationProofread.REASON_EMPTY) }
+        if (statusState.value == DictationPipelineStatus.Cancelled) {
+            return draft.also { skipFinalPass(DictationProofread.REASON_CANCELLED) }
+        }
+        val apiKey = sessionApiKey ?: return draft.also { skipFinalPass(DictationProofread.REASON_NO_KEY) }
+        val token = sessionToken
+        val result = runFinalPass(draft, apiKey, prefs.proofreadingModel)
+        if (token != sessionToken || statusState.value == DictationPipelineStatus.Cancelled) return draft
+        return when (result) {
+            is FinalPass.Result.Kept -> draft.also { skipFinalPass(result.reason, attempted = true) }
+            is FinalPass.Result.Final -> result.text.also {
+                log("final_pass_applied", mapOf("chars" to it.length.toString(), "draftChars" to draft.length.toString()))
+            }
+        }
+    }
+
+    // O vocabulário do usuário vale no texto final também (N2): a transcrição da nuvem pode escrever um
+    // termo aprovado de outro jeito.
+    private suspend fun runFinalPass(draft: String, apiKey: String, formattingModel: String): FinalPass.Result =
+        when (
+            val result = finalPass.run(
+                draft = draft,
+                windows = windowsState.value,
+                apiKey = apiKey,
+                transcriptionModel = TranscriptionModels.selected(preferences, config),
+                formattingModel = formattingModel
+            )
+        ) {
+            is FinalPass.Result.Final -> FinalPass.Result.Final(dictionary.apply(result.text))
+            is FinalPass.Result.Kept -> result
+        }
+
+    private fun skipFinalPass(reason: String, attempted: Boolean = false) {
+        if (attempted && reason != DictationProofread.REASON_UNCHANGED && reason != DictationProofread.REASON_CANCELLED) {
+            finalPassFellBack = true
+        }
+        log("final_pass_skipped", mapOf("reason" to reason))
+    }
+
+    private fun skipFinalStep(reason: String, finalPass: Boolean) =
+        if (finalPass) skipFinalPass(reason, attempted = true) else skipProofread(reason)
+
     // A revisão veio igual ao ditado — mas o campo pode não estar igual ao que o app escreveu. No S26
     // (2026-09-16 14:55) o editor comeu o espaço da emenda e o campo ficou "sanguemostrou", enquanto
     // o app tinha escrito " mostrou" com o espaço. A conferência de logo depois de escrever não vê
     // isso, porque a leitura de lá chega antes de o editor aplicar (P142, `leitura_velha`); esta, no
     // fim do ditado, pega o campo já estável. Se o que está lá não é o que foi ditado, o ditado volta.
-    private fun restoreDictation(sent: String) {
+    private fun restoreDictation(sent: String, finalPass: Boolean = false) {
         val current = directState.value
         if (current.typed != sent || current.pending.isNotBlank() || !wholeDictationBeforeCursor()) {
-            return skipProofread(DictationProofread.REASON_UNCHANGED)
+            return skipFinalStep(DictationProofread.REASON_UNCHANGED, finalPass)
         }
         val before = inserter.readBeforeCursor(sent.length + DictationFieldTail.SLACK)
-            ?: return skipProofread(DictationProofread.REASON_UNCHANGED)
+            ?: return skipFinalStep(DictationProofread.REASON_UNCHANGED, finalPass)
         // O mesmo casamento por letras da P148: sem ele não se apaga nada.
         val erase = DictationFieldTail.eraseLength(before, sent)
-            ?: return skipProofread(DictationProofread.REASON_FIELD_CHANGED)
-        if (before.takeLast(erase) == sent) return skipProofread(DictationProofread.REASON_UNCHANGED)
+            ?: return skipFinalStep(DictationProofread.REASON_FIELD_CHANGED, finalPass)
+        if (before.takeLast(erase) == sent) return skipFinalStep(DictationProofread.REASON_UNCHANGED, finalPass)
         val insertion = inserter.insertWithoutTap(sent, erase)
         if (!insertion.success) {
             refusalMark = timeSource.markNow()
-            return skipProofread(DictationProofread.REASON_REFUSED)
+            return skipFinalStep(DictationProofread.REASON_REFUSED, finalPass)
         }
         log(
             "dictation_field_restored",
@@ -821,10 +927,10 @@ class DictationPipeline(
     // A troca só acontece se nada mexeu no campo enquanto a revisão ia e voltava (~1 s). Depois de um
     // "Inserir aqui" noutro campo nunca há troca (Y2): o apagar pela conta do app, quando o campo não
     // se deixa ler, comeria o texto do usuário daquele campo.
-    private fun replaceDictation(sent: String, outcome: DictationProofread.Outcome.Replace) {
+    private fun replaceDictation(sent: String, outcome: DictationProofread.Outcome.Replace, finalPass: Boolean = false) {
         val current = directState.value
         if (current.typed != sent || current.pending.isNotBlank() || !wholeDictationBeforeCursor()) {
-            return skipProofread(DictationProofread.REASON_NOT_CONTIGUOUS)
+            return skipFinalStep(DictationProofread.REASON_NOT_CONTIGUOUS, finalPass)
         }
         // O campo é a verdade, não a conta do app (P148): no S26 a conta saiu um caractere menor que o
         // campo, a troca apagou de menos e sobrou a primeira letra do ditado ("HHoje o dia..."). Quem
@@ -834,16 +940,16 @@ class DictationPipeline(
             outcome.deleteBefore
         } else {
             DictationFieldTail.eraseLength(before, sent)
-                ?: return skipProofread(DictationProofread.REASON_FIELD_CHANGED)
+                ?: return skipFinalStep(DictationProofread.REASON_FIELD_CHANGED, finalPass)
         }
         val insertion = inserter.insertWithoutTap(outcome.text, erase)
         if (!insertion.success) {
             refusalMark = timeSource.markNow()
-            return skipProofread(DictationProofread.REASON_REFUSED)
+            return skipFinalStep(DictationProofread.REASON_REFUSED, finalPass)
         }
         directState.value = current.copy(typed = outcome.text)
         log(
-            "dictation_proofread_applied",
+            if (finalPass) "final_pass_applied" else "dictation_proofread_applied",
             mapOf(
                 "chars" to outcome.text.length.toString(),
                 "erased" to erase.toString(),
@@ -970,6 +1076,7 @@ class DictationPipeline(
             captureInterruption?.warning,
             engineInterruption?.warning,
             LOCAL_SESSION_CAP_WARNING.takeIf { sessionCapReached },
+            FINAL_PASS_FALLBACK_WARNING.takeIf { finalPassFellBack },
             failures?.partialMessage
         )
             .joinToString("; ")
@@ -1013,6 +1120,7 @@ class DictationPipeline(
             sessionComplete = true
         )
         val revised = dictionary.apply(assembled.finalized)
+        if (sessionEngine == TranscriptionEngine.Local) return finalPassText(revised)
         val prefs = preferences.read()
         if (!prefs.proofreadingEnabled || revised.isBlank() || cloud.fatalError.value != null) return revised
         if (statusState.value == DictationPipelineStatus.Cancelled) return revised
@@ -1096,6 +1204,8 @@ class DictationPipeline(
         // minutos cobrem uma evolução longa e são mais que os ~4–6 min do teto da nuvem.
         val LOCAL_SESSION_CAP = 10.minutes
         const val LOCAL_SESSION_CAP_WARNING = "Ditado encerrado no limite de 10 min"
+        // A passada final foi tentada e falhou (rede, prazo, guarda, campo mexido): o que ficou é o rascunho.
+        const val FINAL_PASS_FALLBACK_WARNING = "Versão final da nuvem não veio: ficou o texto do aparelho"
         // No aparelho cada corte só fecha o texto do fluxo contínuo (não custa requisição): pedaços de até
         // 1,2 s, e pausa valendo a partir de 0,8 s de áudio, põem as palavras no campo ~1 s depois de
         // ditas, e o cartão da prévia deixou de ser preciso (S26, 2026-09-28). A nuvem segue com 4 s e 2 s.
