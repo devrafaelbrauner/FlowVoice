@@ -5,7 +5,6 @@ import dev.rafaelbrauner.flowvoice.shared.pipeline.DictationPipelineStatus
 import dev.rafaelbrauner.flowvoice.shared.pipeline.DirectInsertionProgress
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -47,13 +46,16 @@ class DirectPreviewModelTest {
         assertTrue(live.canInsertHere)
     }
 
+    // Decisão de 2026-09-28: aviso de trecho (o pipeline só o manda com a revisão final desligada) é uma
+    // linha curta, sem cabeçalho nem botões.
     @Test
-    fun failedWindowWarningIsShownWhileRecording() {
-        val live = assertIs<DirectPreviewState.Live>(
-            state(DictationPipelineStatus.Recording, progress = typing.copy(warning = "Trecho 2 de 3 falhou (timeout): texto incompleto"))
-        )
+    fun aFailedWindowWhileRecordingIsOnlyAShortNotice() {
+        val warning = "Trecho 2 de 3 falhou (timeout): texto incompleto"
 
-        assertEquals("Trecho 2 de 3 falhou (timeout): texto incompleto", live.warning)
+        assertEquals(
+            DirectPreviewState.Notice(warning),
+            state(DictationPipelineStatus.Recording, progress = typing.copy(warning = warning))
+        )
     }
 
     // P147: a revisão final leva ~1 s no fim do ditado, e a prévia diz o que está acontecendo.
@@ -66,6 +68,8 @@ class DirectPreviewModelTest {
         assertEquals(DirectPhase.Finishing, live.phase)
         assertEquals(DirectPreviewModel.STATUS_PROOFREADING, live.status)
         assertEquals("Bom dia, Marina.", live.typedTail)
+        // B (S26, 2026-09-28 13:56): o "Cancelar" deste cartão descartou a passada final.
+        assertNull(live.cancelLabel, "depois do toque de parar não há o que cancelar")
     }
 
     @Test
@@ -87,35 +91,20 @@ class DirectPreviewModelTest {
         assertEquals(DirectPreviewModel.DISCARD, live.cancelLabel)
     }
 
+    // Decisão de 2026-09-28: sem "Digitado no campo · N palavras" nem "Nada transcrito." — o texto está no
+    // campo, e ditado sem texto não perdeu nada. Só o aviso de que algo faltou, numa linha.
     @Test
-    fun completedSessionReportsHowManyWordsWereTypedWithTheWarning() {
-        val result = assertIs<DirectPreviewState.Result>(
-            state(
-                DictationPipelineStatus.Completed(
-                    text = "Bom dia, Marina. Consegui fechar",
-                    insertion = TextInsertionResult(true, "direto", "digitado no campo"),
-                    warning = "Trecho 2 de 3 falhou (timeout): texto incompleto"
-                )
-            )
-        )
+    fun aCompletedDictationShowsOnlyTheNoticeOfWhatWasLost() {
+        val warning = "Trecho 2 de 3 falhou (timeout): texto incompleto"
+        val typed = TextInsertionResult(true, "direto", "digitado no campo")
 
-        assertTrue(result.success)
-        assertEquals("Digitado no campo · 5 palavras", result.message)
-        assertEquals("Trecho 2 de 3 falhou (timeout): texto incompleto", result.detail)
+        assertEquals(DirectPreviewState.Notice(warning), state(DictationPipelineStatus.Completed("Bom dia, Marina.", typed, warning)))
+        assertEquals(DirectPreviewState.Hidden, state(DictationPipelineStatus.Completed("Bom dia, Marina.", typed)))
         assertEquals(
             DirectPreviewState.Hidden,
-            state(DictationPipelineStatus.Completed("Ok.", TextInsertionResult(true, "direto", "ok")))
-        )
-    }
-
-    @Test
-    fun completedWithoutTextSaysNothingWasTranscribed() {
-        val result = assertIs<DirectPreviewState.Result>(
             state(DictationPipelineStatus.Completed("", TextInsertionResult(false, "direto", "sem texto para inserir")))
         )
-
-        assertFalse(result.success)
-        assertEquals(DirectPreviewModel.NOTHING_TRANSCRIBED, result.message)
+        assertEquals(DirectPreviewState.Hidden, state(DictationPipelineStatus.Completed("Bom dia, Marina.", typed, warning), dismissed = true))
     }
 
     @Test

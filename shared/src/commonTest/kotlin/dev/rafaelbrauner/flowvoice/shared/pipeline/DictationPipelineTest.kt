@@ -1244,8 +1244,10 @@ class DictationPipelineTest {
         assertEquals("", inserter.field.toString())
     }
 
+    // Janelas sem áudio repetido (sem contexto): a palavra igual na fronteira é o usuário falando de novo, e
+    // entra (P127; no S26, 2026-09-28, a frase repetida depois da pausa sumia do campo).
     @Test
-    fun directSessionDoesNotTypeTwiceTheWordRepeatedAtTheWindowBoundary() = runTest {
+    fun directSessionTypesAWordSaidAgainAtTheBoundaryWhenTheWindowsDoNotOverlap() = runTest {
         val inserter = DirectInserter()
         val env = PipelineEnv(
             scope = backgroundScope,
@@ -1258,7 +1260,7 @@ class DictationPipelineTest {
         env.pipeline.start()
         runCurrent()
 
-        assertEquals(listOf("é muito", " importante"), inserter.automatic)
+        assertEquals(listOf("é muito", " muito importante"), inserter.automatic)
     }
 
     @Test
@@ -1532,8 +1534,10 @@ class DictationPipelineTest {
         assertTrue(inserter.tapped.isEmpty())
     }
 
+    // Depois do toque de parar o que foi dito já não se perde por um cancelar (B, S26 2026-09-28): a
+    // última janela ainda entra no campo.
     @Test
-    fun cancelWhileTheLastWindowIsBeingTranscribedDoesNotTypeIt() = runTest {
+    fun aCancelWhileTheLastWindowIsBeingTranscribedStillTypesIt() = runTest {
         val inserter = DirectInserter()
         val env = PipelineEnv(
             scope = backgroundScope,
@@ -1555,9 +1559,8 @@ class DictationPipelineTest {
         env.pipeline.cancel()
         advanceUntilIdle()
 
-        assertEquals(DictationPipelineStatus.Cancelled, finalizing.await())
-        assertEquals(listOf("o médico"), inserter.automatic)
-        assertEquals("o médico", inserter.field.toString())
+        assertIs<DictationPipelineStatus.Completed>(finalizing.await())
+        assertEquals("o médico pediu o exame", inserter.field.toString())
     }
 
     @Test
@@ -1881,6 +1884,68 @@ class DictationPipelineTest {
         assertEquals("O exame de sangue. Mostrou leucocitose importante.", inserter.field.toString())
     }
 
+    // E (S26, 2026-09-28): no corpo de nota do Samsung Notes a emenda entre trechos perdia o espaço ou virava
+    // linha nova, e só a troca da passada final limpava. Sem o texto final no campo — revisão desligada ou
+    // sem resposta —, o fim do ditado ainda devolve ao campo o que foi ditado.
+    @Test
+    fun aSwallowedSeparatorIsRestoredEvenWithoutTheFinalText() = runTest {
+        for (finalPassFails in listOf(false, true)) {
+            val inserter = DirectInserter().apply {
+                swallowsSeparator = true
+                staleReadAfterWrite = true
+            }
+            val env = PipelineEnv(
+                scope = backgroundScope,
+                frames = listOf(frame(100L), frame(50L)),
+                texts = mapOf(0 to "O exame de sangue.", 1 to "Mostrou leucocitose importante."),
+                preferences = AppPreferences(formattingMode = FormattingMode.None, proofreadingEnabled = finalPassFails),
+                textInserter = inserter
+            )
+            if (finalPassFails) env.client.finalFailure = TranscriptionError.Network(RuntimeException("sem rede"))
+
+            env.pipeline.start()
+            val completed = assertIs<DictationPipelineStatus.Completed>(env.pipeline.finalize())
+
+            assertEquals("O exame de sangue. Mostrou leucocitose importante.", inserter.field.toString(), "revisão falha: $finalPassFails")
+            assertTrue(env.log.events.any { it.event == "dictation_field_restored" })
+            assertNull(completed.warning)
+        }
+    }
+
+    // Decisão de 2026-09-28 (cartões): o trecho que falhou ao vivo não vira aviso quando a passada final
+    // trouxe o áudio inteiro; sem ela, o aviso é a única rede.
+    @Test
+    fun aFailedWindowIsOnlyWarnedWhenTheFinalTextDidNotCoverIt() = runTest {
+        for (proofreading in listOf(true, false)) {
+            val inserter = DirectInserter()
+            val env = PipelineEnv(
+                scope = backgroundScope,
+                frames = listOf(frame(100L), frame(100L), frame(50L)),
+                texts = mapOf(0 to "Paciente relata dor.", 2 to "Sem tosse."),
+                failures = mapOf(1 to TranscriptionError.Timeout()),
+                preferences = AppPreferences(formattingMode = FormattingMode.None, proofreadingEnabled = proofreading),
+                textInserter = inserter
+            )
+            env.client.finalText = "Paciente relata dor. Nega febre. Sem tosse."
+
+            env.pipeline.start()
+            runCurrent()
+            assertNull(
+                env.pipeline.directInsertion.value.warning.takeIf { proofreading },
+                "com a passada final a caminho, nada aparece durante o ditado"
+            )
+            val completed = assertIs<DictationPipelineStatus.Completed>(env.pipeline.finalize())
+
+            if (proofreading) {
+                assertEquals("Paciente relata dor. Nega febre. Sem tosse.", inserter.field.toString())
+                assertNull(completed.warning)
+            } else {
+                assertEquals("Paciente relata dor. Sem tosse.", inserter.field.toString())
+                assertEquals("Trecho 2 de 3 falhou (timeout): texto incompleto", completed.warning)
+            }
+        }
+    }
+
     // Rede pendurada no fim do ditado: sem teto próprio valeria o `requestTimeoutMs` do
     // `OpenRouterConfig` (30 s) com o usuário esperando de olho no campo. A formatação desiste no teto da
     // passada final e fica a transcrição do áudio inteiro — aqui igual ao que foi digitado.
@@ -1924,9 +1989,10 @@ class DictationPipelineTest {
         assertEquals(DictationProofread.REASON_UNCHANGED, proofreadSkipReason(env))
     }
 
-    // Revisão fora do ar: o ditado fica exatamente como foi digitado, nunca apagado pela metade.
+    // Revisão fora do ar: o ditado fica exatamente como foi digitado, nunca apagado pela metade; sem trecho
+    // falho, nada faltou, e não há aviso (decisão de 2026-09-28).
     @Test
-    fun aFinalPassThatFailsLeavesTheDictationExactlyAsItWasTypedAndSaysSo() = runTest {
+    fun aFinalPassThatFailsLeavesTheDictationExactlyAsItWasTyped() = runTest {
         val inserter = DirectInserter()
         val env = PipelineEnv(
             scope = backgroundScope,
@@ -1942,7 +2008,7 @@ class DictationPipelineTest {
 
         assertEquals("Estava muito cansado.", inserter.field.toString())
         assertEquals(FinalPass.REASON_TRANSCRIPTION_ERROR, proofreadSkipReason(env))
-        assertEquals(DictationPipeline.CLOUD_FINAL_PASS_FALLBACK_WARNING, completed.warning)
+        assertNull(completed.warning, "sem trecho falho, o rascunho está inteiro: nada a avisar")
         assertTrue(env.proofreader.received.isEmpty())
     }
 
@@ -2022,7 +2088,7 @@ class DictationPipelineTest {
 
         assertEquals("Você já almoçou? Estou com muita fome.", inserter.field.toString())
         assertEquals(FinalPass.REASON_COVERAGE, proofreadSkipReason(env))
-        assertEquals(DictationPipeline.CLOUD_FINAL_PASS_FALLBACK_WARNING, completed.warning)
+        assertNull(completed.warning, "sem trecho falho, o rascunho está inteiro: nada a avisar")
     }
 
     // Do mesmo tamanho, mas outra fala: o gpt-audio-mini respondeu "Claro, vou avisar assim que chegar." a
@@ -2243,6 +2309,8 @@ class DictationPipelineTest {
         assertEquals("Trecho 3 de 3 falhou (sem resposta a tempo): texto incompleto", ready.warning)
     }
 
+    // A janela presa não segura as seguintes (as janelas vão em paralelo): no prazo ela vira falha, a que já
+    // voltou entra no campo, e a resposta atrasada não digita mais nada.
     @Test
     fun aWindowThatNeverAnswersEndsTheDirectDictationAtTheDeadlineAndNothingIsTypedAfterwards() = runTest {
         val inserter = DirectInserter()
@@ -2262,10 +2330,10 @@ class DictationPipelineTest {
         val completed = assertIs<DictationPipelineStatus.Completed>(env.pipeline.finalize())
 
         assertEquals(15_000L, currentTime - stoppedAt)
-        assertEquals("Paciente relata dor.", completed.text)
-        assertEquals("Trechos 2, 3 de 3 falharam (sem resposta a tempo): texto incompleto", completed.warning)
+        assertEquals("Paciente relata dor. Sem tosse.", completed.text)
+        assertEquals("Trecho 2 de 3 falhou (sem resposta a tempo): texto incompleto", completed.warning)
         advanceTimeBy(600_000L)
-        assertEquals("Paciente relata dor.", inserter.field.toString())
+        assertEquals("Paciente relata dor. Sem tosse.", inserter.field.toString())
     }
 
     // N2: a revisão final do ditado direto não pode desfazer um termo aprovado do vocabulário.

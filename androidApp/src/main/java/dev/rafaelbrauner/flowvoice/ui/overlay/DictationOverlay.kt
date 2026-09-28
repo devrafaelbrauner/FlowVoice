@@ -75,9 +75,11 @@ import kotlinx.coroutines.flow.StateFlow
 
 private const val CLOCK_REFRESH_MS = 200L
 private const val RESULT_VISIBLE_MS = 4_000L
+private const val NOTICE_VISIBLE_MS = 4_000L
 private const val BUBBLE_LABEL_IDLE = "Ditar"
 private const val BUBBLE_LABEL_STOP = "Encerrar ditado"
 private const val BUBBLE_LABEL_BUSY = "Ditado em andamento"
+private const val BUBBLE_LABEL_PROOFREADING = "Revisando o ditado"
 private const val MOVE_UP = "Mover para cima"
 private const val MOVE_DOWN = "Mover para baixo"
 private const val MOVE_OTHER_SIDE = "Mover para o outro lado"
@@ -100,6 +102,8 @@ fun DictationOverlay(
     var ownership by remember { mutableStateOf(OverlayOwnership.released()) }
     val owned = ownership.owned
     var dismissed by remember { mutableStateOf<DictationPipelineSession?>(null) }
+    // Aviso curto do meio do ditado já fechado (toque ou tempo); o do fim usa `dismissed`.
+    var dismissedNotice by remember { mutableStateOf<String?>(null) }
     var elapsedMs by remember { mutableLongStateOf(0L) }
     val latestModeChange by rememberUpdatedState(onModeChange)
     val latestSessionOwned by rememberUpdatedState(onSessionOwned)
@@ -111,6 +115,7 @@ fun DictationOverlay(
     val beginSession: (Boolean) -> Unit = { startedHere ->
         ownership = OverlayOwnership.begin(pipeline.session.value, startedHere)
         dismissed = null
+        dismissedNotice = null
         elapsedMs = 0L
         latestSessionOwned(ownership)
         pipeline.requestStart(DictationTarget.ActiveField)
@@ -161,7 +166,7 @@ fun DictationOverlay(
             dismissed = session == dismissed
         )
     }
-    val previewState = if (isDirect) {
+    val modelState = if (isDirect) {
         DirectPreviewModel.from(
             status = status,
             progress = directNow,
@@ -175,6 +180,15 @@ fun DictationOverlay(
     } else {
         DirectPreviewState.Hidden
     }
+    val busyNotice = (modelState as? DirectPreviewState.Notice)?.message?.takeIf { status.isBusy }
+    val previewState = if (busyNotice != null && busyNotice == dismissedNotice) DirectPreviewState.Hidden else modelState
+    val latestBusyNotice by rememberUpdatedState(busyNotice)
+    LaunchedEffect(busyNotice) {
+        if (busyNotice != null) {
+            delay(NOTICE_VISIBLE_MS)
+            dismissedNotice = busyNotice
+        }
+    }
     val mode = when {
         previewState != DirectPreviewState.Hidden -> OverlayMode.Preview
         barState != DictationBarState.Hidden -> OverlayMode.Bar
@@ -185,8 +199,13 @@ fun DictationOverlay(
     // A prévia mora numa janela própria, posicionada pelo serviço longe do cursor (P139).
     val previewActions = remember(pipeline) {
         previewActionsFor(pipeline) {
-            dismissed = session
-            ownership = OverlayOwnership.released()
+            // O aviso do meio do ditado só some; a sessão segue da bolha.
+            if (pipeline.status.value.isBusy) {
+                dismissedNotice = latestBusyNotice
+            } else {
+                dismissed = session
+                ownership = OverlayOwnership.released()
+            }
         }
     }
     SideEffect {
@@ -211,6 +230,8 @@ fun DictationOverlay(
     }
     val bubbleLabel = when {
         isDirect && owned && status == DictationPipelineStatus.Recording -> BUBBLE_LABEL_STOP
+        // O toque na bolha enquanto a passada final está a caminho é ignorado (B): a bolha diz por quê.
+        isDirect && directNow.proofreading -> BUBBLE_LABEL_PROOFREADING
         status.isBusy -> BUBBLE_LABEL_BUSY
         else -> BUBBLE_LABEL_IDLE
     }
@@ -372,6 +393,7 @@ fun DirectPreviewCard(
         when (state) {
             is DirectPreviewState.Live -> DirectPreviewLive(state, compact, onCancel, onInsertHere, onFinish, bubbleHidden)
             is DirectPreviewState.Result -> DirectPreviewResult(state, onDismiss)
+            is DirectPreviewState.Notice -> DirectPreviewNotice(state, onDismiss)
             DirectPreviewState.Hidden -> Unit
         }
     }
@@ -467,13 +489,15 @@ private fun ColumnScope.DirectPreviewLive(
         }
     }
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        PillButton(
-            text = state.cancelLabel,
-            onClick = onCancel,
-            variant = PillButtonVariant.Outline,
-            height = 40.dp,
-            horizontalPadding = 14.dp
-        )
+        state.cancelLabel?.let { label ->
+            PillButton(
+                text = label,
+                onClick = onCancel,
+                variant = PillButtonVariant.Outline,
+                height = 40.dp,
+                horizontalPadding = 14.dp
+            )
+        }
         // Sem a bolha, o "toque na bolha para encerrar" não existe: o encerrar fica neste botão (P159).
         if (bubbleHidden) {
             PillButton(
@@ -558,6 +582,39 @@ private fun DirectPreviewResult(state: DirectPreviewState.Result, onDismiss: () 
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun DirectPreviewNotice(state: DirectPreviewState.Notice, onDismiss: () -> Unit) {
+    val colors = FlowVoiceTheme.colors
+    val typography = FlowVoiceTheme.typography
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                role = Role.Button,
+                onClick = onDismiss
+            )
+            .semantics { liveRegion = LiveRegionMode.Polite },
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(8.dp)
+                .background(colors.accent, RoundedCornerShape(2.dp))
+        )
+        Text(
+            text = state.message,
+            style = typography.bodySmall,
+            color = colors.textPrimary,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f)
+        )
     }
 }
 
@@ -782,7 +839,7 @@ private fun DirectPreviewCardPreview(@PreviewParameter(ThemePreviewParameter::cl
             compact = true
         )
         DirectPreviewCard(
-            state = DirectPreviewState.Result(success = true, message = "Digitado no campo · 11 palavras"),
+            state = DirectPreviewState.Notice("Trecho 2 de 3 falhou (timeout): texto incompleto"),
             onCancel = {},
             onInsertHere = {},
             onFinish = {},

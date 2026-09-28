@@ -481,7 +481,8 @@ class FlowVoiceOverlayService : Service(), KoinComponent, BubbleHost {
             (if (state.notice != null) CARD_NOTICE_DP else 0) +
             (if (state.warning != null) CARD_WARNING_DP else 0) +
             (if (state.pending.isNotEmpty()) CARD_PENDING_DP else 0)
-        is DirectPreviewState.Result -> CARD_RESULT_DP
+        is DirectPreviewState.Result,
+        is DirectPreviewState.Notice -> CARD_RESULT_DP
         DirectPreviewState.Hidden -> 0
     }
 

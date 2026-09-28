@@ -39,6 +39,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
 
@@ -131,7 +132,7 @@ class DictationPipelineLocalEngineTest {
     }
 
     @Test
-    fun aFailedCloudTranscriptionKeepsTheDraftAndSaysSo() = runTest {
+    fun aFailedCloudTranscriptionKeepsTheWholeDraftWithoutAWarning() = runTest {
         val env = finalPassEnv(this, FakeSpeechEngine(emitted = mapOf(1 to listOf(" exame", " normal"))))
         env.client.reply = { throw TranscriptionError.Network(IllegalStateException("sem rede")) }
 
@@ -140,7 +141,7 @@ class DictationPipelineLocalEngineTest {
         val completed = assertIs<DictationPipelineStatus.Completed>(env.pipeline.finalize())
 
         assertEquals("exame normal", env.field.toString())
-        assertEquals(DictationPipeline.FINAL_PASS_FALLBACK_WARNING, completed.warning)
+        assertNull(completed.warning, "sem trecho falho, o rascunho está inteiro: nada a avisar")
         assertTrue(env.proofreader.received.isEmpty())
         assertEquals(FinalPass.REASON_TRANSCRIPTION_ERROR, env.log.events.single { it.event == "final_pass_skipped" }.metadata["reason"])
     }
@@ -158,7 +159,7 @@ class DictationPipelineLocalEngineTest {
         val completed = assertIs<DictationPipelineStatus.Completed>(env.pipeline.finalize())
 
         assertEquals("exame normal", env.field.toString())
-        assertEquals(DictationPipeline.FINAL_PASS_FALLBACK_WARNING, completed.warning)
+        assertNull(completed.warning, "sem trecho falho, o rascunho está inteiro: nada a avisar")
         assertEquals(FinalPass.REASON_TIMEOUT, env.log.events.single { it.event == "final_pass_skipped" }.metadata["reason"])
     }
 
@@ -243,8 +244,10 @@ class DictationPipelineLocalEngineTest {
         assertTrue(env.log.events.none { it.event.startsWith("final_pass") })
     }
 
+    // B (S26, 2026-09-28): o toque que chegava como cancelar enquanto a passada final estava a caminho
+    // descartava o texto final e deixava o rascunho. Depois do toque de parar, o fim segue e aplica.
     @Test
-    fun cancellingDuringTheFinalPassLeavesTheDraftInTheField() = runTest {
+    fun aCancelDuringTheFinalPassStillAppliesTheFinalText() = runTest {
         val env = finalPassEnv(this, FakeSpeechEngine(emitted = mapOf(1 to listOf(" exame", " normal"))))
         env.client.reply = {
             delay(2.seconds)
@@ -260,9 +263,10 @@ class DictationPipelineLocalEngineTest {
         advanceTimeBy(2.seconds)
         runCurrent()
 
-        assertEquals(DictationPipelineStatus.Cancelled, finalizing.await())
-        assertEquals("exame normal", env.field.toString())
-        assertTrue(env.log.events.none { it.event == "final_pass_applied" })
+        assertIs<DictationPipelineStatus.Completed>(finalizing.await())
+        assertEquals("Exame normal.", env.field.toString())
+        assertTrue(env.log.events.any { it.event == "final_pass_applied" })
+        assertTrue(env.log.events.any { it.event == "dictation_cancel_ignored" })
     }
 
     // Y2: depois de "Inserir aqui" noutro campo o ditado não está mais inteiro antes do cursor, e a
