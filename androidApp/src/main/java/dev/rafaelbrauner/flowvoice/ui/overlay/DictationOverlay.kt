@@ -96,6 +96,7 @@ fun DictationOverlay(
     val target by pipeline.target.collectAsState()
     val segments by pipeline.segments.collectAsState()
     val direct by pipeline.directInsertion.collectAsState()
+    val partial by pipeline.livePartial.collectAsState()
     var ownership by remember { mutableStateOf(OverlayOwnership.released()) }
     val owned = ownership.owned
     var dismissed by remember { mutableStateOf<DictationPipelineSession?>(null) }
@@ -145,7 +146,7 @@ fun DictationOverlay(
     // quadro, a barra de revisão não pisca no começo da sessão direta.
     val directNow = remember(session, direct) { pipeline.directInsertion.value }
     val isDirect = directNow.active && directNow.sessionId == session.id
-    val live = remember(segments) { pipeline.liveText() }
+    val live = remember(segments, partial) { pipeline.liveText() }
     val proofreading = remember(status) { pipeline.proofreadingEnabled }
     val barState = if (isDirect) {
         DictationBarState.Hidden
@@ -168,7 +169,8 @@ fun DictationOverlay(
             elapsedMs = elapsedMs,
             owned = owned,
             dismissed = session == dismissed,
-            bubbleHidden = hiddenBubble
+            bubbleHidden = hiddenBubble,
+            live = partial
         )
     } else {
         DirectPreviewState.Hidden
@@ -436,7 +438,17 @@ private fun ColumnScope.DirectPreviewLive(
                 maxLines = if (compact) 1 else 2
             )
         }
-        if (state.transcribing) {
+        if (state.live.isNotEmpty()) {
+            // Motor no aparelho: o que está sendo dito, sublinhado como provisório. Só entra no campo
+            // quando fecha num pedaço (pausa ou palavra inteira).
+            ProvisionalText(
+                finalized = "",
+                provisional = state.live,
+                style = typography.bodySmall,
+                provisionalColor = colors.textSecondary,
+                maxLines = if (compact) 1 else 2
+            )
+        } else if (state.transcribing) {
             ProvisionalText(
                 finalized = "",
                 provisional = DirectPreviewModel.TRANSCRIBING,
@@ -738,6 +750,7 @@ private fun DirectPreviewCardPreview(@PreviewParameter(ThemePreviewParameter::cl
                 typedTail = "Bom dia, Marina. Consegui fechar o orçamento",
                 pending = "",
                 transcribing = true,
+                live = "",
                 notice = null,
                 warning = null,
                 canInsertHere = false,
@@ -756,6 +769,7 @@ private fun DirectPreviewCardPreview(@PreviewParameter(ThemePreviewParameter::cl
                 typedTail = "Bom dia, Marina. Consegui fechar o orçamento",
                 pending = "do projeto ontem à noite",
                 transcribing = false,
+                live = "",
                 notice = "o foco mudou de app; toque em Inserir aqui para escrever no app atual",
                 warning = null,
                 canInsertHere = true,

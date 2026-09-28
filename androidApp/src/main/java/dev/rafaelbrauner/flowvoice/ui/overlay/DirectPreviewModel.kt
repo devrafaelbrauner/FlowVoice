@@ -15,6 +15,8 @@ sealed interface DirectPreviewState {
         val typedTail: String,
         val pending: String,
         val transcribing: Boolean,
+        // Texto do motor no aparelho ainda não fechado em pedaço: provisório, nunca digitado.
+        val live: String,
         val notice: String?,
         val warning: String?,
         val canInsertHere: Boolean,
@@ -54,14 +56,15 @@ object DirectPreviewModel {
         elapsedMs: Long,
         owned: Boolean,
         dismissed: Boolean,
-        bubbleHidden: Boolean = false
+        bubbleHidden: Boolean = false,
+        live: String = ""
     ): DirectPreviewState {
         if (!owned) return DirectPreviewState.Hidden
         val clock = DictationBarModel.clock(elapsedMs)
         return when (status) {
             DictationPipelineStatus.Idle,
             DictationPipelineStatus.Cancelled -> DirectPreviewState.Hidden
-            DictationPipelineStatus.Starting -> live(DirectPhase.Starting, clock, STATUS_STARTING, progress, transcribing = false)
+            DictationPipelineStatus.Starting -> live(DirectPhase.Starting, clock, STATUS_STARTING, progress, transcribing = false, live = live)
             DictationPipelineStatus.Recording -> live(
                 DirectPhase.Recording,
                 clock,
@@ -71,14 +74,16 @@ object DirectPreviewModel {
                     else -> STATUS_LISTENING
                 },
                 progress,
-                transcribing
+                transcribing,
+                live = live
             )
             DictationPipelineStatus.Transcribing -> live(
                 DirectPhase.Finishing,
                 clock,
                 if (progress.proofreading) STATUS_PROOFREADING else STATUS_FINISHING,
                 progress,
-                transcribing
+                transcribing,
+                live = live
             )
             is DictationPipelineStatus.Ready -> live(
                 DirectPhase.Ready,
@@ -127,7 +132,8 @@ object DirectPreviewModel {
         status: String,
         progress: DirectInsertionProgress,
         transcribing: Boolean,
-        cancelLabel: String = CANCEL
+        cancelLabel: String = CANCEL,
+        live: String = ""
     ) = DirectPreviewState.Live(
         phase = phase,
         clock = clock,
@@ -135,6 +141,7 @@ object DirectPreviewModel {
         typedTail = tail(progress.typed),
         pending = progress.pending.trim(),
         transcribing = transcribing,
+        live = tail(live),
         notice = progress.pausedReason,
         warning = progress.warning,
         canInsertHere = progress.pending.isNotBlank(),
