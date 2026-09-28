@@ -216,8 +216,10 @@ Em **Ajustes → Motor de transcrição**:
   trecho vai até uma pausa curta da fala (250 ms, depois de ao menos ~1 s de áudio) ou, falando
   sem pausa, até ~2 s, e até três trechos são transcritos ao mesmo tempo; no motor do aparelho, até
   ~1,2 s (pausa a partir de ~0,8 s). O trecho é **digitado no campo** assim que é transcrito, em ordem
-  e com espaço entre os trechos: na nuvem, cerca de 1,5 a 3,5 s depois de dito, conforme o modelo. Uma
-  frase que você repete depois de uma pausa entra de novo, inteira. Toque na bolha de novo para encerrar: o último trecho
+  e com espaço entre os trechos: na nuvem, cerca de 0,5 a 3,5 s depois de dito, conforme o modelo. Cada
+  escrita vai em pedaços de até 20 caracteres, porque o corpo de nota do Samsung Notes trata um texto longo
+  como colagem (fora de ordem e com linha nova no fim). Uma frase que você repete depois de uma pausa
+  entra de novo, inteira. Toque na bolha de novo para encerrar: o último trecho
   entra em seguida. Com a **revisão final por IA** ligada (Ajustes), o ditado inteiro é
   refeito de uma vez no fim a partir do áudio inteiro — transcrição, e na formatação pontuação,
   vírgulas, maiúsculas, acentos e concordância só pela terminação, sem trocar palavra (ver "Motor de
@@ -225,8 +227,7 @@ Em **Ajustes → Motor de transcrição**:
   durante a chamada e a bolha fica em "Revisando o ditado". Um toque na bolha ou no cartão nessa hora é
   ignorado: a revisão termina e aplica, e o próximo ditado começa com o próximo toque. Se a revisão
   falhar, se o texto não estiver mais logo antes do cursor ou se o ditado passar de 4000 caracteres,
-  fica como foi digitado, com os espaços entre os trechos conferidos no campo (no Samsung Notes a
-  emenda às vezes perdia o espaço ou virava linha nova).
+  fica como foi digitado, com os espaços entre os trechos conferidos no campo.
 - **Cartão da prévia:** no ditado normal não há cartão — o texto aparece no próprio campo
   e a bolha encerra; não há "Digitado no campo" nem "Nada transcrito" (um ditado sem texto não
   perdeu nada: a bolha só volta ao repouso). Ele só abre quando há algo que só ele mostra: texto

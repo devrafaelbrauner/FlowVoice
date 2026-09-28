@@ -21,10 +21,17 @@ estão em [`docs/tasks/`](docs/tasks/README.md).
   150 caracteres descartada, ficou o rascunho de 88). O cartão "revisando…" não tem mais "Cancelar", o
   cancelar da sessão direta depois do toque de parar é ignorado (`dictation_cancel_ignored`) e a bolha diz
   "Revisando o ditado".
-- **Emenda no Samsung Notes** ("bem?Consegue", "tarde?\nPaciente", "para\n seis"): o corpo de nota perde o
-  espaço do começo de cada trecho ou o troca por linha nova; a passada final limpava, mas sem ela ficava.
-  Agora o fim do ditado confere o campo e o devolve ao que foi ditado quando a diferença é só de espaço e
-  linha nova (`dictation_field_restored`). Durante a fala, no Samsung Notes, a emenda ainda pode aparecer.
+- **Emenda e ordem no Samsung Notes** ("bem?Consegue", "tarde?\nPaciente", "coco?\n tomar", e "bem?
+  Paciente do leito doze.Consegue me ligar…", que fazia a passada final ser recusada com `campo_diferente`):
+  sondas de texto fixo no S26, sem nuvem, mostraram que o corpo de nota trata um `commitText` de 25
+  caracteres ou mais como colagem — aplica de ~60 a ~300 ms depois, tira o espaço da frente e do fim, põe
+  uma linha nova no fim e deixa o cursor depois dela, ignorando o `newCursorPosition` —, enquanto até 24
+  entra na hora e igual ao mandado (o título da nota, um EditText, aceita os longos). O trecho seguinte ia
+  para a linha de baixo, ou, se saía antes de o longo ser aplicado, entrava antes dele. Agora cada escrita
+  vai em pedaços de até 20 caracteres, cortados antes de um espaço (`CommitChunks`), com as mesmas travas.
+  No S26, 6 modelos × 2 ditados: nenhuma linha nova, frase colada ou recusa `campo_diferente`, no ao vivo e
+  no final, e `drift=0` sem linha nova no fim em todas as trocas (antes `drift=1` em 5 de 11 e linha nova no
+  fim em todas). O fim do ditado segue conferindo espaço e linha nova (`dictation_field_restored`) como rede.
 
 - **Todas as janelas ao vivo falharam e a passada final nem era tentada** (qwen sem resposta no S26): o
   ditado acabava em "Nenhum trecho transcrito". Com trecho falho a passada final vai mesmo sem rascunho, e o
