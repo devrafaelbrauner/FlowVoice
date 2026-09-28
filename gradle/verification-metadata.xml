@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Verificação de dependências do Gradle só para o AAR do sherpa-onnx, que vem do JitPack (o único
+  repositório fora do Google Maven e do Maven Central). O hash é o do arquivo oficial do release
+  v1.13.8 no GitHub (https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.8/sherpa-onnx-1.13.8.aar),
+  conferido byte a byte contra a cópia do JitPack em 2026-09-28. Todo o resto é confiado como antes.
+-->
+<verification-metadata xmlns="https://schema.gradle.org/dependency-verification"
+                       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                       xsi:schemaLocation="https://schema.gradle.org/dependency-verification https://schema.gradle.org/dependency-verification/dependency-verification-1.3.xsd">
+   <configuration>
+      <verify-metadata>false</verify-metadata>
+      <verify-signatures>false</verify-signatures>
+      <trusted-artifacts>
+         <trust group="^(?!com[.]github[.]k2-fsa).*$" regex="true"/>
+      </trusted-artifacts>
+   </configuration>
+   <components>
+      <component group="com.github.k2-fsa.sherpa-onnx" name="sherpa-onnx" version="v1.13.8">
+         <artifact name="sherpa-onnx-v1.13.8.aar">
+            <sha256 value="633c24321e06b1fe79feafa03ea16cbc0f8a286641e2da3559bac91bdb13bd96" origin="GitHub release v1.13.8, igual ao JitPack"/>
+         </artifact>
+      </component>
+   </components>
+</verification-metadata>

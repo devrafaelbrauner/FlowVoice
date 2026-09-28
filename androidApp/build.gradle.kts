@@ -14,8 +14,13 @@ android {
         applicationId = "dev.rafaelbrauner.flowvoice"
         minSdk = 24
         targetSdk = 36
-        versionCode = 16
-        versionName = "0.6.0"
+        versionCode = 17
+        versionName = "0.7.0"
+        // O motor no aparelho é nativo (sherpa-onnx): só o S26 (arm64) e o emulador (x86_64). As outras
+        // duas arquiteturas do AAR somariam ~40 MB ao APK para aparelho que o app não mira.
+        ndk {
+            abiFilters += listOf("arm64-v8a", "x86_64")
+        }
     }
 
     // Chave de release fora do repositório: keystore.properties na raiz (ignorado pelo git) ou
@@ -54,6 +59,14 @@ android {
     buildFeatures {
         compose = true
     }
+
+    packaging {
+        jniLibs {
+            // O AAR do sherpa-onnx traz também as APIs C e C++ para quem o usa de código nativo. O app
+            // usa só a JNI, e `libsherpa-onnx-jni.so` depende apenas de `libonnxruntime.so`.
+            excludes += listOf("**/libsherpa-onnx-c-api.so", "**/libsherpa-onnx-cxx-api.so")
+        }
+    }
 }
 
 kotlin {
@@ -73,6 +86,8 @@ dependencies {
     implementation(libs.androidx.credentials)
     implementation(libs.androidx.credentials.play)
     implementation(libs.google.id)
+    // Extrair o .tar.bz2 do modelo no aparelho, sem shell nem `tar`.
+    implementation(libs.commons.compress)
     debugImplementation(libs.compose.ui.tooling)
     testImplementation(kotlin("test-junit"))
     testImplementation(libs.kotlinx.coroutines.test)
