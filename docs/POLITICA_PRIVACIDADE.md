@@ -40,8 +40,8 @@ Esta política descreve como o aplicativo Android **FlowVoice**
     enviado a ninguém. Com ela ligada, ao fim de cada ditado o áudio inteiro (em
     pedaços de até 50 s nos ditados longos) é convertido em WAV e enviado por HTTPS à
     OpenRouter, que o repassa ao provedor do modelo de transcrição escolhido em Ajustes
-    (padrão: `openai/gpt-4o-mini-transcribe`) — ou, com **um passo só** em "Formatação"
-    (o padrão), ao provedor do modelo de chat que ouve o áudio (padrão:
+    (padrão: `openai/gpt-4o-mini-transcribe`) — ou, com **um passo só** em "Formatação",
+    ao provedor do modelo de chat que ouve o áudio (padrão desse modo:
     `thinkingmachines/inkling`);
     o texto que volta substitui o do aparelho.
   - **Nuvem (OpenRouter):** o áudio é dividido em trechos curtos, convertido em WAV e

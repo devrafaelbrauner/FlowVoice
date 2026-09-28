@@ -9,11 +9,8 @@ import kotlin.test.assertEquals
 // "Formatação" em Ajustes: a escolha grava no JSON das preferências e volta igual ao reabrir o app.
 class CloudModelsTest {
     @Test
-    fun withoutAChoiceTheFinalPassIsTheMeasuredOneStepModel() {
-        assertEquals(
-            FormattingChoice.OneStep(CloudModels.DEFAULT_ONE_STEP_MODEL),
-            CloudModels.formatting(AppPreferences())
-        )
+    fun withoutAChoiceTheFinalPassIsTheTranscriptionAlone() {
+        assertEquals(FormattingChoice.None, CloudModels.formatting(AppPreferences()))
     }
 
     // O padrão nunca pode ser um modelo com erro que muda sentido na medição.
@@ -64,7 +61,7 @@ class CloudModelsTest {
             "prefs_json"
         )
 
-        assertEquals(FormattingChoice.OneStep(CloudModels.DEFAULT_ONE_STEP_MODEL), CloudModels.formatting(store.read()))
+        assertEquals(FormattingChoice.None, CloudModels.formatting(store.read()))
         assertEquals("openai/gpt-4o-mini", store.read().proofreadingModel, "o modelo de formatação escolhido fica guardado")
     }
 

@@ -23,10 +23,10 @@ object DictationCostEstimate {
     val LONG_WINDOW_SECONDS = DictationWindowAggregator.DEFAULT_TARGET_DURATION_MS / 1000.0
     const val SHORT_WINDOW_SECONDS = 2.0
 
-    // Passada final com a revisão por IA ligada (nos dois motores, com o padrão): o áudio inteiro num passo só
-    // no thinkingmachines/inkling, US$ 0,0049 por minuto (`usage.cost` medido em docs/medicao-modelos-nuvem.md,
-    // 2026-09-28), por minuto de ditado com as pausas.
-    const val FINAL_PASS_USD_PER_MINUTE = 0.0049
+    // Passada final com a revisão por IA ligada (nos dois motores, com o padrão, sem formatação): o áudio inteiro
+    // no openai/gpt-4o-mini-transcribe, US$ 0,0018 por minuto (`usage.cost` medido em
+    // docs/medicao-modelos-nuvem.md, 2026-09-28), por minuto de ditado com as pausas.
+    const val FINAL_PASS_USD_PER_MINUTE = 0.0018
 
     // Créditos pré-pagos: a OpenRouter cobra 5,5% por compra no cartão, mínimo de US$ 0,80
     // (https://openrouter.ai/docs/faq), e a menor compra é US$ 5 (https://openrouter.ai/terms),

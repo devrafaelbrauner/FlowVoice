@@ -19,8 +19,10 @@ data class AppPreferences(
     val transcriptionEngine: TranscriptionEngine = TranscriptionEngine.Cloud,
     // "Formatação" em Ajustes (`CloudModels.formatting`): como a passada final formata, nos dois motores.
     // `proofreadingModel` é o modelo de `Llm`; `oneStepModel` o de `OneStep` (vazio = o padrão medido).
-    // Padrão: o passo único (`CloudModels.DEFAULT_ONE_STEP_MODEL`), vencedor da medição.
-    val formattingMode: FormattingMode = FormattingMode.OneStep,
+    // Padrão: sem formatação — a transcrição do áudio inteiro (`OpenRouterConfig.DEFAULT_MODEL`) já vem
+    // pontuada, sem erro de sentido e em ~1,9 s no S26; o passo único (inkling), de nota maior, deu
+    // 7,4 s e erro de servidor no aparelho (escolha do usuário, 2026-09-28).
+    val formattingMode: FormattingMode = FormattingMode.None,
     val oneStepModel: String = ""
 ) {
     companion object {

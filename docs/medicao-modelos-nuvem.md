@@ -359,8 +359,8 @@ mudar a ordem da frase), como os de 11/12.
 - **Longos (32–52 s)**: 5,5 s p50, 7,8 s p95 — por isso o teto do passo único é 12 s
   (`FinalPass.ONE_STEP_TIMEOUT`; a transcrição + formatação segue com 8 s).
 - **Custo**: passada final US$ 0,0049 por minuto de ditado; ao vivo no motor Nuvem, `gpt-4o-mini-transcribe` a
-  US$ 0,0018 por minuto de áudio mais o contexto repetido das janelas (`DictationCostEstimate`: ≈ R$ 0,70 a 2,90
-  por hora na nuvem, R$ 1,60 a 1,90 no aparelho com a revisão).
+  US$ 0,0018 por minuto de áudio mais o contexto repetido das janelas (`DictationCostEstimate`: ≈ R$ 0,70 a 1,70
+  por hora na nuvem, R$ 0,60 a 0,70 no aparelho com a revisão, com o padrão sem formatação).
 
 ## Reproduzir
 

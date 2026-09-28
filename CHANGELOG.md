@@ -6,6 +6,11 @@ estão em [`docs/tasks/`](docs/tasks/README.md).
 
 ## [Unreleased]
 
+- **Padrão da passada final: só a transcrição do áudio inteiro, sem formatação**
+  (`openai/gpt-4o-mini-transcribe`), por escolha do usuário depois da medição: 0 erros que mudam sentido,
+  nota 95,8, 1,9 s no S26 e texto igual ao gabarito. O passo único com `thinkingmachines/inkling` (nota 97,7)
+  segue em Ajustes, mas deu 7,4 s e erro de servidor no S26. Custo estimado da passada final: US$ 0,0018/min.
+
 ### Adicionado
 
 - **Motor Nuvem completo, com os modelos escolhidos.** Com a "Revisão final por IA" ligada, o motor Nuvem
