@@ -132,10 +132,8 @@ class DirectPreviewModelTest {
         assertEquals("Digitado no campo · 5 palavras", result.message)
         assertEquals("Trecho 2 de 3 falhou (timeout): texto incompleto", result.detail)
         assertEquals(
-            "Digitado no campo · 1 palavra",
-            assertIs<DirectPreviewState.Result>(
-                state(DictationPipelineStatus.Completed("Ok.", TextInsertionResult(true, "direto", "ok")))
-            ).message
+            DirectPreviewState.Hidden,
+            state(DictationPipelineStatus.Completed("Ok.", TextInsertionResult(true, "direto", "ok")))
         )
     }
 

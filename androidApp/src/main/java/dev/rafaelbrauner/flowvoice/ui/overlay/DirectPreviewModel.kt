@@ -99,6 +99,8 @@ object DirectPreviewModel {
             )
             is DictationPipelineStatus.Completed -> when {
                 dismissed -> DirectPreviewState.Hidden
+                // O texto já está no campo; o cartão só fica quando há aviso a mostrar.
+                status.text.isNotBlank() && status.warning == null -> DirectPreviewState.Hidden
                 status.text.isNotBlank() -> DirectPreviewState.Result(
                     success = true,
                     message = "Digitado no campo · ${words(status.text)}",
