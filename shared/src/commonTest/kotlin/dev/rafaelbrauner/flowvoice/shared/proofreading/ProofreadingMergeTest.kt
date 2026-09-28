@@ -111,4 +111,21 @@ class ProofreadingMergeTest {
             ProofreadingMerge.merge("não tomou a medicação sem febre", "Não, tomou a medicação. Sem febre.")
         )
     }
+
+    // P157: no S26 a mistura aceitou "nomeado" e recusou "foi", e o campo ficou "foram nomeado".
+    @Test
+    fun aWholeAgreementFixIsTaken() {
+        assertEquals("Um deles foi nomeado.", ProofreadingMerge.merge("Um deles foram nomeados.", "Um deles foi nomeado."))
+    }
+
+    @Test
+    fun aRefusedWordKeepsTheAgreementOfItsSentenceAsDictatedButNotOfTheNext() {
+        val dictated = "os exame foi pedido pelo plantão os resultado veio normal"
+        val revised = "Os exames foram solicitados pelo plantão. Os resultados vieram normais."
+
+        assertEquals(
+            "Os exame foi pedido pelo plantão. Os resultados vieram normais.",
+            ProofreadingMerge.merge(dictated, revised)
+        )
+    }
 }

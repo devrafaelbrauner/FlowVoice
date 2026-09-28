@@ -6,12 +6,19 @@ package dev.rafaelbrauner.flowvoice.shared.proofreading
 // que não podia, e a pontuação da revisão entra do mesmo jeito. Aspas e dois-pontos que o ditado não
 // tinha saem do vão (S26 2026-09-17: "manhã:" derrubava a vírgula); o resto da pontuação da revisão
 // continua. O resultado ainda passa pelo guard.
+// P157: concordância é de frase, não de palavra. No S26 (2026-09-16 16:18) a revisão trocou "Um deles
+// foram nomeados" por "foi nomeado", a mistura aceitou só "nomeado" e o campo ficou "foram nomeado",
+// pior que as duas versões. Quando uma palavra da frase é recusada, as trocas de terminação da mesma
+// frase também voltam ao ditado; a ortografia e a pontuação seguem valendo.
 object ProofreadingMerge {
     fun merge(original: String, revised: String): String? {
         val source = words(original)
         val target = words(revised)
         // Quantidade diferente de palavras não é revisão: é outro texto, e não há o que alinhar.
         if (source.isEmpty() || source.size != target.size) return null
+        val edits = source.indices.map { ProofreadingGuard.wordEdit(original.substring(source[it]), revised.substring(target[it])) }
+        val sentences = sentenceIndexes(revised, target)
+        val refusedSentences = source.indices.filter { edits[it] == WordEdit.Refused }.map { sentences[it] }.toSet()
         return buildString {
             var revisedCursor = 0
             var originalCursor = 0
@@ -24,11 +31,11 @@ object ProofreadingMerge {
                         afterNegation = index > 0 && ProofreadingGuard.isNegation(original.substring(source[index - 1]))
                     )
                 )
-                val dictated = original.substring(source[index].first, source[index].last + 1)
-                val proposed = revised.substring(span.first, span.last + 1)
-                append(
-                    if (ProofreadingGuard.acceptsWord(dictated, proposed)) proposed else keep(dictated, proposed)
-                )
+                val dictated = original.substring(source[index])
+                val proposed = revised.substring(span)
+                val keepDictated = edits[index] == WordEdit.Refused ||
+                    (edits[index] == WordEdit.Agreement && sentences[index] in refusedSentences)
+                append(if (keepDictated) keep(dictated, proposed) else proposed)
                 revisedCursor = span.last + 1
                 originalCursor = source[index].last + 1
             }
@@ -42,6 +49,20 @@ object ProofreadingMerge {
             )
         }
     }
+
+    // Frase de cada palavra, pela pontuação da revisão: ponto, interrogação, exclamação ou quebra de
+    // linha no vão antes da palavra abrem uma frase nova.
+    private fun sentenceIndexes(revised: String, spans: List<IntRange>): IntArray {
+        val indexes = IntArray(spans.size)
+        var sentence = 0
+        spans.forEachIndexed { index, span ->
+            if (index > 0 && revised.substring(spans[index - 1].last + 1, span.first).any { it in SENTENCE_ENDS }) sentence++
+            indexes[index] = sentence
+        }
+        return indexes
+    }
+
+    private val SENTENCE_ENDS = setOf('.', '?', '!', '\n')
 
     // Sinal novo no vão: fica a pontuação do ditado. Se o ditado não tinha vão (fim do texto) e a
     // revisão só acrescentou aspas em volta de um ponto, o ponto entra.

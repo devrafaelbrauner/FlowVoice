@@ -104,4 +104,39 @@ class ProofreadingGuardTest {
     fun answeringTheDictationInsteadOfRevisingItIsRejected() {
         assertFalse(ProofreadingGuard.accepts("qual a dose de dipirona", "A dose usual de dipirona é 500 mg."))
     }
+
+    // P157 e o pedido de 2026-09-28: a formatação pode corrigir a concordância pela terminação.
+    @Test
+    fun agreementThatOnlyChangesTheEndingIsAccepted() {
+        assertTrue(ProofreadingGuard.accepts("Um deles foram nomeados.", "Um deles foi nomeado."))
+        assertTrue(ProofreadingGuard.accepts("os exame foi pedido ontem", "Os exames foram pedidos ontem."))
+        assertTrue(ProofreadingGuard.accepts("os resultados está normal", "Os resultados estão normais."))
+        assertTrue(ProofreadingGuard.accepts("a dor melhorou e os sintomas regrediu", "A dor melhorou e os sintomas regrediram."))
+        assertTrue(ProofreadingGuard.accepts("mama direito sem nódulos", "Mama direita sem nódulos."))
+        assertTrue(ProofreadingGuard.accepts("os pacientes é idosos", "Os pacientes são idosos."))
+        assertTrue(ProofreadingGuard.accepts("elas tem febre", "Elas têm febre."))
+    }
+
+    @Test
+    fun agreementDoesNotOpenTheDoorToAnotherWord() {
+        val refused = listOf(
+            "prednisona" to "prednisolona",
+            "amoxicilina" to "ampicilina",
+            "direito" to "esquerdo",
+            "normal" to "anormal",
+            "dois comprimidos" to "três comprimidos",
+            "duas doses" to "dois doses",
+            "500 mg" to "50 mg",
+            "caso novo" to "casa novo",
+            "mesa limpa" to "mesma limpa",
+            "hipotenso" to "hipertenso",
+            "ele e sua mãe" to "ele são sua mãe"
+        )
+        refused.forEach { (dictated, revised) ->
+            assertFalse(ProofreadingGuard.accepts(dictated, revised), "$dictated → $revised")
+            assertFalse(ProofreadingGuard.accepts("Paciente com $dictated hoje", "Paciente com $revised hoje"), "$dictated → $revised")
+        }
+        assertFalse(ProofreadingGuard.accepts("não foram nomeados", "foram nomeados"), "negação tirada")
+        assertFalse(ProofreadingGuard.accepts("não foram nomeados", "nós foram nomeados"), "negação trocada por outra palavra")
+    }
 }
