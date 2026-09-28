@@ -6,6 +6,22 @@ estão em [`docs/tasks/`](docs/tasks/README.md).
 
 ## [Unreleased]
 
+### Adicionado
+
+- **Pontuação falada**, portada do Intelligent Keyboard (`SpokenPunctuation`, com os casos de teste
+  de lá): "vírgula", "ponto final", "dois pontos" (também "2 pontos"), "ponto e vírgula",
+  "interrogação", "exclamação", "reticências", aspas, parênteses, "nova linha", "novo parágrafo"
+  e, para listas, "novo item"/"próximo item" (linha nova com "- "). Aplicada a cada trecho fechado,
+  na nuvem e no motor do aparelho, antes do vocabulário do usuário; um "vírgula" dito sozinho tira
+  o ponto que o modelo pôs no trecho anterior pela regra da P144. Na captura do usuário no S26
+  (2026-09-28) "ponto final Nova Linha" saía escrito. Não conferido no aparelho com fala.
+
+### Removido
+
+- **Cartão "Digitado no campo · N palavras" depois do ditado.** O texto já está no campo; o
+  cartão só aparece quando o ditado termina com aviso (trecho que falhou, captura interrompida,
+  teto), que é o único lugar onde o aviso é mostrado.
+
 ## [0.7.0] - 2026-09-28
 
 Motor de transcrição no aparelho: NVIDIA Nemotron 3.5 ASR Streaming 0.6B (blocos de 560 ms,

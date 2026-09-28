@@ -5,6 +5,7 @@ import dev.rafaelbrauner.flowvoice.shared.dictation.CaptureTap
 import dev.rafaelbrauner.flowvoice.shared.dictation.DictationWindow
 import dev.rafaelbrauner.flowvoice.shared.dictation.WindowCut
 import dev.rafaelbrauner.flowvoice.shared.transcription.SessionTranscription
+import dev.rafaelbrauner.flowvoice.shared.text.SpokenPunctuation
 import dev.rafaelbrauner.flowvoice.shared.transcription.TranscriptionEventLog
 import dev.rafaelbrauner.flowvoice.shared.transcription.TranscriptionSegment
 import dev.rafaelbrauner.flowvoice.shared.transcription.locked
@@ -143,7 +144,7 @@ class LocalTranscription(
                         TranscriptionSegment(
                             windowIndex = windowIndex,
                             status = TranscriptionSegment.Status.Ok,
-                            text = commit.text,
+                            text = SpokenPunctuation.applyToSegment(commit.text),
                             continuous = true,
                             glued = commit.glued
                         )

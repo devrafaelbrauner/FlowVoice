@@ -227,6 +227,12 @@ Em **Ajustes → Motor de transcrição**:
   novo toque escreve no app atual. Um toque até 1 s depois da recusa (toque duplo) é
   ignorado.
 - **Nas Notas:** "Nova nota" ou o microfone do detalhe ditam direto no corpo da nota.
+- **Pontuação falada:** diga "vírgula", "ponto final", "dois pontos", "ponto e vírgula",
+  "interrogação", "exclamação", "reticências", "abre/fecha aspas", "abre/fecha parênteses",
+  "nova linha" e "novo parágrafo". Para lista, "novo item" ou "próximo item" começam uma linha
+  com "- ". "Ponto" sozinho continua palavra ("ponto de ônibus"), e o nome do sinal depois de
+  artigo é fala ("coloca uma vírgula"). O sinal aparece quando o trecho fecha; na prévia ao vivo
+  o comando ainda está escrito por extenso.
 
 ## Licença
 

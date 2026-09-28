@@ -308,3 +308,13 @@ comparado às referências (`NN.txt`):
 | LOC-desktop | Baixa | Motor no aparelho no Windows (o sherpa-onnx tem JNI para Windows x64): hoje o desktop é só nuvem | adiada | /planejar |
 | LOC-x86 | Baixa | O APK só tem `arm64-v8a` (o x86_64 somaria 30,8 MB): não instala em emulador x86_64 sem tradução de ABI. Os AVDs deste projeto são arm64 | decidido | — |
 | LOC-r8 | Baixa | O release segue sem minify; a regra de keep do sherpa-onnx está como consumer rule do `:shared`, para quando o R8 for ligado | decidido | — |
+
+## Pontuação falada (2026-09-28)
+
+| ID | Prioridade | Descrição | Status | Próximo passo |
+|---|---|---|---|---|
+| PONT-voz | Alta | Conferir no S26 com fala: comandos no meio da frase e ditos sozinhos depois de pausa, na nuvem e no motor do aparelho, no Samsung Notes e numa nota | aberta: só testes JVM | /verificar |
+| PONT-corte | Média | No motor do aparelho, um corte por teto entre as duas palavras de um comando ("dois" \| "pontos") deixa o comando por extenso, porque a conversão é por trecho | aberta | /medir |
+| PONT-previa | Baixa | A prévia ao vivo mostra o comando por extenso até o trecho fechar | aberta: decidir se converte o provisório (o teclado evita, porque "Nova Lí" pode ser começo de "Nova Lima") | /decidir |
+| PONT-revisao | Média | A revisão por IA pode mexer nos marcadores "- " e nas quebras de linha dos itens; a guarda aceita ":" e "\n" que já estavam no ditado | aberta: conferir com a revisão ligada | /verificar |
+

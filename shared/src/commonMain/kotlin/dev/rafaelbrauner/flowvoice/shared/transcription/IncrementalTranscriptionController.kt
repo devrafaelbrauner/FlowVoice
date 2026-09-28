@@ -4,6 +4,7 @@ import dev.rafaelbrauner.flowvoice.shared.dictation.DictationWindow
 import dev.rafaelbrauner.flowvoice.shared.dictation.EmptyAudioMemory
 import dev.rafaelbrauner.flowvoice.shared.dictation.SilentWindow
 import dev.rafaelbrauner.flowvoice.shared.dictation.WindowSpeechGate
+import dev.rafaelbrauner.flowvoice.shared.text.SpokenPunctuation
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -199,7 +200,7 @@ class IncrementalTranscriptionController(
             TranscriptionSegment(
                 windowIndex = window.index,
                 status = TranscriptionSegment.Status.Ok,
-                text = text,
+                text = SpokenPunctuation.applyToSegment(text),
                 contextDurationMs = window.contextDurationMs
             ),
             session,
