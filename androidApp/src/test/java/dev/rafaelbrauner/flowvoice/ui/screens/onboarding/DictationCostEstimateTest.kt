@@ -23,8 +23,8 @@ class DictationCostEstimateTest {
 
     @Test
     fun proofreadingAddsLittleNextToTranscription() {
-        // 14.400 tokens de texto + 120 × 110 de prompt na entrada; 14.400 na saída.
-        assertEquals(0.01278, DictationCostEstimate.proofreadingUsdPerHour(), eps)
+        // 14.400 tokens de texto + 120 × 225 de prompt na entrada; 14.400 na saída (claude-haiku-4.5).
+        assertEquals(0.1134, DictationCostEstimate.proofreadingUsdPerHour(), eps)
     }
 
     @Test
@@ -37,7 +37,7 @@ class DictationCostEstimateTest {
     @Test
     fun brlRangeAppliesFeeIofAndRate() {
         assertEquals(1.915997, DictationCostEstimate.lowBrlPerHour(), eps)
-        assertEquals(2.607799, DictationCostEstimate.highBrlPerHour(), eps)
+        assertEquals(3.235873, DictationCostEstimate.highBrlPerHour(), eps)
         assertEquals(31.210197, DictationCostEstimate.minPurchaseBrl(), eps)
     }
 
@@ -45,7 +45,14 @@ class DictationCostEstimateTest {
     fun labelRoundsTheRangeOutward() {
         val label = DictationCostEstimate.perHourLabel()
 
-        assertTrue(label.startsWith("≈ R$ 1,90 a 2,70 "), label)
+        assertTrue(label.startsWith("≈ R$ 1,90 a 3,30 "), label)
         assertTrue(DictationCostEstimate.minPurchaseLabel().contains("R$ 32"))
+    }
+
+    // Passada final medida: US$ 0,0073 por minuto de ditado, US$ 0,438 por hora.
+    @Test
+    fun theFinalPassOfTheLocalEngineCostsWhatWasMeasured() {
+        assertEquals(0.438, DictationCostEstimate.finalPassUsdPerHour(), eps)
+        assertTrue(DictationCostEstimate.finalPassPerHourLabel().contains("≈ R$ 2,40 a 2,80 por hora"))
     }
 }

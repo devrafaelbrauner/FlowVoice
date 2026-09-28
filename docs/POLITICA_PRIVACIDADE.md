@@ -16,8 +16,10 @@ Esta política descreve como o aplicativo Android **FlowVoice**
 - O FlowVoice transforma a sua voz em texto de um de dois jeitos, à sua escolha: na
   nuvem, pela **OpenRouter** (<https://openrouter.ai>), com a **sua própria chave de
   API**; ou com o **modelo no aparelho**, que transcreve no próprio celular.
-- Com o modelo no aparelho, o áudio **não sai do celular**. Com a transcrição na
-  nuvem, o áudio só sai do aparelho **enquanto você dita**. Em nenhum dos casos o app
+- Com o modelo no aparelho e a revisão final por IA desligada, o áudio **não sai do
+  celular**. Com a revisão ligada, o áudio do ditado inteiro vai uma vez à OpenRouter
+  **no fim de cada ditado**, mesmo com o modelo no aparelho. Com a transcrição na
+  nuvem, o áudio sai do aparelho **enquanto você dita**. Em nenhum dos casos o app
   grava o áudio em arquivo.
 - Notas, dicionário e a chave da OpenRouter ficam **só no seu aparelho** e fora do
   backup do Android.
@@ -33,21 +35,28 @@ Esta política descreve como o aplicativo Android **FlowVoice**
   do tipo microfone, com notificação visível.
 - **Para quê:** transcrever a fala.
   - **Modelo no aparelho:** o áudio é processado no próprio celular pelo modelo de
-    reconhecimento de fala e nunca é enviado a ninguém.
+    reconhecimento de fala. Com a **revisão final por IA** desligada, ele nunca é
+    enviado a ninguém. Com ela ligada, ao fim de cada ditado o áudio inteiro (em
+    pedaços de até 50 s nos ditados longos) é convertido em WAV e enviado por HTTPS à
+    OpenRouter, que o repassa ao provedor do modelo de transcrição (padrão:
+    `openai/gpt-transcribe`); o texto que volta substitui o do aparelho.
   - **Nuvem (OpenRouter):** o áudio é dividido em trechos curtos, convertido em WAV e
     enviado por HTTPS à OpenRouter, que o repassa ao provedor do modelo de
     transcrição escolhido (padrão: `openai/gpt-transcribe`).
-- **Armazenamento:** o áudio fica só na memória do app; nada é gravado em arquivo no
-  aparelho. Na tela de Diagnóstico, se você pedir um benchmark, o áudio da última
-  sessão é reenviado à OpenRouter para comparar modelos.
+- **Armazenamento:** o áudio fica só na memória do app, até o próximo ditado (um
+  ditado cancelado é descartado na hora); nada é gravado em arquivo no aparelho. Na
+  tela de Diagnóstico, se você pedir um benchmark, o áudio da última sessão é
+  reenviado à OpenRouter para comparar modelos.
 
 ### 1.2 Texto ditado
 
 - O texto transcrito (no aparelho ou devolvido pela OpenRouter) é inserido no campo
   em que você está digitando ou numa nota do FlowVoice.
-- **Revisão por IA** (desligada por padrão): se você ligar, o texto ditado é enviado
-  à OpenRouter, qualquer que seja o motor de transcrição, para correção de pontuação e ortografia (modelo padrão
-  `openai/gpt-4o-mini`).
+- **Revisão final por IA** (desligada por padrão): se você ligar, no fim do ditado o
+  texto é enviado à OpenRouter para correção de pontuação, vírgulas, maiúsculas,
+  acentos e concordância (modelo padrão `anthropic/claude-haiku-4.5`). Na nuvem vai o
+  texto ditado; com o modelo no aparelho vai o texto da transcrição do áudio inteiro
+  (ver 1.1).
 - **Dicionário pessoal:** as correções de termos são aplicadas no próprio aparelho.
 
 ### 1.3 Chave de API da OpenRouter
@@ -67,8 +76,9 @@ Esta política descreve como o aplicativo Android **FlowVoice**
   enviado junto.
 - O modelo fica no armazenamento privado do app, fora do backup do Android, e pode
   ser apagado em Ajustes a qualquer momento.
-- Com ele, a transcrição não usa a chave nem a internet. A revisão por IA, se
-  ligada, continua enviando o texto à OpenRouter.
+- Com ele, a transcrição ao vivo não usa a chave nem a internet. A revisão final por
+  IA, se ligada, envia o áudio do ditado inteiro à OpenRouter no fim de cada ditado
+  (ver 1.1).
 
 ### 1.4 Serviço de acessibilidade
 
@@ -121,8 +131,9 @@ notificações mostra o aviso do serviço da bolha. Nenhuma das duas coleta dado
 ## 2. Com quem os dados são compartilhados
 
 - **OpenRouter, Inc.** (<https://openrouter.ai>) e o provedor do modelo que ela
-  aciona recebem o áudio quando a transcrição é na nuvem (e o texto, se a revisão por
-  IA estiver ligada, com qualquer motor), vinculados
+  aciona recebem o áudio quando a transcrição é na nuvem ou quando a revisão final
+  por IA está ligada (com o modelo no aparelho, no fim de cada ditado), e o texto se
+  a revisão estiver ligada, vinculados
   à **sua** conta e chave da OpenRouter. O tratamento lá segue a política da
   OpenRouter: <https://openrouter.ai/privacy>.
 - **GitHub**, apenas no download do modelo no aparelho: recebe o endereço IP da

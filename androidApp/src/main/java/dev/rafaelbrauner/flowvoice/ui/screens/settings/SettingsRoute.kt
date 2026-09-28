@@ -491,18 +491,20 @@ internal fun SettingsContent(
                 }
                 FvDivider()
                 SettingsRow(
-                    label = "Revisão por IA",
+                    label = "Revisão final por IA",
                     hint = when {
-                        !state.keyConfigured -> "Envia o texto à OpenRouter; precisa da chave"
+                        !state.keyConfigured -> "Usa a OpenRouter no fim do ditado; precisa da chave"
                         state.effectiveEngine == TranscriptionEngine.Local ->
-                            "Pontuação e ortografia: envia o texto à OpenRouter, mesmo com o motor no aparelho"
-                        else -> "Pontuação e ortografia: no fim do ditado pela bolha, ao revisar antes de inserir e nas notas"
+                            "No fim do ditado o áudio vai à OpenRouter, e o texto final (pontuação, vírgulas, " +
+                                "concordância) troca o do aparelho"
+                        else -> "No fim do ditado: pontuação, vírgulas e concordância do texto inteiro, pela bolha, " +
+                            "ao revisar antes de inserir e nas notas"
                     }
                 ) {
                     FvToggle(
                         checked = state.proofreadingEnabled,
                         onCheckedChange = actions.onProofreadingChange,
-                        label = "Revisão por IA"
+                        label = "Revisão final por IA"
                     )
                 }
             }

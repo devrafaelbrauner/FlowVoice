@@ -53,7 +53,7 @@ object AccessibilityDisclosure {
         "O nome do app que está na tela, a cada troca de janela. Serve só para o microfone do Início saber " +
             "para qual app voltar; o conteúdo da tela não é lido nesses avisos.",
         "No ditado, o campo de texto em que está o cursor: o FlowVoice escreve nele e lê o texto logo antes " +
-            "do cursor para conferir e corrigir o que ele mesmo escreveu, inclusive na revisão por IA. Se a " +
+            "do cursor para conferir e corrigir o que ele mesmo escreveu, inclusive na revisão final por IA. Se a " +
             "escrita direta falhar, lê o texto do campo para inserir no ponto do cursor sem apagar nada. Só " +
             "lê o campo em que o ditado está escrevendo: se o foco for para outro app ou outro campo, nada é " +
             "lido até você tocar em Inserir aqui.",
@@ -61,10 +61,11 @@ object AccessibilityDisclosure {
             "você escreve."
     )
     val LIMITS = listOf(
-        "O texto lido do campo fica no celular: não é enviado nem guardado. Com o modelo no aparelho, o " +
-            "áudio é transcrito no próprio celular e não sai dele. Com a transcrição na nuvem, o áudio vai " +
-            "para a OpenRouter só enquanto você dita. Com a revisão por IA ligada, o texto ditado vai para a " +
-            "OpenRouter nos dois casos.",
+        "O texto lido do campo fica no celular: não é enviado nem guardado. Com o modelo no aparelho e a " +
+            "revisão final por IA desligada, o áudio é transcrito no próprio celular e não sai dele. Com a " +
+            "revisão ligada, o áudio do ditado inteiro vai para a OpenRouter no fim, mesmo com o modelo no " +
+            "aparelho, e volta como o texto final. Com a transcrição na nuvem, o áudio vai para a OpenRouter " +
+            "enquanto você dita, e com a revisão ligada o texto ditado também vai.",
         "Não lê nem escreve em campos marcados como senha.",
         "Não toca em botões nem navega por você: só escreve e corrige o texto que você ditou e posiciona o cursor."
     )

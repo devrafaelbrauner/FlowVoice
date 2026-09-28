@@ -59,10 +59,11 @@ internal fun TranscriptionEngineSection(state: SettingsUiState, actions: Setting
     }
     EngineOption(
         label = "No aparelho (Nemotron, ao vivo)",
-        hint = if (installed) {
-            "Sem internet e sem custo; o áudio não sai do celular"
-        } else {
-            "Baixe o modelo abaixo para usar"
+        hint = when {
+            !installed -> "Baixe o modelo abaixo para usar"
+            // Duas passadas: com a revisão final por IA, o áudio do ditado vai à nuvem no fim.
+            state.proofreadingEnabled -> "Ao vivo no celular; com a revisão final por IA, o áudio vai à OpenRouter no fim"
+            else -> "Sem internet e sem custo; o áudio não sai do celular"
         },
         selected = state.engineChoice == TranscriptionEngine.Local,
         enabled = installed,
@@ -123,7 +124,8 @@ private fun LocalModelPanel(state: SettingsUiState, actions: SettingsActions) {
         when (val model = state.localModel) {
             LocalModelState.NotInstalled -> {
                 PanelText(
-                    "Funciona sem internet e sem custo; o áudio não sai do celular. Baixado do GitHub " +
+                    "Funciona sem internet e sem custo; o áudio não sai do celular (com a revisão final por IA " +
+                        "ligada, vai à OpenRouter no fim do ditado). Baixado do GitHub " +
                         "(k2-fsa/sherpa-onnx); precisa de $REQUIRED_SPACE livres durante a instalação e " +
                         "ocupa $INSTALLED_SIZE. Ao terminar, os ditados passam a usar o aparelho."
                 )

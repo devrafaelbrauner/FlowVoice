@@ -73,7 +73,8 @@ object OpenRouterKeyCopy {
     const val LOCAL_DETAIL = "Funciona sem internet e sem custo: o áudio é transcrito no celular e não sai dele. " +
         "O modelo é baixado uma vez do " +
         "GitHub (k2-fsa/sherpa-onnx) e precisa de cerca de 1,2 GB livres durante a instalação. A revisão " +
-        "por IA continua precisando da chave."
+        "por IA continua precisando da chave e, ligada, manda o áudio do ditado à OpenRouter no fim, para " +
+        "a versão final."
     const val LOCAL_VERIFYING = "Conferindo…"
     const val LOCAL_READY = "Pronto: o ditado usa o modelo no aparelho"
     const val LOCAL_CONTINUE = "Continuar"
@@ -197,6 +198,8 @@ internal fun OpenRouterKeyScreen(
                 style = typography.itemTitle,
                 color = colors.textPrimary
             )
+            Spacer(Modifier.height(6.dp))
+            Text(text = DictationCostEstimate.finalPassPerHourLabel(), style = typography.bodySmall, color = colors.textMuted)
             Spacer(Modifier.height(6.dp))
             Text(text = OpenRouterKeyCopy.costDetail(), style = typography.bodySmall, color = colors.textTertiary)
         }
