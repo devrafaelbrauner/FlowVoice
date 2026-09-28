@@ -1,5 +1,7 @@
 package dev.rafaelbrauner.flowvoice.ui.screens.home
 
+import dev.rafaelbrauner.flowvoice.shared.localasr.TranscriptionEngine
+import dev.rafaelbrauner.flowvoice.shared.localasr.TranscriptionEngineSelection
 import dev.rafaelbrauner.flowvoice.shared.pipeline.DictationPipelineSession
 import dev.rafaelbrauner.flowvoice.shared.pipeline.DictationPipelineStatus
 import dev.rafaelbrauner.flowvoice.shared.pipeline.DictationTarget
@@ -13,9 +15,16 @@ class HomeLogicTest {
         accessibilityRunning: Boolean = true,
         microphoneGranted: Boolean = true,
         keyConfigured: Boolean = true,
+        engine: TranscriptionEngine = TranscriptionEngine.Cloud,
         sdkInt: Int = 36,
         canDrawOverlays: Boolean = true
-    ) = micAction(accessibilityRunning, microphoneGranted, keyConfigured, sdkInt, canDrawOverlays)
+    ) = micAction(
+        accessibilityRunning,
+        microphoneGranted,
+        TranscriptionEngineSelection.canDictate(engine, keyConfigured),
+        sdkInt,
+        canDrawOverlays
+    )
 
     @Test
     fun missingAccessibilityOrMicrophoneOpensOnboarding() {
@@ -28,6 +37,15 @@ class HomeLogicTest {
     fun missingKeyIsReportedBeforeStartingOrAskingForTheOverlay() {
         assertEquals(MicAction.ConfigureKey, action(keyConfigured = false))
         assertEquals(MicAction.ConfigureKey, action(keyConfigured = false, canDrawOverlays = false))
+    }
+
+    @Test
+    fun onDeviceModelInUseStartsDictationWithoutKey() {
+        assertEquals(MicAction.StartDictation, action(keyConfigured = false, engine = TranscriptionEngine.Local))
+        assertEquals(
+            MicAction.RequestOverlayPermission,
+            action(keyConfigured = false, engine = TranscriptionEngine.Local, canDrawOverlays = false)
+        )
     }
 
     @Test

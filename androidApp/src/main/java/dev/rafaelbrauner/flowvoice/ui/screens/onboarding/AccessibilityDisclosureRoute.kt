@@ -61,9 +61,10 @@ object AccessibilityDisclosure {
             "você escreve."
     )
     val LIMITS = listOf(
-        "O texto lido do campo fica no celular: não é enviado nem guardado. O que vai para a internet é o " +
-            "áudio, só enquanto você dita, para a OpenRouter transcrever (e, com a revisão por IA ligada, o " +
-            "texto ditado).",
+        "O texto lido do campo fica no celular: não é enviado nem guardado. Com o modelo no aparelho, o " +
+            "áudio é transcrito no próprio celular e não sai dele. Com a transcrição na nuvem, o áudio vai " +
+            "para a OpenRouter só enquanto você dita. Com a revisão por IA ligada, o texto ditado vai para a " +
+            "OpenRouter nos dois casos.",
         "Não lê nem escreve em campos marcados como senha.",
         "Não toca em botões nem navega por você: só escreve e corrige o texto que você ditou e posiciona o cursor."
     )

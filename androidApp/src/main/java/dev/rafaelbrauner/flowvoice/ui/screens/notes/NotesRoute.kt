@@ -59,6 +59,7 @@ import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LifecycleResumeEffect
+import dev.rafaelbrauner.flowvoice.shared.localasr.TranscriptionEngineSelection
 import dev.rafaelbrauner.flowvoice.shared.notes.Note
 import dev.rafaelbrauner.flowvoice.shared.notes.NoteDictationCoordinator
 import dev.rafaelbrauner.flowvoice.shared.notes.NoteStore
@@ -88,10 +89,15 @@ fun NotesRoute(initialNoteId: String?, onOpenKeySetup: () -> Unit, modifier: Mod
     val context = LocalContext.current
     val status by pipeline.status.collectAsState()
     val segments by pipeline.segments.collectAsState()
+    val partial by pipeline.livePartial.collectAsState()
     val dictationState by coordinator.state.collectAsState()
     var pendingStartNoteId by rememberSaveable { mutableStateOf<String?>(null) }
     var keyNotice by rememberSaveable { mutableStateOf(false) }
-    fun keyConfigured(): Boolean = !secretStore.readOpenRouterKey().isNullOrBlank()
+    // Com o modelo no aparelho em uso, a chave deixa de ser pré-requisito do ditado.
+    fun transcriptionReady(): Boolean = TranscriptionEngineSelection.canDictate(
+        pipeline.effectiveEngine(),
+        keyConfigured = !secretStore.readOpenRouterKey().isNullOrBlank()
+    )
 
     LaunchedEffect(initialNoteId) {
         state.refresh()
@@ -99,7 +105,7 @@ fun NotesRoute(initialNoteId: String?, onOpenKeySetup: () -> Unit, modifier: Mod
     }
     LaunchedEffect(dictationState, status) { state.refresh() }
     LifecycleResumeEffect(Unit) {
-        if (keyNotice && keyConfigured()) keyNotice = false
+        if (keyNotice && transcriptionReady()) keyNotice = false
         onPauseOrDispose { }
     }
 
@@ -123,7 +129,7 @@ fun NotesRoute(initialNoteId: String?, onOpenKeySetup: () -> Unit, modifier: Mod
     val requestDictation: (String) -> Unit = { noteId ->
         val microphoneGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
             PackageManager.PERMISSION_GRANTED
-        when (NoteDictationGate.decide(keyConfigured(), microphoneGranted)) {
+        when (NoteDictationGate.decide(transcriptionReady(), microphoneGranted)) {
             NoteStartAction.ConfigureKey -> keyNotice = true
             NoteStartAction.RequestMicrophone -> {
                 pendingStartNoteId = noteId
@@ -135,7 +141,10 @@ fun NotesRoute(initialNoteId: String?, onOpenKeySetup: () -> Unit, modifier: Mod
 
     val dictatingHere = dictationState.noteId != null && status.isBusy
     val provisional = if (dictatingHere) {
-        LivePreviewAssembler.assemble(segments, sessionComplete = false).full
+        // Com o motor no aparelho, o que está sendo dito entra no fim da prévia, ainda provisório.
+        listOf(LivePreviewAssembler.assemble(segments, sessionComplete = false).full, partial)
+            .filter { it.isNotBlank() }
+            .joinToString(" ")
     } else {
         ""
     }
@@ -157,7 +166,7 @@ fun NotesRoute(initialNoteId: String?, onOpenKeySetup: () -> Unit, modifier: Mod
         pendingDeleteId = state.pendingDeleteId,
         onTogglePanel = state::togglePanel,
         onSelect = state::select,
-        onNewNote = { if (keyConfigured()) requestDictation(state.createNote().id) else keyNotice = true },
+        onNewNote = { if (transcriptionReady()) requestDictation(state.createNote().id) else keyNotice = true },
         onTitleChange = state::updateTitle,
         onBodyChange = state::updateBody,
         onDeleteTap = { id ->

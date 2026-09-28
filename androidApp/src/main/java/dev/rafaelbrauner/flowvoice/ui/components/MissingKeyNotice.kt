@@ -18,7 +18,7 @@ import androidx.compose.ui.tooling.preview.PreviewParameter
 import androidx.compose.ui.unit.dp
 import dev.rafaelbrauner.flowvoice.ui.theme.FlowVoiceTheme
 
-// Aviso que fica na tela até a chave existir ou o usuário dispensar: o ditado sem chave falha
+// Aviso que fica na tela até a transcrição estar pronta (chave ou modelo no aparelho) ou o usuário dispensar: o ditado sem chave falha
 // antes de começar, e um toast some antes de dar tempo de agir (R5c).
 @Composable
 fun MissingKeyNotice(
@@ -30,12 +30,12 @@ fun MissingKeyNotice(
     val typography = FlowVoiceTheme.typography
     FvCard(modifier = modifier.fillMaxWidth().semantics { liveRegion = LiveRegionMode.Polite }) {
         Text(
-            text = "Falta a chave OpenRouter",
+            text = "Falta configurar a transcrição",
             style = typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
             color = colors.destructiveText
         )
         Text(
-            text = "O ditado precisa dela para transcrever. Configure a chave e tente de novo.",
+            text = "O ditado precisa da chave OpenRouter ou do modelo no aparelho. Configure um dos dois e tente de novo.",
             style = typography.bodySmall,
             color = colors.textSecondary
         )
@@ -44,7 +44,7 @@ fun MissingKeyNotice(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            PillButton(text = "Configurar chave", onClick = onConfigureKey, height = 36.dp)
+            PillButton(text = "Configurar", onClick = onConfigureKey, height = 36.dp)
             PillButton(text = "Agora não", onClick = onDismiss, variant = PillButtonVariant.Outline, height = 36.dp)
         }
     }

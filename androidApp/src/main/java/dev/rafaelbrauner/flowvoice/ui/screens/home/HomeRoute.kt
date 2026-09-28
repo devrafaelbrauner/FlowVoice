@@ -55,6 +55,7 @@ import androidx.lifecycle.compose.LifecycleResumeEffect
 import dev.rafaelbrauner.flowvoice.service.AccessibilityTextInserter
 import dev.rafaelbrauner.flowvoice.service.FlowVoiceAccessibilityService
 import dev.rafaelbrauner.flowvoice.service.FlowVoiceOverlayService
+import dev.rafaelbrauner.flowvoice.shared.localasr.TranscriptionEngineSelection
 import dev.rafaelbrauner.flowvoice.shared.notes.NoteDictationCoordinator
 import dev.rafaelbrauner.flowvoice.shared.notes.NoteStore
 import dev.rafaelbrauner.flowvoice.shared.pipeline.DictationPipeline
@@ -119,13 +120,17 @@ fun HomeRoute(
     var askedNotifications by rememberSaveable { mutableStateOf(false) }
     var keyNotice by rememberSaveable { mutableStateOf(false) }
     var pendingMicAfterOverlay by rememberSaveable { mutableStateOf(false) }
-    fun keyConfigured(): Boolean = !secretStore.readOpenRouterKey().isNullOrBlank()
+    // Com o modelo no aparelho em uso, a chave deixa de ser pré-requisito do ditado.
+    fun transcriptionReady(): Boolean = TranscriptionEngineSelection.canDictate(
+        pipeline.effectiveEngine(),
+        keyConfigured = !secretStore.readOpenRouterKey().isNullOrBlank()
+    )
 
     LifecycleResumeEffect(Unit) {
         accessibilityActive = FlowVoiceAccessibilityService.isRunning
         notes = noteStore.list().take(RECENT_NOTES)
         nowMs = System.currentTimeMillis()
-        if (keyNotice && keyConfigured()) keyNotice = false
+        if (keyNotice && transcriptionReady()) keyNotice = false
         onPauseOrDispose { }
     }
 
@@ -142,7 +147,7 @@ fun HomeRoute(
         val action = micAction(
             accessibilityRunning = FlowVoiceAccessibilityService.isRunning,
             microphoneGranted = context.hasPermission(Manifest.permission.RECORD_AUDIO),
-            keyConfigured = keyConfigured(),
+            transcriptionReady = transcriptionReady(),
             sdkInt = Build.VERSION.SDK_INT,
             canDrawOverlays = Settings.canDrawOverlays(context)
         )

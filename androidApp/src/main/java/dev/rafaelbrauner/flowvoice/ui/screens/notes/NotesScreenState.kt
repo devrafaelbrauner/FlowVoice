@@ -136,11 +136,11 @@ class NotesScreenState(
 
 enum class NoteStartAction { ConfigureKey, RequestMicrophone, Start }
 
-// Sem chave não se cria nota nem se pede o microfone: a nota "Sem título" vazia e o ditado que
+// Sem transcrição pronta (chave ou modelo no aparelho) não se cria nota nem se pede o microfone: a nota "Sem título" vazia e o ditado que
 // falha logo em seguida eram o único retorno (R5c).
 object NoteDictationGate {
-    fun decide(keyConfigured: Boolean, microphoneGranted: Boolean): NoteStartAction = when {
-        !keyConfigured -> NoteStartAction.ConfigureKey
+    fun decide(transcriptionReady: Boolean, microphoneGranted: Boolean): NoteStartAction = when {
+        !transcriptionReady -> NoteStartAction.ConfigureKey
         !microphoneGranted -> NoteStartAction.RequestMicrophone
         else -> NoteStartAction.Start
     }

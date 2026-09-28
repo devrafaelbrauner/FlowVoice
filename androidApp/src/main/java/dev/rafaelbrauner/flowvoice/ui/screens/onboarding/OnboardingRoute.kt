@@ -52,6 +52,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import dev.rafaelbrauner.flowvoice.service.FlowVoiceAccessibilityService
+import dev.rafaelbrauner.flowvoice.shared.pipeline.DictationPipeline
 import dev.rafaelbrauner.flowvoice.shared.transcription.SecretStore
 import dev.rafaelbrauner.flowvoice.ui.components.FvCard
 import dev.rafaelbrauner.flowvoice.ui.components.ThemePreviewParameter
@@ -74,19 +75,20 @@ fun OnboardingRoute(
 ) {
     val context = LocalContext.current
     val secretStore = rememberKoin<SecretStore>()
+    val pipeline = rememberKoin<DictationPipeline>()
     val installer = remember { installerPackage(context) }
-    var progress by remember { mutableStateOf(readProgress(context, secretStore)) }
+    var progress by remember { mutableStateOf(readProgress(context, secretStore, pipeline)) }
     val latestOnProgress by rememberUpdatedState(onProgress)
 
     LifecycleResumeEffect(Unit) {
-        progress = readProgress(context, secretStore)
+        progress = readProgress(context, secretStore, pipeline)
         onPauseOrDispose { }
     }
 
     LaunchedEffect(progress) { latestOnProgress(progress) }
 
     val microphoneLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
-        progress = readProgress(context, secretStore)
+        progress = readProgress(context, secretStore, pipeline)
     }
 
     OnboardingScreen(
@@ -112,11 +114,12 @@ fun OnboardingRoute(
     )
 }
 
-private fun readProgress(context: Context, secretStore: SecretStore) = OnboardingProgress(
+private fun readProgress(context: Context, secretStore: SecretStore, pipeline: DictationPipeline) = OnboardingProgress.of(
     accessibility = FlowVoiceAccessibilityService.isRunning,
     microphone = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
         PackageManager.PERMISSION_GRANTED,
-    key = secretStore.readOpenRouterKey() != null
+    keyConfigured = secretStore.readOpenRouterKey() != null,
+    effectiveEngine = pipeline.effectiveEngine()
 )
 
 private fun installerPackage(context: Context): String? =
@@ -191,11 +194,11 @@ internal fun OnboardingScreen(
                 )
                 OnboardingStepCard(
                     number = 3,
-                    title = "Chave OpenRouter",
-                    description = "Guardada cifrada neste celular. Só vai à OpenRouter, para autorizar cada " +
-                        "transcrição; nunca é sincronizada.",
-                    done = progress.key,
-                    next = next == OnboardingStep.Key,
+                    title = "Chave OpenRouter ou modelo no aparelho",
+                    description = "A chave transcreve na nuvem, pela OpenRouter. O modelo no aparelho " +
+                        "(475 MB) transcreve no celular, sem internet e sem custo. Qualquer um dos dois basta.",
+                    done = progress.transcription,
+                    next = next == OnboardingStep.Transcription,
                     onClick = onKey
                 )
             }
@@ -207,7 +210,7 @@ internal fun OnboardingScreen(
                 null -> onStart
                 OnboardingStep.Accessibility -> onAccessibility
                 OnboardingStep.Microphone -> onMicrophone
-                OnboardingStep.Key -> onKey
+                OnboardingStep.Transcription -> onKey
             }
         )
         if (next != null) {
@@ -359,7 +362,7 @@ internal fun OnboardingCta(label: String, onClick: () -> Unit, modifier: Modifie
 private fun OnboardingScreenPreview(@PreviewParameter(ThemePreviewParameter::class) dark: Boolean) {
     FlowVoiceTheme(darkTheme = dark) {
         OnboardingScreen(
-            progress = OnboardingProgress(accessibility = true, microphone = true, key = false),
+            progress = OnboardingProgress(accessibility = true, microphone = true, transcription = false),
             onAccessibility = {},
             onMicrophone = {},
             onKey = {},
@@ -375,7 +378,7 @@ private fun OnboardingScreenPreview(@PreviewParameter(ThemePreviewParameter::cla
 private fun OnboardingRestrictedSettingsPreview(@PreviewParameter(ThemePreviewParameter::class) dark: Boolean) {
     FlowVoiceTheme(darkTheme = dark) {
         OnboardingScreen(
-            progress = OnboardingProgress(accessibility = false, microphone = true, key = true),
+            progress = OnboardingProgress(accessibility = false, microphone = true, transcription = true),
             onAccessibility = {},
             onMicrophone = {},
             onKey = {},

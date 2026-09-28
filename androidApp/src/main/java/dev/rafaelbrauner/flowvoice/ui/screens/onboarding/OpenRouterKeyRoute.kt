@@ -15,6 +15,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -29,10 +30,15 @@ import androidx.compose.ui.tooling.preview.PreviewParameter
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.core.net.toUri
+import dev.rafaelbrauner.flowvoice.localasr.LocalModelInstaller
+import dev.rafaelbrauner.flowvoice.localasr.LocalModelState
+import dev.rafaelbrauner.flowvoice.shared.localasr.NemotronModel
 import dev.rafaelbrauner.flowvoice.ui.components.FvCard
 import dev.rafaelbrauner.flowvoice.ui.components.MonoLabel
 import dev.rafaelbrauner.flowvoice.ui.components.PillButton
+import dev.rafaelbrauner.flowvoice.ui.components.PillButtonVariant
 import dev.rafaelbrauner.flowvoice.ui.components.ThemePreviewParameter
+import dev.rafaelbrauner.flowvoice.ui.rememberKoin
 import dev.rafaelbrauner.flowvoice.ui.screens.settings.FvTextAction
 import dev.rafaelbrauner.flowvoice.ui.screens.settings.OpenRouterKeyInput
 import dev.rafaelbrauner.flowvoice.ui.screens.settings.rememberOpenRouterKeyEntry
@@ -43,7 +49,7 @@ import java.util.Locale
 object OpenRouterKeyCopy {
     const val KEYS_URL = "https://openrouter.ai/keys"
     const val TITLE = "Sua chave OpenRouter"
-    const val INTRO = "A OpenRouter é o serviço na nuvem que transforma sua voz em texto. Você cria sua " +
+    const val INTRO = "Na nuvem, quem transforma sua voz em texto é a OpenRouter. Você cria sua " +
         "própria conta lá e gera uma chave; o FlowVoice usa essa chave para pedir cada transcrição."
     val STEPS = listOf(
         "Crie uma conta na OpenRouter. Ela precisa de créditos pré-pagos, comprados no cartão: a compra " +
@@ -60,12 +66,34 @@ object OpenRouterKeyCopy {
         "Conta com o modelo padrão (gpt-transcribe), a taxa da OpenRouter, o IOF e o dólar a R$ " +
             String.format(Locale.forLanguageTag("pt-BR"), "%.2f", DictationCostEstimate.USD_TO_BRL) +
             ". O valor real muda com o câmbio e com o seu cartão."
+
+    const val LOCAL_LABEL = "Ou use o motor no aparelho"
+    const val LOCAL_DOWNLOAD = "Baixar o modelo (475 MB, funciona sem internet e sem custo)"
+    const val LOCAL_DETAIL = "O áudio é transcrito no celular e não sai dele. O modelo é baixado uma vez do " +
+        "GitHub (k2-fsa/sherpa-onnx) e precisa de cerca de 1,2 GB livres durante a instalação. A revisão " +
+        "por IA continua precisando da chave."
+    const val LOCAL_VERIFYING = "Conferindo…"
+    const val LOCAL_READY = "Pronto: o ditado usa o modelo no aparelho"
+    const val LOCAL_CONTINUE = "Continuar"
+    const val LOCAL_CANCEL = "Cancelar"
+    const val LOCAL_RETRY = "Tentar de novo"
+
+    fun downloadingLabel(downloadedBytes: Long, totalBytes: Long): String {
+        val total = totalBytes.takeIf { it > 0 } ?: NemotronModel.ARCHIVE_BYTES
+        val percent = (downloadedBytes * 100 / total).coerceIn(0, 100)
+        return "Baixando ${downloadedBytes / 1_000_000} MB de ${total / 1_000_000} MB · $percent%"
+    }
+
+    fun extractingLabel(progress: Float): String =
+        "Extraindo… ${(progress * 100).toInt().coerceIn(0, 100)}%"
 }
 
 @Composable
 fun OpenRouterKeyRoute(onBack: () -> Unit, onSaved: () -> Unit, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val entry = rememberOpenRouterKeyEntry()
+    val installer = rememberKoin<LocalModelInstaller>()
+    val modelState by installer.state.collectAsState()
     var browserMissing by remember { mutableStateOf(false) }
     OpenRouterKeyScreen(
         draft = entry.draft,
@@ -83,6 +111,10 @@ fun OpenRouterKeyRoute(onBack: () -> Unit, onSaved: () -> Unit, modifier: Modifi
         onDraftChange = { entry.draft = it },
         onToggleDraftVisibility = { entry.draftVisible = !entry.draftVisible },
         onSave = { entry.save(onSaved = onSaved) },
+        modelState = modelState,
+        onInstallModel = { installer.install(useWhenReady = true) },
+        onCancelModel = installer::cancel,
+        onModelReady = onSaved,
         modifier = modifier
     )
 }
@@ -100,6 +132,10 @@ internal fun OpenRouterKeyScreen(
     onDraftChange: (String) -> Unit,
     onToggleDraftVisibility: () -> Unit,
     onSave: () -> Unit,
+    modelState: LocalModelState,
+    onInstallModel: () -> Unit,
+    onCancelModel: () -> Unit,
+    onModelReady: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val colors = FlowVoiceTheme.colors
@@ -112,7 +148,7 @@ internal fun OpenRouterKeyScreen(
     ) {
         FvTextAction(text = "← voltar", onClick = onBack)
         Spacer(Modifier.height(8.dp))
-        MonoLabel("Passo 3 · chave")
+        MonoLabel("Passo 3 · transcrição")
         Spacer(Modifier.height(14.dp))
         Text(
             text = OpenRouterKeyCopy.TITLE,
@@ -179,6 +215,77 @@ internal fun OpenRouterKeyScreen(
                 alwaysShowSave = true
             )
         }
+        Spacer(Modifier.height(22.dp))
+        LocalModelCard(
+            state = modelState,
+            onInstall = onInstallModel,
+            onCancel = onCancelModel,
+            onReady = onModelReady
+        )
+    }
+}
+
+// Alternativa sem chave: o custo acima vale só para a nuvem, então fica fora deste bloco.
+@Composable
+private fun LocalModelCard(
+    state: LocalModelState,
+    onInstall: () -> Unit,
+    onCancel: () -> Unit,
+    onReady: () -> Unit
+) {
+    val colors = FlowVoiceTheme.colors
+    val typography = FlowVoiceTheme.typography
+    FvCard(modifier = Modifier.fillMaxWidth(), contentPadding = PaddingValues(14.dp)) {
+        MonoLabel(OpenRouterKeyCopy.LOCAL_LABEL)
+        Spacer(Modifier.height(8.dp))
+        Text(text = OpenRouterKeyCopy.LOCAL_DETAIL, style = typography.bodySmall, color = colors.textMuted)
+        Spacer(Modifier.height(12.dp))
+        val progress = when (state) {
+            is LocalModelState.Downloading -> OpenRouterKeyCopy.downloadingLabel(state.downloadedBytes, state.totalBytes)
+            LocalModelState.Verifying -> OpenRouterKeyCopy.LOCAL_VERIFYING
+            is LocalModelState.Extracting -> OpenRouterKeyCopy.extractingLabel(state.progress)
+            else -> null
+        }
+        when {
+            state is LocalModelState.Installed -> {
+                Text(text = OpenRouterKeyCopy.LOCAL_READY, style = typography.itemTitle, color = colors.accentText)
+                Spacer(Modifier.height(10.dp))
+                PillButton(
+                    text = OpenRouterKeyCopy.LOCAL_CONTINUE,
+                    onClick = onReady,
+                    height = 44.dp,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+            progress != null -> {
+                Text(text = progress, style = typography.bodyMedium, color = colors.textPrimary)
+                Spacer(Modifier.height(10.dp))
+                PillButton(
+                    text = OpenRouterKeyCopy.LOCAL_CANCEL,
+                    onClick = onCancel,
+                    variant = PillButtonVariant.Outline,
+                    height = 44.dp,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+            else -> {
+                if (state is LocalModelState.Failed) {
+                    Text(text = state.message, style = typography.bodySmall, color = colors.destructiveText)
+                    Spacer(Modifier.height(10.dp))
+                }
+                PillButton(
+                    text = if (state is LocalModelState.Failed) {
+                        OpenRouterKeyCopy.LOCAL_RETRY
+                    } else {
+                        OpenRouterKeyCopy.LOCAL_DOWNLOAD
+                    },
+                    onClick = onInstall,
+                    variant = PillButtonVariant.Outline,
+                    height = 44.dp,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
     }
 }
 
@@ -198,6 +305,14 @@ private fun OpenRouterKeyScreenPreview(@PreviewParameter(ThemePreviewParameter::
             onDraftChange = {},
             onToggleDraftVisibility = {},
             onSave = {},
+            modelState = if (dark) {
+                LocalModelState.Downloading(120_000_000, NemotronModel.ARCHIVE_BYTES)
+            } else {
+                LocalModelState.NotInstalled
+            },
+            onInstallModel = {},
+            onCancelModel = {},
+            onModelReady = {},
             modifier = Modifier.fillMaxSize()
         )
     }
