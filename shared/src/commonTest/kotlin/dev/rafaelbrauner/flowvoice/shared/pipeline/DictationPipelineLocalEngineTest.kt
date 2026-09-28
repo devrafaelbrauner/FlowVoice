@@ -12,10 +12,13 @@ import dev.rafaelbrauner.flowvoice.shared.insertion.TextInsertionResult
 import dev.rafaelbrauner.flowvoice.shared.localasr.FakeSpeechEngine
 import dev.rafaelbrauner.flowvoice.shared.localasr.FakeSpeechEngines
 import dev.rafaelbrauner.flowvoice.shared.localasr.TranscriptionEngine
+import dev.rafaelbrauner.flowvoice.shared.model.CloudModels
 import dev.rafaelbrauner.flowvoice.shared.notes.InMemoryNoteStore
 import dev.rafaelbrauner.flowvoice.shared.notes.NoteDictationCoordinator
 import dev.rafaelbrauner.flowvoice.shared.prefs.AppPreferences
+import dev.rafaelbrauner.flowvoice.shared.prefs.FormattingMode
 import dev.rafaelbrauner.flowvoice.shared.prefs.InMemoryPreferencesStore
+import dev.rafaelbrauner.flowvoice.shared.proofreading.AudioChatClient
 import dev.rafaelbrauner.flowvoice.shared.proofreading.ProofreadingClient
 import dev.rafaelbrauner.flowvoice.shared.transcription.InMemorySecretStore
 import dev.rafaelbrauner.flowvoice.shared.transcription.OpenRouterConfig
@@ -187,6 +190,27 @@ class DictationPipelineLocalEngineTest {
         assertEquals("Eupneica hoje.", env.field.toString())
         assertEquals(null, completed.warning)
         assertEquals("erro_formatacao", env.log.events.single { it.event == "final_pass_done" }.metadata["format"])
+    }
+
+    // A escolha de Ajustes vale para o motor do aparelho também: com o passo único, o áudio inteiro vai ao
+    // modelo de áudio e a transcrição da nuvem não é pedida.
+    @Test
+    fun theOneStepChoiceAlsoDrivesTheLocalFinalPass() = runTest {
+        val env = finalPassEnv(
+            this,
+            FakeSpeechEngine(emitted = mapOf(1 to listOf(" a", " paciente", " está", " eu", " pnica"))),
+            formattingMode = FormattingMode.OneStep
+        )
+        env.audioChat.reply = { "A paciente está eupneica." }
+
+        env.pipeline.start(DictationTarget.ActiveField)
+        env.speak(1)
+        env.pipeline.finalize()
+
+        assertEquals("A paciente está eupneica.", env.field.toString())
+        assertEquals(listOf(CloudModels.DEFAULT_ONE_STEP_MODEL), env.audioChat.models)
+        assertTrue(env.client.requested.isEmpty())
+        assertTrue(env.proofreader.received.isEmpty())
     }
 
     @Test
@@ -494,13 +518,19 @@ class DictationPipelineLocalEngineTest {
 
 private const val FRAME_BYTES = 100 * 16 * 2
 
-private fun finalPassEnv(scope: TestScope, engine: FakeSpeechEngine, reviewBeforeInsert: Boolean = false) = LocalEnv(
+private fun finalPassEnv(
+    scope: TestScope,
+    engine: FakeSpeechEngine,
+    reviewBeforeInsert: Boolean = false,
+    formattingMode: FormattingMode = FormattingMode.Llm
+) = LocalEnv(
     scope,
     engine,
     preferences = AppPreferences(
         transcriptionEngine = TranscriptionEngine.Local,
         proofreadingEnabled = true,
-        reviewBeforeInsert = reviewBeforeInsert
+        reviewBeforeInsert = reviewBeforeInsert,
+        formattingMode = formattingMode
     ),
     apiKey = "sk-or-v1-testkey123456"
 )
@@ -519,6 +549,7 @@ private class LocalEnv(
     val field: StringBuilder get() = inserter.field
     val proofreader = RecordingProofreader()
     val client = CloudClient()
+    val audioChat = RecordingAudioChat()
     val engines = FakeSpeechEngines(StandardTestDispatcher(scope.testScheduler), installed) { engine }
     val pipeline = DictationPipeline(
         controller = DictationSessionController(capture, windowTargetDurationMs = 100L),
@@ -526,6 +557,7 @@ private class LocalEnv(
         config = OpenRouterConfig(),
         dictionary = InMemoryPersonalDictionary(),
         proofreading = proofreader,
+        audioChat = audioChat,
         preferences = InMemoryPreferencesStore(preferences),
         secrets = InMemorySecretStore().apply { apiKey?.let { writeOpenRouterKey(it) } },
         inserter = inserter,
@@ -603,6 +635,16 @@ private class RecordingProofreader : ProofreadingClient {
     override suspend fun proofread(text: String, apiKey: String, model: String): String {
         received += text
         return reply(text)
+    }
+}
+
+private class RecordingAudioChat : AudioChatClient {
+    val models = mutableListOf<String>()
+    var reply: suspend (DictationWindow) -> String = { "Nuvem num passo." }
+
+    override suspend fun transcribeFormatted(window: DictationWindow, apiKey: String, model: String): String {
+        models += model
+        return reply(window)
     }
 }
 

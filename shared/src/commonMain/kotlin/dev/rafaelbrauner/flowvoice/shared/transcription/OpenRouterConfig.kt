@@ -42,8 +42,10 @@ data class OpenRouterConfig(
 
     companion object {
         const val DEFAULT_BASE_URL = "https://openrouter.ai"
-        // Benchmark F05 no S26 (P136, docs/PLAN.md): WER 0 nas rodadas de 13/set e 15/set.
-        const val DEFAULT_MODEL = "openai/gpt-transcribe"
+        // Medição de modelos da nuvem (docs/medicao-modelos-nuvem.md, 2026-09-28): a melhor nota de ortografia e
+        // pontuação entre as 24 transcrições da OpenRouter, e a menor latência entre as cinco melhores. Antes,
+        // `openai/gpt-transcribe` (benchmark F05 no S26, P136), agora o 2º.
+        const val DEFAULT_MODEL = "deepgram/nova-3"
         const val DEFAULT_LANGUAGE = "pt"
         // Nem a OpenRouter nem a OpenAI documentam o padrão de temperature na transcrição; 0 é o
         // valor mais determinístico e não depende do padrão de cada provedor (P137).

@@ -9,7 +9,7 @@ class OpenRouterConfigTest {
     fun usesTheBenchmarkDefaultModelAndOpenRouterBase() {
         val config = OpenRouterConfig()
         assertEquals("https://openrouter.ai", config.baseUrl)
-        assertEquals("openai/gpt-transcribe", config.model)
+        assertEquals("deepgram/nova-3", config.model)
         assertEquals("pt", config.language)
         assertEquals(0.0, config.temperature)
         assertEquals("/api/v1/audio/transcriptions", config.transcriptionsPath)

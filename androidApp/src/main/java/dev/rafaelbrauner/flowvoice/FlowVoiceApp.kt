@@ -132,6 +132,7 @@ private val dictationModule = module {
             config = get(),
             dictionary = get(),
             proofreading = get(),
+            audioChat = get(),
             preferences = get(),
             secrets = get(),
             inserter = AccessibilityTextInserter,

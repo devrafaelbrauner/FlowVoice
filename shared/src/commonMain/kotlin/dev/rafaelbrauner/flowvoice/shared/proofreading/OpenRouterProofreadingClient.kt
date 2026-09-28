@@ -1,5 +1,7 @@
 package dev.rafaelbrauner.flowvoice.shared.proofreading
 
+import dev.rafaelbrauner.flowvoice.shared.model.CloudModels
+import dev.rafaelbrauner.flowvoice.shared.model.Reasoning
 import dev.rafaelbrauner.flowvoice.shared.transcription.OpenRouterConfig
 import dev.rafaelbrauner.flowvoice.shared.transcription.TranscriptionError
 import dev.rafaelbrauner.flowvoice.shared.transcription.TranscriptionErrorClassifier
@@ -44,7 +46,8 @@ class OpenRouterProofreadingClient(
                             ),
                             ChatMessage(role = "user", content = "$OPEN_TAG$trimmed$CLOSE_TAG")
                         ),
-                        temperature = TEMPERATURE
+                        temperature = TEMPERATURE,
+                        reasoning = ChatReasoning.of(CloudModels.reasoning(model))
                     )
                 )
             }
@@ -71,7 +74,8 @@ class OpenRouterProofreadingClient(
     companion object {
         // O texto ditado vai entre marcas para não ser lido como pergunta ou instrução (P132). A
         // concordância só pela terminação é o que a guarda aceita (ProofreadingGuard); o prompt e a
-        // temperatura são os medidos em docs/medicao-duas-passadas.md (tools/medicao/duas_passadas.py).
+        // temperatura são os medidos em docs/medicao-duas-passadas.md e docs/medicao-modelos-nuvem.md
+        // (tools/medicao/duas_passadas.py).
         const val SYSTEM_PROMPT =
             "Você formata texto ditado em português brasileiro, que vem entre <ditado> e </ditado>. " +
                 "Corrija pontuação, vírgulas, maiúsculas, acentos e ortografia. " +
@@ -94,8 +98,25 @@ class OpenRouterProofreadingClient(
 internal data class ChatRequest(
     val model: String,
     val messages: List<ChatMessage>,
-    val temperature: Double? = null
+    val temperature: Double? = null,
+    val reasoning: ChatReasoning? = null
 )
+
+// `reasoning` da OpenRouter: `{"enabled": false}` desliga, `{"effort": "minimal"}` pede o mínimo. Sem o
+// campo vale o padrão do modelo.
+@Serializable
+internal data class ChatReasoning(
+    val effort: String? = null,
+    val enabled: Boolean? = null
+) {
+    companion object {
+        fun of(reasoning: Reasoning?): ChatReasoning? = when (reasoning) {
+            null -> null
+            Reasoning.Off -> ChatReasoning(enabled = false)
+            Reasoning.Minimal -> ChatReasoning(effort = "minimal")
+        }
+    }
+}
 
 @Serializable
 internal data class ChatMessage(
@@ -110,5 +131,11 @@ internal data class ChatResponse(
 
 @Serializable
 internal data class ChatChoice(
-    val message: ChatMessage? = null
+    val message: ChatAnswer? = null
+)
+
+// `content` vem nulo quando o modelo gastou a resposta raciocinando: conta como resposta vazia.
+@Serializable
+internal data class ChatAnswer(
+    val content: String? = null
 )

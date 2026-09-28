@@ -16,14 +16,21 @@ data class AppPreferences(
     // Modelo de transcrição escolhido em Ajustes (lista da OpenRouter). Vazio mantém o padrão do benchmark F05.
     val transcriptionModel: String = "",
     // "Motor de transcrição" (0.7.0): nuvem por padrão; o local só vale com o modelo no aparelho.
-    val transcriptionEngine: TranscriptionEngine = TranscriptionEngine.Cloud
+    val transcriptionEngine: TranscriptionEngine = TranscriptionEngine.Cloud,
+    // "Formatação" em Ajustes (`CloudModels.formatting`): como a passada final formata, nos dois motores.
+    // `proofreadingModel` é o modelo de `Llm`; `oneStepModel` o de `OneStep` (vazio = o padrão medido).
+    val formattingMode: FormattingMode = FormattingMode.Llm,
+    val oneStepModel: String = ""
 ) {
     companion object {
-        // Formatação da passada final e da revisão por IA: a melhor vírgula e a menor cauda de latência
-        // entre os quatro modelos medidos em docs/medicao-duas-passadas.md (2026-09-28).
-        const val DEFAULT_PROOFREADING_MODEL = "anthropic/claude-haiku-4.5"
+        // Formatação da passada final: o vencedor da medição de docs/medicao-modelos-nuvem.md (2026-09-28) —
+        // empatado na nota com os melhores sobre o deepgram/nova-3 e o mais rápido deles (3,3 s num ditado de 20 s).
+        const val DEFAULT_PROOFREADING_MODEL = "openai/gpt-4.1-mini"
     }
 }
+
+@Serializable
+enum class FormattingMode { Llm, None, OneStep }
 
 interface PreferencesStore {
     fun read(): AppPreferences
