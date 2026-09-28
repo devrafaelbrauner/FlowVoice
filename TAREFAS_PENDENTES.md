@@ -338,7 +338,7 @@ Rascunho do Nemotron ao vivo + passada final pela nuvem com o áudio inteiro. Me
 ## Nuvem com modelos escolhidos (2026-09-28)
 
 Motor Nuvem completo (ao vivo + passada final com o áudio inteiro) e seletores de transcrição e de formatação
-em Ajustes. Medição em `docs/medicao-modelos-nuvem.md`. S26: APK instalado, conferência pendente (aparelho travado com PIN em 2026-09-28).
+em Ajustes. Medição em `docs/medicao-modelos-nuvem.md`. Conferido no S26 em 2026-09-28 (CHANGELOG [Unreleased]).
 
 | ID | Prioridade | Descrição | Status | Próximo passo |
 |---|---|---|---|---|
@@ -347,5 +347,5 @@ em Ajustes. Medição em `docs/medicao-modelos-nuvem.md`. S26: APK instalado, co
 | NM-vivo | Média | O `gpt-4o-mini-transcribe` foi medido no áudio inteiro; nas janelas de ~4 s ao vivo só no S26 com alto-falante. Ele já foi padrão e errou "ditado" em frase curta (P136); refazer o benchmark F05 das janelas | aberta | /medir |
 | NM-clinico | Alta | A lista de termos clínicos da métrica de sentido (`TERMOS_CLINICOS`) é a do corpus; o corpus tem 1 ':' e poucas negações. O `nova-3` trocou "afebril" por "febril" e "azitromicina" por "trombicina"; o `gpt-transcribe`, "dipirona" por "de pirona". Ampliar o corpus clínico (negações, doses, lateralidade) antes de confiar na contagem | aberta | /medir |
 | NM-gabarito | Baixa | Gabaritos corrigidos por consenso dos cinco melhores modelos (11, 13, 15, 19, 20, longo-2/3/6), sem ouvir. Confirmar ouvindo e, se for o caso, corrigir os `.txt` na origem | aberta | /verificar |
-| NM-voz | Alta | Não conferido no S26 ainda (aparelho travado). Falta a sessão com alto-falante (frases de audio-pessoal e contínua de 20 s, capturas, `final_pass_*`, troca de modelo em Ajustes), fala ao vivo, rede móvel e enfermaria; contar `final_pass_skipped` por motivo | aberta | /medir |
+| NM-voz | Alta | S26 só com alto-falante e Wi-Fi (3 ditados). O inkling falhou no 1º (erro do provedor, ficou o texto ao vivo) e levou 7,4 s no 2º; à tarde passou a raciocinar por padrão, devolver vazio e dar 429 no Mac. Medir a disponibilidade dele por alguns dias; se continuar instável, o padrão da regra passa a ser `gpt-4o-mini-transcribe` sem formatação (0 erros de sentido, 95,8, 1,6 s; no S26 1,9 s e texto igual ao gabarito) | aberta | /decidir |
 

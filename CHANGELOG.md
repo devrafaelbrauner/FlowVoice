@@ -102,6 +102,32 @@ estão em [`docs/tasks/`](docs/tasks/README.md).
   2 s. Continua fechando só palavras inteiras e segurando começo de comando falado. Não medido
   com fala no S26.
 
+### Conferido no S26 (motor Nuvem com modelos, release, 2026-09-28 tarde)
+
+Frases de `audio-pessoal` tocadas pelo alto-falante do Mac, bolha → Samsung Notes (notas novas), motor Nuvem,
+revisão final ligada (capturas e logs em `/tmp/flowvoice-nuvem/`):
+
+- Ajustes lista os modelos medidos primeiro com "N erros de sentido · nota · tempo"; padrões
+  `gpt-4o-mini-transcribe` ao vivo e "Um passo só: thinkingmachines/inkling" (capturas 01, 02, 05).
+- 01+11+12+13 (26,3 s), padrões: o passo único devolveu erro do provedor (`final_pass_kept_draft
+  kind=server reason=erro_transcricao`, 8 s) e ficou o texto ao vivo, com aviso. No Mac, na mesma hora, o
+  inkling passou a raciocinar por padrão (11–20 s numa frase), a devolver vazio e 429; o app agora o pede com
+  raciocínio desligado.
+- Contínua de 20 s (26,8 s), padrões, depois disso: `final_pass_done mode=um_passo transcribeMs=7362` →
+  "Paciente do leito 12 segue com dispneia, pedida uma radiografia de tórax. Ela está eupneica, sem sinais de
+  desconforto respiratório. Hemograma veio normal, só a glicemia um pouco alterada. A tomografia mostrou uma
+  broncopneumonia à direita, solicitada transferência para a UTI para o paciente que estava na enfermaria."
+  — contra o gabarito corrigido: "pedida" (pedi), "solicitada" (Solicitei), sem o "O" de "O hemograma"; nenhum
+  erro que muda sentido; 7,4 s do toque de parar ao texto final (4,2 s no Mac pela manhã).
+- Trocada a formatação para "Sem formatação" em Ajustes, 01+11+12+13 de novo: `mode=so_transcricao
+  transcribeMs=1923` → "Bom dia, tudo bem? Consegue me ligar mais tarde? Paciente do leito 12 segue com
+  dispneia. Pedi uma radiografia de tórax. Aumentei a dipirona para 6 em 6 horas. Ela está eupneica, sem
+  sinais de desconforto respiratório." — igual ao gabarito corrigido, salvo algarismos e um ponto no lugar de
+  vírgula.
+- Ajustes devolvidos como estavam: motor Nuvem, `x-ai/grok-stt-1.0`, revisão final ligada, formatação no
+  padrão (passo único, inkling).
+- **Não conferido:** fala ao vivo, rede móvel, motor do aparelho com os novos modelos, barra de revisão e notas.
+
 ### Conferido no S26 (duas passadas, release, 2026-09-28)
 
 Frases de `audio-pessoal` e ditados longos tocados pelo alto-falante do Mac, bolha → Samsung Notes, motor
