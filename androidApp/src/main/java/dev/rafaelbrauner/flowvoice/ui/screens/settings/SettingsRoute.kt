@@ -53,12 +53,16 @@ import androidx.credentials.exceptions.GetCredentialCancellationException
 import androidx.credentials.exceptions.NoCredentialException
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import dev.rafaelbrauner.flowvoice.auth.GoogleSignInHelper
+import dev.rafaelbrauner.flowvoice.localasr.LocalModelInstaller
+import dev.rafaelbrauner.flowvoice.localasr.LocalModelState
 import dev.rafaelbrauner.flowvoice.service.FlowVoiceAccessibilityService
 import dev.rafaelbrauner.flowvoice.service.FlowVoiceOverlayService
 import dev.rafaelbrauner.flowvoice.shared.auth.AuthGateway
+import dev.rafaelbrauner.flowvoice.shared.localasr.TranscriptionEngine
 import dev.rafaelbrauner.flowvoice.shared.model.CatalogFailure
 import dev.rafaelbrauner.flowvoice.shared.model.TranscriptionCatalogResult
 import dev.rafaelbrauner.flowvoice.shared.model.TranscriptionModelCatalog
+import dev.rafaelbrauner.flowvoice.shared.pipeline.DictationPipeline
 import dev.rafaelbrauner.flowvoice.shared.prefs.PreferencesStore
 import dev.rafaelbrauner.flowvoice.shared.sync.SyncEngine
 import dev.rafaelbrauner.flowvoice.shared.transcription.OpenRouterConfig
@@ -107,7 +111,11 @@ data class SettingsUiState(
     val googleWebClientId: String,
     val signingIn: Boolean,
     val syncing: Boolean,
-    val accountMessage: String?
+    val accountMessage: String?,
+    val engineChoice: TranscriptionEngine,
+    val effectiveEngine: TranscriptionEngine,
+    val localModel: LocalModelState,
+    val dictationBusy: Boolean
 )
 
 data class SettingsActions(
@@ -124,7 +132,11 @@ data class SettingsActions(
     val onClientIdChange: (String) -> Unit,
     val onSignIn: () -> Unit,
     val onSignOut: () -> Unit,
-    val onSync: () -> Unit
+    val onSync: () -> Unit,
+    val onEngineSelect: (TranscriptionEngine) -> Unit,
+    val onModelInstall: () -> Unit,
+    val onModelCancel: () -> Unit,
+    val onModelDelete: () -> Unit
 )
 
 @Composable
@@ -140,6 +152,8 @@ fun SettingsRoute(onOpenDiagnostics: () -> Unit, modifier: Modifier = Modifier) 
     val authGateway = rememberKoin<AuthGateway>()
     val syncEngine = rememberKoin<SyncEngine>()
     val diagnosticsLog = rememberKoin<DiagnosticsLog>()
+    val pipeline = rememberKoin<DictationPipeline>()
+    val modelInstaller = rememberKoin<LocalModelInstaller>()
 
     var preferences by remember { mutableStateOf(preferencesStore.read()) }
     var modelOptions by remember { mutableStateOf(emptyList<String>()) }
@@ -154,8 +168,17 @@ fun SettingsRoute(onOpenDiagnostics: () -> Unit, modifier: Modifier = Modifier) 
     var syncing by remember { mutableStateOf(false) }
     var accountMessage by remember { mutableStateOf<String?>(null) }
     val overlayRunning by FlowVoiceOverlayService.runningFlow.collectAsState()
+    val localModel by modelInstaller.state.collectAsState()
+    val pipelineStatus by pipeline.status.collectAsState()
+
+    // Instalar (com "usar ao terminar") e apagar o modelo mudam o motor escolhido nas preferências.
+    LaunchedEffect(localModel) {
+        preferences = preferencesStore.read()
+    }
 
     LifecycleResumeEffect(Unit) {
+        // O modelo pode ter chegado ou sumido fora do app (adb push, limpeza de dados).
+        modelInstaller.refresh()
         accessibilityActive = FlowVoiceAccessibilityService.isRunning
         keyEntry.refresh()
         preferences = preferencesStore.read()
@@ -343,7 +366,11 @@ fun SettingsRoute(onOpenDiagnostics: () -> Unit, modifier: Modifier = Modifier) 
         googleWebClientId = preferences.googleWebClientId,
         signingIn = signingIn,
         syncing = syncing,
-        accountMessage = accountMessage
+        accountMessage = accountMessage,
+        engineChoice = preferences.transcriptionEngine,
+        effectiveEngine = remember(preferences, localModel) { pipeline.effectiveEngine() },
+        localModel = localModel,
+        dictationBusy = pipelineStatus.isBusy
     )
     val actions = SettingsActions(
         onKeyDraftChange = { keyEntry.draft = it },
@@ -379,7 +406,16 @@ fun SettingsRoute(onOpenDiagnostics: () -> Unit, modifier: Modifier = Modifier) 
             accountMessage = "Sessão Google encerrada."
             diagnosticsLog.add("Sessão Google encerrada.")
         },
-        onSync = ::sync
+        onSync = ::sync,
+        onEngineSelect = { engine ->
+            preferencesStore.write(preferencesStore.read().copy(transcriptionEngine = engine))
+            preferences = preferencesStore.read()
+        },
+        onModelInstall = { modelInstaller.install(useWhenReady = true) },
+        onModelCancel = modelInstaller::cancel,
+        onModelDelete = {
+            if (!pipeline.status.value.isBusy) modelInstaller.delete()
+        }
     )
     SettingsContent(state = state, actions = actions, modifier = modifier)
 }
@@ -410,8 +446,11 @@ internal fun SettingsContent(
         ) {
             KeyCard(state, actions)
             SettingsCard {
-                ModelPickerCard(state, actions)
+                TranscriptionEngineSection(state, actions)
                 FvDivider()
+                ModelPickerCard(state, actions)
+            }
+            SettingsCard {
                 SettingsRow(
                     label = "Idioma do ditado",
                     hint = "Português brasileiro",
@@ -453,7 +492,12 @@ internal fun SettingsContent(
                 FvDivider()
                 SettingsRow(
                     label = "Revisão por IA",
-                    hint = "Pontuação e ortografia: no fim do ditado pela bolha, ao revisar antes de inserir e nas notas"
+                    hint = when {
+                        !state.keyConfigured -> "Envia o texto à OpenRouter; precisa da chave"
+                        state.effectiveEngine == TranscriptionEngine.Local ->
+                            "Pontuação e ortografia: envia o texto à OpenRouter, mesmo com o motor no aparelho"
+                        else -> "Pontuação e ortografia: no fim do ditado pela bolha, ao revisar antes de inserir e nas notas"
+                    }
                 ) {
                     FvToggle(
                         checked = state.proofreadingEnabled,
@@ -480,7 +524,7 @@ private fun ModelPickerCard(state: SettingsUiState, actions: SettingsActions) {
     Column {
         Box {
             SettingsRow(
-                label = "Modelo de transcrição",
+                label = "Modelo da nuvem",
                 hint = state.modelMessage ?: when {
                     state.modelLoading -> "Listando os modelos da OpenRouter…"
                     selectable -> "${state.modelOptions.size} modelos · toque para trocar"
@@ -750,9 +794,13 @@ private fun SettingsContentPreview(@PreviewParameter(ThemePreviewParameter::clas
                 googleWebClientId = "",
                 signingIn = false,
                 syncing = false,
-                accountMessage = null
+                accountMessage = null,
+                engineChoice = TranscriptionEngine.Local,
+                effectiveEngine = TranscriptionEngine.Local,
+                localModel = LocalModelState.Installed,
+                dictationBusy = false
             ),
-            actions = SettingsActions({}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {})
+            actions = SettingsActions({}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {})
         )
     }
 }
