@@ -317,4 +317,5 @@ comparado às referências (`NN.txt`):
 | PONT-corte | Média | No motor do aparelho, um corte por teto entre as duas palavras de um comando ("dois" \| "pontos") deixa o comando por extenso, porque a conversão é por trecho | concluída (2026-09-28): `StreamingText.wholeWordsEnd` segura o começo de comando (`SpokenPunctuation.trailingCommandPrefixWords`); junto, o "\n" de "nova linha" dito sozinho deixou de ser descartado pela emenda. Testes JVM; falta conferir com fala (PONT-voz) | — |
 | PONT-previa | Baixa | A prévia ao vivo mostra o comando por extenso até o trecho fechar | aberta: decidir se converte o provisório (o teclado evita, porque "Nova Lí" pode ser começo de "Nova Lima") | /decidir |
 | PONT-revisao | Média | A revisão por IA pode mexer nos marcadores "- " e nas quebras de linha dos itens; a guarda aceita ":" e "\n" que já estavam no ditado | aberta: conferir com a revisão ligada | /verificar |
-
+| CARD-voz | Alta | Conferir no S26 com fala: sem cartão no ditado normal, palavras no campo ~1 s depois de ditas (linhas `dictation_window durationMs` ≤ ~1,2 s), cartão ainda aparecendo em pendente, aviso e "revisando…" | aberta: só testes JVM | /verificar |
+| CARD-emenda | Média | Com pedaços de ~1,2 s há ~3× mais escritas por frase: medir se o Samsung Notes come mais espaços na emenda (LOC-samsung, "bonitoe") | aberta | /medir |

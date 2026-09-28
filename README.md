@@ -192,22 +192,22 @@ Em **Ajustes → Motor de transcrição**:
 - **Toque para ditar, toque de novo para parar:** não é preciso segurar o botão.
   Com o FlowVoice aberto na tela, a bolha ociosa fica escondida e volta quando você
   sai do app. O serviço segue ligado.
-- **Pela bolha flutuante:** toque na bolha no app em que está digitando. Cada trecho
-  vai até uma pausa natural da fala (300 ms de pausa depois de ao menos ~1 s de
-  áudio) ou, falando sem pausa, até ~4 s. Ele é **digitado no campo** assim que é
+- **Pela bolha flutuante:** toque na bolha no app em que está digitando. Na nuvem, cada
+  trecho vai até uma pausa natural da fala (depois de ao menos ~2 s de áudio) ou, falando
+  sem pausa, até ~4 s; no motor do aparelho, até ~1,2 s (pausa a partir de ~0,8 s), então as
+  palavras entram no campo cerca de 1 s depois de ditas. O trecho é **digitado no campo** assim que é
   transcrito, em ordem e com espaço entre os trechos. Toque na bolha de novo para encerrar: o último trecho
   entra em seguida. Com a **revisão por IA** ligada (Ajustes), o ditado inteiro é
   revisto de uma vez no fim — só pontuação, maiúsculas e acentos, sem trocar palavra —
   e substitui no campo o que o FlowVoice tinha escrito; a prévia mostra "revisando…"
   durante o ~1 s da chamada. Se a revisão falhar, se o texto não estiver mais logo
   antes do cursor ou se o ditado passar de 4000 caracteres, fica como foi digitado.
-- **Prévia:** um cartão junto à bolha mostra o cronômetro e o estado. Ele abre acima
-  ou abaixo da linha do cursor, **nunca sobre ela** nem sobre o teclado; se o cursor
-  anda, o cartão muda de lado. Com pouco espaço, encolhe e os textos rolam; sem
-  espaço nenhum, some até sobrar lugar. Em **NO CAMPO** fica o que já foi escrito,
-  depois vêm "transcrevendo…" e o aviso de trecho com falha (timeout, sem
-  créditos…). "Cancelar" descarta só o que ainda não foi digitado; o que está no
-  campo fica.
+- **Cartão da prévia:** no ditado normal não há cartão — o texto aparece no próprio campo
+  e a bolha encerra. Ele só abre quando há algo que só ele mostra: texto **PENDENTE**
+  depois de uma troca de app, aviso de trecho com falha (timeout, sem créditos…),
+  "revisando…" da revisão por IA, ou o encerrar quando a bolha está oculta. Abre acima ou
+  abaixo da linha do cursor, nunca sobre o teclado. Não há "Cancelar" no ditado normal: o
+  que já entrou no campo se apaga pelo teclado.
 - **Troca de app ou de campo:** se o foco for para outro app, outra conversa ou uma
   tela sem campo, nada mais é digitado sozinho, **mesmo que você volte**. O resto
   aparece como **PENDENTE**, e "Inserir aqui" o escreve no app em foco e retoma a

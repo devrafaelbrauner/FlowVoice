@@ -27,8 +27,20 @@ estão em [`docs/tasks/`](docs/tasks/README.md).
   comando sem terminá-lo ("nova", "ponto de", "dois"). Se não era comando, a palavra só entra um pedaço
   depois.
 
+### Alterado
+
+- **Motor do aparelho: o texto entra no campo a cada ~1,2 s**, e não mais só nas pausas ou a
+  cada ~4 s. Cada corte ali só fecha o texto do fluxo contínuo e não custa requisição, então a
+  sessão local usa teto de 1,2 s e pausa a partir de 0,8 s de áudio
+  (`DictationPipeline.LOCAL_WINDOW_TARGET_MS`, `LOCAL_MIN_BUFFERED_MS`); a nuvem segue com 4 s e
+  2 s. Continua fechando só palavras inteiras e segurando começo de comando falado. Não medido
+  com fala no S26.
+
 ### Removido
 
+- **Cartão da prévia no ditado normal.** Ele cobria a linha em que se ditava e repetia o que
+  já estava no campo (capturas do usuário no S26, 2026-09-28). Agora só abre para pendente depois
+  de troca de app, aviso, "revisando…" ou bolha oculta; sem "Cancelar" no ditado normal.
 - **Cartão "Digitado no campo · N palavras" depois do ditado.** O texto já está no campo; o
   cartão só aparece quando o ditado termina com aviso (trecho que falhou, captura interrompida,
   teto), que é o único lugar onde o aviso é mostrado.
