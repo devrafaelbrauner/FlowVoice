@@ -18,7 +18,11 @@ Créditos por inspiração de **arquitetura e UX**. Conforme `docs/references.md
 
 - **devrafaelbrauner/intelligent-keyboard** (FUTO Source First License
   1.1-kb) — teclado a manter; fonte de corpus e metodologia de medição de
-  ditado pt-BR (`docs/voz-ptbr-medicao.md`).
+  ditado pt-BR (`docs/voz-ptbr-medicao.md`). O motor no aparelho do FlowVoice 0.7.0
+  (fluxo único por ditado, fila de áudio durante a carga, liberação do reconhecedor por
+  ócio e por `onTrimMemory`, extração do pacote do modelo) foi reescrito a partir do
+  desenho que o próprio autor fez no teclado (`feat/nemotron-ao-vivo`, `7cca8bdbc`),
+  medido no mesmo S26.
 
 ## Fontes
 
@@ -31,6 +35,8 @@ Créditos por inspiração de **arquitetura e UX**. Conforme `docs/references.md
 
 - **OpenRouter** — API de transcrição e catálogo de modelos
   (https://openrouter.ai).
+- **k2-fsa/sherpa-onnx** — motor de reconhecimento em streaming no aparelho e pacote do
+  modelo NVIDIA Nemotron 3.5 ASR Streaming (https://github.com/k2-fsa/sherpa-onnx).
 - **Supabase** — Auth + PostgreSQL para sincronização.
 - **Google** — Sign-In (Credential Manager) e plataforma Android.
 - Plataformas / frameworks: **Kotlin / Jetpack Compose / Compose Multiplatform**,

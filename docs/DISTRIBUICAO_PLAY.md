@@ -161,6 +161,14 @@ Rascunho fiel ao código: **áudio** ("Voice or sound recordings") e **texto dit
 (conteúdo gerado pelo usuário) saem do aparelho para a OpenRouter durante o ditado ou
 a revisão por IA; trafegam por HTTPS; o app não guarda o áudio. Processamento
 efêmero ainda precisa entrar no formulário, embora possa não aparecer na loja.
+
+Com o **motor no aparelho** (0.7.0, escolhido em Ajustes) o **áudio não sai do celular**: a
+transcrição roda localmente e nenhuma chamada de rede é feita para transcrever (conferido no
+S26 com um ditado inteiro em modo avião). O áudio continua marcado no formulário porque o motor
+da nuvem segue disponível; o **texto** só sai se a revisão por IA estiver ligada (vai à
+OpenRouter nos dois motores). O modelo (475 MB) é baixado uma vez do GitHub a pedido do usuário
+— um download comum, sem dado do usuário além do IP que qualquer requisição revela — e fica no
+armazenamento privado do app, fora do backup.
 [Data safety](https://support.google.com/googleplay/android-developer/answer/10787469)
 
 ### 5.3 Acessibilidade: declaração e divulgação em destaque

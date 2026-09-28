@@ -279,3 +279,32 @@ ficou aberto.
 | REV2-N12 | Média | O benchmark do Diagnóstico reenvia o áudio real do último ditado (clínico) a vários provedores: avisar claramente ou exigir uma gravação de teste dedicada | adiada: decisão de produto | /decidir |
 | REV2-N13 | Média | A bolha ociosa mantém o serviço em primeiro plano do tipo `microphone` indefinidamente; conferir com a declaração de FGS do Play e, se preciso, só subir o microfone ao ditar | adiada: depende do Play | /decidir |
 | P142-comp | Média | O `commitText("")` do começo de `insertDirect` substitui a palavra que o teclado está compondo ("Paciente sem" + " febre." → "Paciente  febre."). A revisão REV2 sobe a prioridade da P142 por isso | adiada: medir no S26 antes de redesenhar | /medir |
+
+## Motor de transcrição no aparelho (0.7.0, 2026-09-28)
+
+Nemotron 3.5 ASR Streaming 0.6B pelo sherpa-onnx, escolhido em Ajustes (padrão: nuvem). O que foi
+conferido no S26 está no CHANGELOG 0.7.0. Testes no S26 com as frases de
+`intelligent-keyboard/build/voz/audio-pessoal` tocadas pelo alto-falante do Mac; texto como ficou,
+comparado às referências (`NN.txt`):
+
+| Sessão | Caminho | Referências | Texto obtido |
+|---|---|---|---|
+| A (1º build) | Início → Samsung Notes; o destino não veio anotado e tudo ficou PENDENTE até "Inserir aqui" | 01, 11, 12, 15 | "Bom dia tudo bem consegue me ligar mais tarde paciente do leito doze aí que contra Spneia de uma radiografia de torques aumenta de pirona para seis em seis horas prescrevi a mocicilina com clavolana por sete dias" |
+| B (1º build) | nota do FlowVoice | 13, 14, 17 | "Ela está heopneica sem sinais de desconforto respiratório . O hemograma veio normal só a glicemia um pouco alterada a tomografia mostrou uma broncopneumonia à direita" (o " ." foi corrigido no 2º build) |
+| C (1º build) | bolha → Samsung Notes, com a frase contínua de 20 s (11+13+14+17+19) | 02, 16, 19, 20, contínua | "Estou saindo daqui a pouco chega⏎ em uns quarenta minuto s voupassar a visita depois das duas⏎ soliciteitransferências para Uti…" ("minuto s" corrigido no 2º build; ⏎ e espaços comidos são do editor, ver abaixo) |
+| D (2º build) | bolha → Samsung Notes, com a frase contínua | 01, 03, 06, contínua | "Bom dia, tudo bem? Consegue me ligar mais tarde⏎? Não vou conseguir ir hoje ficou para os demais obrigado por avisareu tinha esquecido completamente⏎paciente do leito doze com o Pné⏎pediu uma radiografia ela está eu⏎pneica sem sinais de desconforto respiratório. O hemograma veio normal⏎sua glicemia um pouco alterar a tomografia mostrou uma broncopneumonia à direita solicitei transferências para⏎Uti para o paciente que estava na enfermaria." |
+| E (2º build) | nota do FlowVoice | 13, 14, 17, 12 | "Ela está eu pnica, sem sinais de desconforto respiratório O hemograma veio normal só a glicemia é um pouco alterada a tomografia mostrou uma broncopneumonia à direita aumenteia de piruna para seis em seis horas." |
+| F (2º build) | nota do FlowVoice em modo avião | 05, 10 | "Jo manda o endereço por aqui me avisa quando chegar, por favor" |
+
+| ID | Prioridade | Descrição | Status | Próximo passo |
+|---|---|---|---|---|
+| LOC-voz | Alta | Validar com fala ao vivo (não alto-falante), em ambiente de enfermaria, e medir o erro por frase como no teclado (M2) | aberta: só alto-falante no S26 | /medir |
+| LOC-termos | Alta | Termos médicos sem hotwords: o transducer NeMo do sherpa-onnx só tem `greedy_search` ("dispneia" → "Spneia", "dipirona" → "de pirona", "eupneica" → "eu pnica"). Caminho provável: correção pelo dicionário pessoal depois do pedaço fechado (já aplicado hoje), com sugestões a partir dos erros típicos do modelo | aberta | /construir |
+| LOC-mem | Média | Memória e bateria: uma leitura só (PSS 1,47 GB, RSS 467 MB com o modelo carregado e ocioso, `dumpsys meminfo`). Medir ditado longo, a liberação por ócio (5 min) e `onTrimMemory` | aberta | /medir |
+| LOC-samsung | Média | No Samsung Notes a emenda de cada pedaço digitado às vezes vira parágrafo (P142) ou perde o espaço ("avisareu", "voupassar"), e a conferência do campo não acusa (`dictation_write_mismatch` nenhum). É o mesmo caminho e a mesma cadência de pedaços da nuvem (as janelas são as mesmas), não algo do motor local. Conferir num app de campo simples e na nota do FlowVoice (que não tem o problema) | aberta | /medir |
+| LOC-inicio | Média | Pelo microfone do Início, no S26, o app foi reaberto mas o destino não veio anotado (`dictation_direct_paused route=trava:destino`): tudo ficou PENDENTE até "Inserir aqui". O FlowVoice foi aberto por `am start` a partir do Samsung Notes; ver se o mesmo acontece pelos Recentes (REV2-Y3-disp) | aberta | /verificar |
+| LOC-ultima | Baixa | A última palavra antes de um silêncio longo que não foi cortado como pausa (cortes `leading`/`ceiling` no silêncio) fica no provisório até a próxima pausa ou o fim do ditado. Nunca se perde, mas demora a entrar no campo | aberta | /decidir |
+| LOC-overlap | Média | Achado nos testes (nuvem, não o motor local): `TranscriptOverlap.match("… muito muito obrigado", "muito")` lança `IndexOutOfBoundsException` (âncora igual ao tamanho de `right`, `rightTokens[anchor]`). Uma janela da nuvem que volte só com a palavra repetida derruba a emenda | aberta | /corrigir |
+| LOC-desktop | Baixa | Motor no aparelho no Windows (o sherpa-onnx tem JNI para Windows x64): hoje o desktop é só nuvem | adiada | /planejar |
+| LOC-x86 | Baixa | O APK só tem `arm64-v8a` (o x86_64 somaria 30,8 MB): não instala em emulador x86_64 sem tradução de ABI. Os AVDs deste projeto são arm64 | decidido | — |
+| LOC-r8 | Baixa | O release segue sem minify; a regra de keep do sherpa-onnx está como consumer rule do `:shared`, para quando o R8 for ligado | decidido | — |

@@ -1,7 +1,9 @@
 # FlowVoice
 
-Ditado por voz para texto em pt-BR, com transcrição na nuvem via
-[OpenRouter](https://openrouter.ai). O texto cai direto no campo em que você está
+Ditado por voz para texto em pt-BR, com transcrição **no próprio aparelho** (NVIDIA
+Nemotron 3.5 ASR Streaming, pelo [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx), com o
+texto aparecendo enquanto você fala) ou **na nuvem** via [OpenRouter](https://openrouter.ai).
+O texto cai direto no campo em que você está
 digitando, sem trocar o teclado. Android primeiro (Galaxy S26 Ultra); Windows em
 preparação. Uso pessoal.
 
@@ -15,6 +17,7 @@ Histórico: [`CHANGELOG.md`](CHANGELOG.md). O que falta:
 | --- | --- |
 | Android: ditado, transcrição incremental, dicionário, notas, revisão | funcional |
 | Android: bolha arrastável que digita direto no campo aberto, com prévia (ou barra com Inserir) | funcional; arraste e prévia vistos no S26, falta validar a digitação com fala real |
+| Android: motor no aparelho (Nemotron 3.5, ao vivo, sem internet e sem chave) | funcional no S26 com frases tocadas por alto-falante (0.7.0); fala ao vivo, memória e bateria não medidas; termos médicos fracos (sem hotwords) |
 | Login Google | opcional e local, sem validação do token em backend |
 | Sincronização | motor pronto, servidor remoto ainda em memória |
 | Windows (`desktopApp`) | compila; inserção, cofre e microfone só validados num Windows real |
@@ -31,7 +34,8 @@ Histórico: [`CHANGELOG.md`](CHANGELOG.md). O que falta:
 
 - JDK 17
 - Android SDK com a plataforma 35 (`local.properties` com `sdk.dir=...`)
-- Chave da OpenRouter
+- Para ditar: a chave da OpenRouter (nuvem) **ou** o modelo no aparelho (475 MB, baixado
+  pelo próprio app; só Android arm64)
 
 ## Build e testes
 
@@ -145,19 +149,43 @@ FlowVoice (P161).
       - **Não** ponha o FlowVoice como atalho de acessibilidade (botão ou gesto): o
         atalho alterna o serviço e um toque acidental o desliga.
    2. **Microfone:** grava só durante o ditado.
-   3. **Chave OpenRouter:** tela própria. Explica a OpenRouter, abre
+   3. **Chave OpenRouter ou modelo no aparelho:** qualquer um dos dois basta. A tela
+      própria tem, embaixo, **"Baixar o modelo (475 MB)"**: o motor no aparelho funciona
+      sem internet e sem custo, e o áudio não sai do celular (ver "Motor de transcrição").
+      Para a nuvem, a mesma tela explica a OpenRouter, abre
       openrouter.ai/keys e avisa dos créditos pré-pagos no cartão (compra mínima
       de US$ 5). Mostra uma **estimativa** de custo: ≈ R$ 1,90 a 2,70 por hora de
       ditado (set/2026), calculada com os preços da OpenRouter, as taxas e o câmbio
       de 2026-09-25, e não medida em uso real. "Validar e salvar" é o mesmo de
       Ajustes. A chave fica cifrada no aparelho, fora do backup e da sincronização,
-      e só vai à OpenRouter. Ditar sem chave mostra o aviso "Falta a chave
-      OpenRouter", e **Configurar chave** abre essa mesma tela.
+      e só vai à OpenRouter. Ditar sem chave nem modelo mostra o aviso "Falta configurar
+      a transcrição", e **Configurar** abre essa mesma tela.
 3. **Ajustes:** ligue o botão flutuante (pede microfone, notificações e "sobrepor a
    outros apps"; na volta da permissão ele liga sozinho) e, se quiser, o Google Web
    Client ID. "Revisar antes de inserir" (desligado por padrão) troca a digitação
    direta pela barra com Inserir. A revisão por IA vale no fim do ditado pela bolha,
    nesse modo e nas notas. A política de privacidade também está em Ajustes.
+
+## Motor de transcrição
+
+Em **Ajustes → Motor de transcrição**:
+
+- **No aparelho (Nemotron, ao vivo):** NVIDIA Nemotron 3.5 ASR Streaming 0.6B (int8) pelo
+  sherpa-onnx, em `pt-BR`. O modelo (475 MB) é baixado uma vez do GitHub
+  (k2-fsa/sherpa-onnx), com o SHA-256 conferido, e ocupa 682 MB no armazenamento privado do
+  app, fora do backup; durante a instalação são precisos ~1,2 GB livres. Funciona **sem
+  internet e sem chave**: o áudio é transcrito no celular e não sai dele. O que está sendo dito
+  aparece como provisório (pontilhado) no cartão da bolha, na barra e na nota, e só entra no
+  campo quando fecha num pedaço — na pausa, ou, falando sem parar, em palavras inteiras a cada
+  ~4 s. O primeiro ditado depois de abrir o app espera ~1,5 s pela carga do modelo (o que você
+  fala nesse tempo não se perde); o modelo sai da memória depois de 5 min sem ditado. Um ditado
+  no aparelho dura no máximo 10 min. Se o motor falhar no meio, o texto até ali é entregue com
+  aviso, e o app **não** passa sozinho para a nuvem. Sem hotwords: termos médicos saem pior que
+  na nuvem.
+- **Nuvem (OpenRouter):** o padrão, como antes; precisa da chave.
+- A **revisão por IA** (Ajustes) envia o texto à OpenRouter nos dois motores e precisa da
+  chave; sem ela, é pulada.
+- "Apagar modelo" volta o motor para a nuvem.
 
 ## Ditando
 

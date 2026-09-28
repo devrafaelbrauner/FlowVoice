@@ -6,6 +6,90 @@ estão em [`docs/tasks/`](docs/tasks/README.md).
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-09-28
+
+Motor de transcrição no aparelho: NVIDIA Nemotron 3.5 ASR Streaming 0.6B (blocos de 560 ms,
+int8) pelo sherpa-onnx 1.13.8, com o texto aparecendo enquanto se fala. É uma alternativa à
+nuvem (OpenRouter), escolhida em Ajustes; o padrão continua sendo a nuvem. Conferido no S26
+Ultra (Android 16) em 2026-09-28 com frases gravadas tocadas pelo alto-falante do Mac ao lado
+do telefone, não com fala ao vivo.
+
+### Adicionado
+
+- **"Motor de transcrição" em Ajustes:** "No aparelho (Nemotron, ao vivo)" ou "Nuvem
+  (OpenRouter)". O motor do ditado sai de uma regra pura (`TranscriptionEngineSelection`): o
+  local só vale escolhido, com o modelo inteiro no aparelho e no Android; qualquer outro caso é
+  a nuvem, como antes. O motor fica fixo durante o ditado.
+- **Modelo baixado no app:** 475 MB do GitHub (release `asr-models` do k2-fsa/sherpa-onnx), com
+  progresso, conferência de tamanho e SHA-256, espaço livre conferido antes (1,2 GB durante a
+  instalação), extração em streaming do `.tar.bz2` (só os quatro arquivos, guarda contra path
+  traversal, tamanhos exatos, troca atômica da pasta), cancelar e apagar. Fica em `filesDir`
+  (682 MB), fora do backup e da transferência entre aparelhos. No S26: download em 73 s, SHA-256
+  ok, instalado em 116 s no total.
+- **Texto ao vivo:** o que o motor já reconheceu e ainda não fechou aparece como provisório
+  (sublinhado pontilhado) no cartão da bolha, na barra de revisão e na nota. **Nunca é digitado
+  em outro app:** só o pedaço fechado segue o caminho de sempre — digitação direta com as travas
+  de destino e a conferência do campo, PENDENTE na troca de foco, barra com Inserir e nota.
+- **Chave opcional com o motor local:** o ditado começa sem chave. O passo 3 do onboarding virou
+  "Chave OpenRouter ou modelo no aparelho", e qualquer um dos dois basta; a tela da chave oferece
+  "Baixar o modelo (475 MB)". A revisão por IA continua precisando da chave e é pulada sem ela
+  (`dictation_proofread_skipped reason=sem_chave`). A estimativa de custo fica só na parte da
+  nuvem.
+
+### Como o texto é fechado (decisões)
+
+- **Um fluxo só por ditado.** No teclado, um fluxo novo por trecho perdia palavras quando o
+  corte caía dentro delas. Os cortes do FlowVoice continuam os mesmos (pausa, teto de ~4 s, fim);
+  cada corte fecha o texto reconhecido desde o anterior.
+- **Corte numa pausa ou no fim:** o motor recebe 0,8 s de silêncio de cauda e tudo o que foi dito
+  sai. **Corte no teto, com a fala em curso:** fecham só as palavras inteiras — até antes do último
+  token que abre palavra —, e a última palavra, que ainda pode crescer, fica para o pedaço
+  seguinte. Nenhum corte parte palavra.
+- **Pedaço que continua a palavra anterior entra colado.** Com 0,6 s de cauda, no S26, o "s" de
+  "minutos" só saiu depois do fechamento e virou "minuto s"; a cauda passou a 0,8 s e o pedaço
+  cujo primeiro token não abre palavra (ou que começa com pontuação, como o "?" de "tarde?")
+  entra sem espaço na digitação, na revisão, na nota e na prévia.
+- **Sem deduplicação na emenda:** os pedaços do fluxo contínuo não se sobrepõem, então a emenda
+  por sobreposição da nuvem não se aplica — ela apagaria a palavra que o usuário repetiu.
+- **Sem teto de requisições nem travas de áudio vazio** (nada disso custa aqui); no lugar, o
+  ditado local para em **10 min** (`LOCAL_SESSION_CAP`), com o texto até ali e o aviso "Ditado
+  encerrado no limite de 10 min".
+- **Falha do motor no meio do ditado:** o que já foi reconhecido — inclusive o provisório que
+  estava na tela — é entregue, o ditado termina com o aviso "Motor no aparelho falhou aos M:SS:
+  texto só até ali", e o FlowVoice **não** troca para a nuvem sozinho, mesmo com chave.
+- **Idioma `pt-BR`** por fluxo (no modelo, `pt` é pt-PT), só `greedy_search` (sem hotwords).
+- **Reconhecedor por processo:** carrega uma vez (1,4–1,7 s no S26), é contado por uso, sai da
+  memória depois de 5 min sem ditado ou nos pedidos urgentes de `onTrimMemory`. O áudio que chega
+  durante a carga espera na fila e é transcrito.
+
+### Conferido no S26 (release 0.7.0, 2026-09-28)
+
+- Instalação do modelo pela tela da chave, no onboarding, sem chave; o passo 3 ficou ok.
+- Ditado pelo microfone do Início e pela bolha no Samsung Notes, e em notas do FlowVoice, com as
+  frases 01–20 de `intelligent-keyboard/build/voz/audio-pessoal` e uma frase contínua de 20 s
+  (cinco frases emendadas, sem pausa) para forçar cortes no teto. Carga do modelo 1421–1670 ms
+  (0 ms com o reconhecedor já carregado); fechamento com cauda 48–142 ms; tempo do motor por trecho
+  de 11 a 22 % do áudio do trecho, fechamento incluído; intervalo médio entre mudanças do
+  provisório de 0,84 a 1,19 s por sessão, pausas incluídas. Nenhuma queda. Em modo avião, uma nota
+  foi ditada inteira.
+- Qualidade do Nemotron nas frases de trabalho ruim como no teclado ("dispneia" → "Spneia",
+  "dipirona" → "de pirona"); o texto de cada teste, comparado às referências, está em
+  `TAREFAS_PENDENTES.md` (seção do motor no aparelho).
+- **Não conferido:** fala ao vivo (só alto-falante), consumo de bateria, memória além de uma
+  leitura (PSS 1,47 GB e RSS 467 MB com o modelo carregado e ocioso), outros apps além do
+  Samsung Notes.
+
+### Build
+
+- sherpa-onnx 1.13.8 pelo JitPack (`com.github.k2-fsa.sherpa-onnx:sherpa-onnx:v1.13.8`), o mesmo
+  arquivo do release oficial do GitHub (SHA-256 `633c2432…bd96`, conferido byte a byte), preso em
+  `gradle/verification-metadata.xml` só para esse grupo; commons-compress 1.28.0.
+- APK só com `arm64-v8a` (S26 e os emuladores arm64 deste Mac); as APIs C/C++ do AAR ficam de
+  fora. APK de release: 11,46 MB (0.6.0) → 39,64 MB (+28,2 MB, quase tudo `libonnxruntime.so`).
+- Regra de keep do R8 para `com.k2fsa.sherpa.onnx.**` como consumer rule do `:shared` (o release
+  segue sem minify).
+- versionCode 17.
+
 ## [0.6.0] - 2026-09-27
 
 Primeiro uso sem abandono e preparação para o teste interno do Google Play. Um
