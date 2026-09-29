@@ -7,7 +7,9 @@ estão em [`docs/tasks/`](docs/tasks/README.md).
 ## [Unreleased]
 
 - **Bolha parada vira um ponto**: sem ditado em andamento, o botão flutuante é um ponto laranja de 16 dp (janela de
-  36 dp, antes 76 dp); ao tocar, volta à bolha inteira com o microfone enquanto dita e revisa.
+  48 dp, antes 76 dp); ao tocar, volta à bolha inteira com o microfone enquanto dita e revisa. A primeira versão
+  usava janela de 36 dp: a janela é a área de toque, e no S26 o toque do dedo caía fora dela e ia para o app de
+  baixo — o ponto parecia não responder.
 
 ### Corrigido (ditado na nuvem ao vivo, 2026-09-28)
 

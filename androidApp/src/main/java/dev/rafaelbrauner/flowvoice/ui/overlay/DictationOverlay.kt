@@ -355,6 +355,8 @@ fun DictationBubble(
         if (compact) {
             Box(
                 Modifier
+                    // +6 dp aos 10 dp de fora: 48 dp de área de toque (`BUBBLE_DOT_SIZE_DP`) para um ponto de 16 dp.
+                    .padding(6.dp)
                     .size(16.dp)
                     .background(colors.accent, CircleShape)
                     .border(1.dp, colors.accentBorder, CircleShape)
