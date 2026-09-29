@@ -331,6 +331,8 @@ class FlowVoiceOverlayService : Service(), KoinComponent, BubbleHost {
             pipeline.status.drop(1).collect { status ->
                 ownsSession = OverlaySessionPolicy.ownedAfter(ownsSession, status)
                 Log.i(TAG, "overlay_status ${status::class.simpleName}")
+                // Parada, a bolha vira um ponto (`DictationBubble` compacta): reposiciona com o tamanho novo.
+                if (mode != OverlayMode.Bar) placeBubble()
                 if (awaitingDictation) {
                     awaitingDictation = OverlaySessionPolicy.awaitingAfterStatus(awaitingDictation, status)
                     stopIfNothingToShow()
@@ -593,7 +595,7 @@ class FlowVoiceOverlayService : Service(), KoinComponent, BubbleHost {
         }
     }
 
-    private fun bubbleSize(): Int = dp(BUBBLE_SIZE_DP)
+    private fun bubbleSize(): Int = dp(if (pipeline.status.value.isBusy) BUBBLE_SIZE_DP else BUBBLE_DOT_SIZE_DP)
 
     private fun barOffset(): Int {
         val manager = windowManager ?: return 0
@@ -649,6 +651,8 @@ class FlowVoiceOverlayService : Service(), KoinComponent, BubbleHost {
             "Botão flutuante indisponível: permita sobrepor a outros apps (Android 8+)."
         const val ACTION_STOP = "dev.rafaelbrauner.flowvoice.action.STOP_OVERLAY"
         const val BUBBLE_SIZE_DP = 76
+        // Ponto de 16 dp com 10 dp de folga de cada lado (`DictationBubble` com `compact`).
+        const val BUBBLE_DOT_SIZE_DP = 36
 
         private val runningState = MutableStateFlow(false)
         val runningFlow: StateFlow<Boolean> = runningState.asStateFlow()

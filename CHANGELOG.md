@@ -6,6 +6,9 @@ estão em [`docs/tasks/`](docs/tasks/README.md).
 
 ## [Unreleased]
 
+- **Bolha parada vira um ponto**: sem ditado em andamento, o botão flutuante é um ponto laranja de 16 dp (janela de
+  36 dp, antes 76 dp); ao tocar, volta à bolha inteira com o microfone enquanto dita e revisa.
+
 ### Corrigido (ditado na nuvem ao vivo, 2026-09-28)
 
 - **Frase repetida depois de uma pausa sumia do campo** (S26, qwen/qwen3-asr-1.7b): a emenda entre
