@@ -10,6 +10,11 @@ estão em [`docs/tasks/`](docs/tasks/README.md).
   48 dp, antes 76 dp); ao tocar, volta à bolha inteira com o microfone enquanto dita e revisa. A primeira versão
   usava janela de 36 dp: a janela é a área de toque, e no S26 o toque do dedo caía fora dela e ia para o app de
   baixo — o ponto parecia não responder.
+- **Pedidos de transcrição presos numa conexão morta** (NV-rede): o cliente HTTP do Android passa a mandar ping
+  HTTP/2 a cada 5 s. No S26 (29/set) nenhuma janela de dois ditados seguidos teve resposta até o processo ser
+  reiniciado — o timeout de 30 s nunca chegava antes do prazo do ditado. Com o ping, a conexão que parou de
+  responder falha em segundos e o pedido refeito abre outra. Conferido: ditados normais no S26 com a mudança; a
+  queda de rede no meio do ditado ainda não foi reproduzida.
 
 ### Corrigido (ditado na nuvem ao vivo, 2026-09-28)
 
