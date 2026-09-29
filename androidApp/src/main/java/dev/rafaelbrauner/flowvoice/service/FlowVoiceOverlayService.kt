@@ -651,8 +651,9 @@ class FlowVoiceOverlayService : Service(), KoinComponent, BubbleHost {
             "Botão flutuante indisponível: permita sobrepor a outros apps (Android 8+)."
         const val ACTION_STOP = "dev.rafaelbrauner.flowvoice.action.STOP_OVERLAY"
         const val BUBBLE_SIZE_DP = 76
-        // Ponto de 16 dp com 10 dp de folga de cada lado (`DictationBubble` com `compact`).
-        const val BUBBLE_DOT_SIZE_DP = 36
+        // Ponto de 16 dp com 16 dp de folga de cada lado (`DictationBubble` com `compact`): a janela é a área
+        // de toque, e com 36 dp o dedo caía fora dela e o toque ia para o app de baixo. 48 dp é o mínimo.
+        const val BUBBLE_DOT_SIZE_DP = 48
 
         private val runningState = MutableStateFlow(false)
         val runningFlow: StateFlow<Boolean> = runningState.asStateFlow()
