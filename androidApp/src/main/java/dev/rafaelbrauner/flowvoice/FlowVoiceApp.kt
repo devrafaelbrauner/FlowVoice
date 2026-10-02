@@ -29,11 +29,13 @@ import dev.rafaelbrauner.flowvoice.shared.notes.InMemoryNoteStore
 import dev.rafaelbrauner.flowvoice.shared.notes.NoteDictationCoordinator
 import dev.rafaelbrauner.flowvoice.shared.notes.NoteStore
 import dev.rafaelbrauner.flowvoice.shared.notes.PrefsNotePersist
+import dev.rafaelbrauner.flowvoice.shared.persist.SharedPrefsRawKeyValue
 import dev.rafaelbrauner.flowvoice.shared.pipeline.DictationPipeline
 import dev.rafaelbrauner.flowvoice.shared.prefs.PrefsPreferencesStore
 import dev.rafaelbrauner.flowvoice.shared.prefs.PreferencesStore
 import dev.rafaelbrauner.flowvoice.shared.sync.InMemoryRemoteSync
 import dev.rafaelbrauner.flowvoice.shared.sync.RemoteSync
+import dev.rafaelbrauner.flowvoice.shared.stats.LatencyStatsStore
 import dev.rafaelbrauner.flowvoice.shared.sync.SyncEngine
 import dev.rafaelbrauner.flowvoice.shared.transcription.EncryptedSecretStore
 import dev.rafaelbrauner.flowvoice.shared.transcription.SecretStore
@@ -126,6 +128,17 @@ private val dictationModule = module {
             clock = { System.currentTimeMillis() }
         )
     }
+    // P59: as métricas de latência ganharam fonte persistida. O store usa SharedPreferences no
+    // mesmo padrão do dicionário (SharedPrefsRawKeyValue) e o relógio de parede é injetado porque
+    // commonMain não tem epoch — sem ele o carimbo `at` das amostras ficaria em 0.
+    single {
+        LatencyStatsStore(
+            persist = SharedPrefsRawKeyValue(
+                androidContext().getSharedPreferences("flowvoice_latency", Context.MODE_PRIVATE)
+            ),
+            clock = { System.currentTimeMillis() }
+        )
+    }
     single {
         DictationPipeline(
             controller = get(),
@@ -139,6 +152,7 @@ private val dictationModule = module {
             inserter = AccessibilityTextInserter,
             scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
             eventLog = get(),
+            latencyStats = get(),
             transcriptTextLog = transcriptTextLog(androidContext()),
             localEngines = get()
         )

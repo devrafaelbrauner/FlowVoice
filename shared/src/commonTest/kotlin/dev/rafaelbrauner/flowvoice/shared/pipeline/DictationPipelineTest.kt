@@ -7,6 +7,7 @@ import dev.rafaelbrauner.flowvoice.shared.dictation.AudioFrame
 import dev.rafaelbrauner.flowvoice.shared.dictation.DictationSessionController
 import dev.rafaelbrauner.flowvoice.shared.dictation.DictationSessionState
 import dev.rafaelbrauner.flowvoice.shared.dictation.DictationWindow
+import dev.rafaelbrauner.flowvoice.shared.dictionary.CorrectionPair
 import dev.rafaelbrauner.flowvoice.shared.dictionary.InMemoryPersonalDictionary
 import dev.rafaelbrauner.flowvoice.shared.insertion.DirectInsertionGuard
 import dev.rafaelbrauner.flowvoice.shared.insertion.TextInserter
@@ -16,8 +17,10 @@ import dev.rafaelbrauner.flowvoice.shared.notes.NoteDictationCoordinator
 import dev.rafaelbrauner.flowvoice.shared.prefs.AppPreferences
 import dev.rafaelbrauner.flowvoice.shared.prefs.FormattingMode
 import dev.rafaelbrauner.flowvoice.shared.prefs.InMemoryPreferencesStore
+import dev.rafaelbrauner.flowvoice.shared.persist.MapRawKeyValue
 import dev.rafaelbrauner.flowvoice.shared.proofreading.AudioChatClient
 import dev.rafaelbrauner.flowvoice.shared.proofreading.ProofreadingClient
+import dev.rafaelbrauner.flowvoice.shared.stats.LatencyStatsStore
 import dev.rafaelbrauner.flowvoice.shared.transcription.InMemorySecretStore
 import dev.rafaelbrauner.flowvoice.shared.transcription.OpenRouterConfig
 import dev.rafaelbrauner.flowvoice.shared.transcription.RecordingLog
@@ -2424,6 +2427,184 @@ class DictationPipelineTest {
         assertEquals("tomar dipirona", note.body())
     }
 
+    // Item 1 (revisão do motor 2026-10-01): terminado o ditado direto, o usuário conserta a palavra
+    // errada no campo; a captura compara o que o app escreveu com o que o campo tem e ensina
+    // errado→correto ao dicionário, que passa a consertar na próxima.
+    @Test
+    fun aWordFixedInTheFieldAfterADirectDictationIsLearnedAsACorrection() = runTest {
+        val inserter = DirectInserter()
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = listOf(frame(100L)),
+            texts = mapOf(0 to "o ezame de sangue"),
+            preferences = AppPreferences(formattingMode = FormattingMode.Llm),
+            textInserter = inserter
+        )
+
+        env.pipeline.start()
+        runCurrent()
+        assertIs<DictationPipelineStatus.Completed>(env.pipeline.finalize())
+
+        // O usuário conserta "ezame" para "exame" no campo, fora do que o app escreveu.
+        inserter.field.clear()
+        inserter.field.append("o exame de sangue")
+        runCurrent()
+
+        assertEquals(listOf(CorrectionPair("ezame", "exame")), env.dictionary.corrections())
+        assertEquals("o exame de sangue", env.dictionary.apply("o ezame de sangue"))
+        // O eventLog não carrega texto (P135); o par vai só ao transcriptTextLog.
+        assertTrue(env.log.events.none { event -> event.metadata.values.any { it.contains("ezame") } })
+        assertEquals("ezame->exame", env.textLog.events.single { it.event == "correction_learned" }.metadata["pares"])
+    }
+
+    @Test
+    fun aFieldLeftExactlyAsDictatedTeachesNothing() = runTest {
+        val inserter = DirectInserter()
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = listOf(frame(100L)),
+            texts = mapOf(0 to "o exame de sangue"),
+            preferences = AppPreferences(formattingMode = FormattingMode.Llm),
+            textInserter = inserter
+        )
+
+        env.pipeline.start()
+        runCurrent()
+        assertIs<DictationPipelineStatus.Completed>(env.pipeline.finalize())
+        runCurrent()
+
+        assertEquals(emptyList(), env.dictionary.corrections())
+        assertTrue(env.log.events.none { it.event == "correction_learned" })
+    }
+
+    @Test
+    fun aBigFieldRewriteAfterTheDictationTeachesNothing() = runTest {
+        val inserter = DirectInserter()
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = listOf(frame(100L)),
+            texts = mapOf(0 to "o ezame de sangue"),
+            preferences = AppPreferences(formattingMode = FormattingMode.Llm),
+            textInserter = inserter
+        )
+
+        env.pipeline.start()
+        runCurrent()
+        assertIs<DictationPipelineStatus.Completed>(env.pipeline.finalize())
+
+        // O usuário digitou uma frase extra no campo: a diferença não é conserto de palavra.
+        inserter.field.append(" e o paciente chegou atrasado")
+        runCurrent()
+
+        assertEquals(emptyList(), env.dictionary.corrections())
+    }
+
+    @Test
+    fun aNewDictationStartedBeforeTheCaptureTeachesNothing() = runTest {
+        val inserter = DirectInserter()
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = listOf(frame(100L)),
+            texts = mapOf(0 to "o ezame de sangue"),
+            preferences = AppPreferences(formattingMode = FormattingMode.Llm),
+            textInserter = inserter,
+            correctionCaptureMs = 5_000L
+        )
+
+        env.pipeline.start()
+        runCurrent()
+        assertIs<DictationPipelineStatus.Completed>(env.pipeline.finalize())
+        inserter.field.clear()
+        inserter.field.append("o exame de sangue")
+
+        // Um ditado novo antes da janela: o token da captura já não é o da sessão.
+        env.pipeline.start()
+        advanceTimeBy(5_000L)
+        runCurrent()
+
+        assertEquals(emptyList(), env.dictionary.corrections())
+    }
+
+    // P59: o dictation_finalized do ditado direto carrega a latência.
+    @Test
+    fun theFinalizedLogCarriesTheLatencyForDirectCompletion() = runTest {
+        val env = PipelineEnv(
+            scope = backgroundScope,
+            frames = listOf(frame(100L)),
+            texts = mapOf(0 to "o exame de sangue"),
+            preferences = AppPreferences(formattingMode = FormattingMode.Llm),
+            textInserter = DirectInserter()
+        )
+
+        env.pipeline.start()
+        runCurrent()
+        assertIs<DictationPipelineStatus.Completed>(env.pipeline.finalize())
+
+        val finalized = env.log.events.single { it.event == "dictation_finalized" }
+        assertTrue(finalized.metadata.containsKey("latencyMs"), "dictation_finalized deve carregar latencyMs")
+    }
+
+    // P59 com o store real sobre persistência falsa: cada ramo grava a métrica que a tela lê.
+    @Test
+    fun latencyMetricsAreRecordedOnTheStore() = runTest {
+        val directStore = LatencyStatsStore(MapRawKeyValue())
+        val direct = PipelineEnv(
+            scope = backgroundScope,
+            frames = listOf(frame(100L)),
+            texts = mapOf(0 to "o exame de sangue"),
+            preferences = AppPreferences(formattingMode = FormattingMode.Llm),
+            latencyStats = directStore,
+            textInserter = DirectInserter()
+        )
+
+        direct.pipeline.start()
+        runCurrent()
+        assertIs<DictationPipelineStatus.Completed>(direct.pipeline.finalize())
+        assertEquals(
+            1,
+            directStore.summaries().getValue(LatencyStatsStore.METRIC_FINALIZE_CLOUD).count,
+            "o fim direto na nuvem grava finalize_cloud"
+        )
+
+        val reviewStore = LatencyStatsStore(MapRawKeyValue())
+        val review = PipelineEnv(
+            scope = backgroundScope,
+            frames = listOf(frame(100L)),
+            texts = mapOf(0 to "o médico"),
+            latencyStats = reviewStore
+        )
+
+        review.pipeline.start()
+        runCurrent()
+        assertIs<DictationPipelineStatus.Ready>(review.pipeline.finalizeForReview())
+        assertEquals(
+            1,
+            reviewStore.summaries().getValue(LatencyStatsStore.METRIC_REVIEW_READY).count,
+            "o texto pronto na barra grava review_ready"
+        )
+
+        val finalPassStore = LatencyStatsStore(MapRawKeyValue())
+        val revised = PipelineEnv(
+            scope = backgroundScope,
+            frames = listOf(frame(50L)),
+            texts = mapOf(0 to "tomar dipirona"),
+            preferences = AppPreferences(formattingMode = FormattingMode.Llm, proofreadingEnabled = true),
+            latencyStats = finalPassStore,
+            textInserter = DirectInserter()
+        )
+
+        revised.pipeline.start()
+        runCurrent()
+        assertIs<DictationPipelineStatus.Completed>(revised.pipeline.finalize())
+        val summaries = finalPassStore.summaries()
+        assertEquals(
+            1,
+            summaries.getValue(LatencyStatsStore.METRIC_FINAL_PASS).count,
+            "a passada final aplicada grava final_pass"
+        )
+        assertTrue(summaries.containsKey(LatencyStatsStore.METRIC_FINALIZE_CLOUD), "o mesmo fim direto grava finalize_cloud")
+    }
+
     private fun proofreadSkipReason(env: PipelineEnv): String? =
         env.log.events.single { it.event == "final_pass_skipped" }.metadata["reason"]
 
@@ -2634,7 +2815,11 @@ private class PipelineEnv(
     config: OpenRouterConfig = OpenRouterConfig(),
     timeSource: TimeSource = TimeSource.Monotonic,
     secretStore: SecretStore? = null,
-    proofreadingOutput: ((String) -> String)? = null
+    proofreadingOutput: ((String) -> String)? = null,
+    // Testes usam 0: com o tempo virtual, delay(0) roda no runCurrent() seguinte. O default do
+    // pipeline de produção é CORRECTION_CAPTURE_MS.
+    latencyStats: LatencyStatsStore = LatencyStatsStore.NoOp,
+    correctionCaptureMs: Long = 0L
 ) {
     val log = RecordingLog()
     val textLog = RecordingLog()
@@ -2659,7 +2844,9 @@ private class PipelineEnv(
         scope = scope,
         eventLog = log,
         timeSource = timeSource,
-        transcriptTextLog = textLog
+        transcriptTextLog = textLog,
+        latencyStats = latencyStats,
+        correctionCaptureMs = correctionCaptureMs
     )
 
     init {

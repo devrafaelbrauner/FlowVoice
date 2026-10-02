@@ -4,8 +4,25 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/)
 e [Versionamento Semântico](https://semver.org/lang/pt-BR/). As fases citadas
 estão em [`docs/tasks/`](docs/tasks/README.md).
 
-## [Unreleased]
+## [0.8.0] - 2026-10-01
 
+- **Aprendizado de correção (errado→correto)**: quando uma palavra consertada no campo logo depois do ditado
+  difere do que o FlowVoice escreveu — só troca 1:1 de palavras de 4+ letras, nada com dígito, divergência
+  grande não ensina —, o par entra como regra em Ajustes → Dicionário ("Correções aprendidas", com
+  "Esquecer") e o termo certo é aprovado. Nas próximas transcrições a regra substitui a palavra com
+  precedência sobre o casamento por som (caza → casa). O texto do par só vai ao log de diagnóstico (P135).
+- **Latências p50 / p95 no Diagnóstico** (fecha P59): toque de parar → texto no campo (nuvem e aparelho),
+  → texto pronto na barra de revisão e duração da passada final ficam num store persistido (últimas 100
+  amostras por métrica, JSON ilegível vai para backup); a linha "latência p50 / p95" mostra os percentis em
+  vez de "—". `dictation_finalized` passou a logar `latencyMs` no modo direto, que antes só tinha `chars`.
+- **Pendentes do dicionário persistem e sugerem menos ruído**: as sugestões de termo sobrevivem ao
+  reinício, chegam a no máximo 12 novas por ditado (FIFO de 100 segue) e a stop-list do TermSuggester ganhou
+  as palavras funcionais do pt-BR ("pela", "isso", "ontem"…), para a lista pendente ficar com o vocabulário
+  que importa.
+- **Prévia ao vivo incremental**: o texto estável da prévia deixou de ser remontado e reconsertado pelo
+  dicionário a cada parcial (~4/s no motor no aparelho): o merge por prefixo e o apply do vocabulário ficam
+  em memo (`LivePreviewMerger`), e cada tick de parcial paga só a cauda. Saída idêntica, provada por
+  equivalência contra as funções puras nos testes.
 - **Bolha parada vira um ponto**: sem ditado em andamento, o botão flutuante é um ponto laranja de 16 dp (janela de
   48 dp, antes 76 dp); ao tocar, volta à bolha inteira com o microfone enquanto dita e revisa. A primeira versão
   usava janela de 36 dp: a janela é a área de toque, e no S26 o toque do dedo caía fora dela e ia para o app de

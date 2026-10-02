@@ -58,6 +58,7 @@ import dev.rafaelbrauner.flowvoice.shared.dictionary.PersonalDictionary
 import dev.rafaelbrauner.flowvoice.shared.notes.NoteStore
 import dev.rafaelbrauner.flowvoice.shared.pipeline.DictationPipeline
 import dev.rafaelbrauner.flowvoice.shared.prefs.PreferencesStore
+import dev.rafaelbrauner.flowvoice.shared.stats.LatencyStatsStore
 import dev.rafaelbrauner.flowvoice.shared.transcription.OpenRouterConfig
 import dev.rafaelbrauner.flowvoice.shared.transcription.SecretStore
 import dev.rafaelbrauner.flowvoice.shared.transcription.TranscriptionClient
@@ -121,6 +122,8 @@ fun DiagnosticsRoute(
     val pipeline = rememberKoin<DictationPipeline>()
     val transcriptionClient = rememberKoin<TranscriptionClient>()
     val diagnosticsLog = rememberKoin<DiagnosticsLog>()
+    // P59: a fonte da linha de latência agora é o store persistido, não um valor fixo "—".
+    val latencyStore = rememberKoin<LatencyStatsStore>()
 
     val logLines by diagnosticsLog.lines.collectAsState()
     val sessionWindows by pipeline.sessionWindows.collectAsState()
@@ -133,11 +136,13 @@ fun DiagnosticsRoute(
     var referenceText by rememberSaveable { mutableStateOf(PtBrCorpus.clips.first().reference) }
     var ranking by remember { mutableStateOf("") }
     var runningBenchmark by remember { mutableStateOf(false) }
+    var latencySummary by remember { mutableStateOf(latencyRow(latencyStore.summaries())) }
 
     LifecycleResumeEffect(Unit) {
         accessibilityActive = FlowVoiceAccessibilityService.isRunning
         serviceFlags = currentServiceFlags()
         keyConfigured = secretStore.readOpenRouterKey() != null
+        latencySummary = latencyRow(latencyStore.summaries())
         onPauseOrDispose { }
     }
 
@@ -213,7 +218,7 @@ fun DiagnosticsRoute(
             "rota principal" to "commitText",
             "fallback" to "ACTION_SET_TEXT",
             "flags" to serviceFlags,
-            "latência p50 / p95" to NO_SOURCE,
+            "latência p50 / p95" to latencySummary,
             "último alvo" to NO_SOURCE
         ),
         accessibilityActive = accessibilityActive,
@@ -417,7 +422,7 @@ private fun DiagnosticsContentPreview(@PreviewParameter(ThemePreviewParameter::c
                     "rota principal" to "commitText",
                     "fallback" to "ACTION_SET_TEXT",
                     "flags" to "0x8001",
-                    "latência p50 / p95" to NO_SOURCE,
+                    "latência p50 / p95" to "nuvem 1,8 s / 2,4 s · aparelho 0,6 s / 1,1 s · revisão 4,2 s / 5,9 s",
                     "último alvo" to NO_SOURCE
                 ),
                 accessibilityActive = true,

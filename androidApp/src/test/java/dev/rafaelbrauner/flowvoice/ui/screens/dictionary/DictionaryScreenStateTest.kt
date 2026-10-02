@@ -1,5 +1,6 @@
 package dev.rafaelbrauner.flowvoice.ui.screens.dictionary
 
+import dev.rafaelbrauner.flowvoice.shared.dictionary.CorrectionPair
 import dev.rafaelbrauner.flowvoice.shared.dictionary.InMemoryPersonalDictionary
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -49,7 +50,8 @@ class DictionaryScreenStateTest {
         dictionary.suggestFrom("testei no Galaxy ontem")
         state.refresh()
 
-        assertEquals(listOf("testei", "Galaxy", "ontem"), state.pending)
+        // "ontem" entrou na stop-list do TermSuggester (onda 1) e não volta como sugestão.
+        assertEquals(listOf("testei", "Galaxy"), state.pending)
     }
 
     @Test
@@ -95,5 +97,32 @@ class DictionaryScreenStateTest {
         state.remove("Brauner")
 
         assertTrue("Brauner" in state.pending)
+    }
+
+    @Test
+    fun stateExposesLearnedCorrections() {
+        val dictionary = InMemoryPersonalDictionary()
+        val state = DictionaryScreenState(dictionary)
+        assertTrue(state.corrections.isEmpty())
+
+        dictionary.learnCorrection("caza", "casa")
+        state.refresh()
+
+        assertEquals(listOf(CorrectionPair("caza", "casa")), state.corrections)
+    }
+
+    @Test
+    fun forgettingCorrectionRemovesOnlyThatRule() {
+        val dictionary = InMemoryPersonalDictionary()
+        dictionary.learnCorrection("caza", "casa")
+        dictionary.learnCorrection("medico", "médico")
+        val state = DictionaryScreenState(dictionary)
+        assertEquals(listOf(CorrectionPair("caza", "casa"), CorrectionPair("medico", "médico")), state.corrections)
+
+        state.forgetCorrection("caza")
+
+        assertEquals(listOf(CorrectionPair("medico", "médico")), state.corrections)
+        // Esquecer a regra não rebaixa o termo certo: ele segue aprovado no vocabulário.
+        assertTrue("casa" in state.approved)
     }
 }
