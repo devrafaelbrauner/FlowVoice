@@ -36,6 +36,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.tooling.preview.PreviewParameter
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
+import dev.rafaelbrauner.flowvoice.shared.dictionary.CorrectionPair
 import dev.rafaelbrauner.flowvoice.shared.dictionary.PersonalDictionary
 import dev.rafaelbrauner.flowvoice.shared.pipeline.DictationPipeline
 import dev.rafaelbrauner.flowvoice.ui.components.MonoLabel
@@ -60,10 +61,12 @@ fun DictionaryRoute(modifier: Modifier = Modifier) {
     DictionaryScreen(
         pending = state.pending,
         approved = state.approved,
+        corrections = state.corrections,
         draft = state.draft,
         onApprove = state::approve,
         onDiscard = state::discard,
         onRemove = state::remove,
+        onForgetCorrection = state::forgetCorrection,
         onDraftChange = state::updateDraft,
         onAddDraft = { state.addDraft() },
         modifier = modifier
@@ -74,10 +77,12 @@ fun DictionaryRoute(modifier: Modifier = Modifier) {
 internal fun DictionaryScreen(
     pending: List<String>,
     approved: List<String>,
+    corrections: List<CorrectionPair>,
     draft: String,
     onApprove: (String) -> Unit,
     onDiscard: (String) -> Unit,
     onRemove: (String) -> Unit,
+    onForgetCorrection: (String) -> Unit,
     onDraftChange: (String) -> Unit,
     onAddDraft: () -> Unit,
     modifier: Modifier = Modifier
@@ -119,6 +124,21 @@ internal fun DictionaryScreen(
                     onApprove = { onApprove(term) },
                     onDiscard = { onDiscard(term) }
                 )
+            }
+        }
+        // A seção some sem regras, como os aprovados lidam com o vazio: prefere não ocupar espaço.
+        if (corrections.isNotEmpty()) {
+            MonoLabel(
+                text = "Correções aprendidas",
+                modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 22.dp, bottom = 8.dp)
+            )
+            Column(
+                modifier = Modifier.padding(horizontal = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                corrections.forEach { pair ->
+                    CorrectionRow(pair, onForget = { onForgetCorrection(pair.wrong) })
+                }
             }
         }
         MonoLabel(
@@ -179,6 +199,47 @@ private fun PendingTermCard(term: String, onApprove: () -> Unit, onDiscard: () -
                 modifier = Modifier.weight(1f)
             )
         }
+    }
+}
+
+// Regra errado→correto aprendida quando o usuário editou a saída do modelo ("caza" → "casa");
+// "Esquecer" derruba a regra sem rebaixar o termo certo, que segue aprovado no vocabulário.
+@Composable
+private fun CorrectionRow(pair: CorrectionPair, onForget: () -> Unit) {
+    val colors = FlowVoiceTheme.colors
+    val typography = FlowVoiceTheme.typography
+    val shape = RoundedCornerShape(FlowVoiceRadius.chip)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(colors.chip)
+            .border(1.dp, colors.hairline, shape)
+            .padding(start = 12.dp, end = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = "${pair.wrong} → ${pair.right}",
+            style = typography.monoKey.copy(lineHeight = 1.em),
+            color = colors.chipContent,
+            modifier = Modifier
+                .weight(1f)
+                .padding(vertical = 10.dp)
+        )
+        FvTextAction(
+            text = "Esquecer",
+            onClick = onForget,
+            modifier = Modifier
+                .padding(horizontal = 8.dp)
+                .clearAndSetSemantics {
+                    contentDescription = "Esquecer correção de ${pair.wrong} para ${pair.right}"
+                    role = Role.Button
+                    onClick {
+                        onForget()
+                        true
+                    }
+                }
+        )
     }
 }
 
@@ -280,10 +341,12 @@ private fun DictionaryScreenPreview(@PreviewParameter(ThemePreviewParameter::cla
         DictionaryScreen(
             pending = listOf("Brauner", "commitText", "S26 Ultra"),
             approved = listOf("OpenRouter", "Kotlin", "SQLDelight", "Supabase"),
+            corrections = listOf(CorrectionPair("caza", "casa"), CorrectionPair("medico", "médico")),
             draft = "",
             onApprove = {},
             onDiscard = {},
             onRemove = {},
+            onForgetCorrection = {},
             onDraftChange = {},
             onAddDraft = {}
         )
@@ -297,10 +360,12 @@ private fun DictionaryScreenEmptyPreview(@PreviewParameter(ThemePreviewParameter
         DictionaryScreen(
             pending = emptyList(),
             approved = emptyList(),
+            corrections = emptyList(),
             draft = "",
             onApprove = {},
             onDiscard = {},
             onRemove = {},
+            onForgetCorrection = {},
             onDraftChange = {},
             onAddDraft = {}
         )

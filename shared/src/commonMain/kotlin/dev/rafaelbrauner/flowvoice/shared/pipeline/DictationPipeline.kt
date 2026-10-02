@@ -14,9 +14,10 @@ import dev.rafaelbrauner.flowvoice.shared.localasr.TranscriptionEngineSelection
 import dev.rafaelbrauner.flowvoice.shared.model.CloudModels
 import dev.rafaelbrauner.flowvoice.shared.prefs.PreferencesStore
 import dev.rafaelbrauner.flowvoice.shared.preview.LivePreview
-import dev.rafaelbrauner.flowvoice.shared.preview.LivePreviewAssembler
+import dev.rafaelbrauner.flowvoice.shared.preview.LivePreviewMerger
 import dev.rafaelbrauner.flowvoice.shared.proofreading.AudioChatClient
 import dev.rafaelbrauner.flowvoice.shared.proofreading.ProofreadingClient
+import dev.rafaelbrauner.flowvoice.shared.stats.LatencyStatsStore
 import dev.rafaelbrauner.flowvoice.shared.transcription.IncrementalTranscriptionController
 import dev.rafaelbrauner.flowvoice.shared.transcription.OpenRouterConfig
 import dev.rafaelbrauner.flowvoice.shared.transcription.SecretStore
@@ -60,6 +61,11 @@ class DictationPipeline(
     private val timeSource: TimeSource = TimeSource.Monotonic,
     // Texto ditado vai só para este log, nunca para eventLog nem para as linhas do Diagnóstico (P135).
     private val transcriptTextLog: TranscriptionEventLog = TranscriptionEventLog.NoOp,
+    // Latências para as telas (P59): finalize direto por motor, texto pronto na barra de revisão e a
+    // duração da passada final. O NoOp mantém quem não passa o parâmetro sem gravar nada.
+    private val latencyStats: LatencyStatsStore = LatencyStatsStore.NoOp,
+    // Janela curta da correção aprendida do campo (Item 1 da revisão do motor 2026-10-01).
+    private val correctionCaptureMs: Long = CORRECTION_CAPTURE_MS,
     // Motor no aparelho (Android). Null no desktop: só nuvem.
     private val localEngines: LocalSpeechEngines? = null,
     private val localWindowTargetDurationMs: Long = LOCAL_WINDOW_TARGET_MS
@@ -110,6 +116,12 @@ class DictationPipeline(
     )
     private val directState = MutableStateFlow(DirectInsertionProgress())
     private var directPlan = DirectInsertionPlan()
+    // Prévia incremental (onda 1): a dobra e o apply do vocabulário ficam em cache no merger,
+    // invalidados por revision() do dicionário — o texto inteiro não é reprocessado a cada parcial.
+    private val previewMerger = LivePreviewMerger(
+        applyVocabulary = { dictionary.apply(it) },
+        revision = { dictionary.revision() }
+    )
     // "Inserir aqui" levou o ditado para outro campo (Y2): o que o app escreveu já não está inteiro
     // antes do cursor, e a revisão final não pode mais apagar o ditado para reescrevê-lo.
     private var dictationSplitAcrossFields = false
@@ -225,23 +237,23 @@ class DictationPipeline(
     }
 
     fun preview(): LivePreview {
-        val assembled = LivePreviewAssembler.assemble(
+        // Prévia incremental: o vocabulário já é aplicado dentro do merger, memoizado por revision().
+        // O parcial do motor entra CRU depois do apply — antes ele era aplicado junto com o texto
+        // fechado (apply(withPartial(...))). Com o merger o parcial (que muda a cada tick) não paga
+        // memo nem um apply do texto inteiro; comportamento prescrito pela LivePreviewMerger.
+        val assembled = previewMerger.preview(
             segments = previewSegments(),
             sessionComplete = sessionState.value is DictationSessionState.Finalized
         )
         return LivePreview(
-            finalized = dictionary.apply(assembled.finalized),
-            provisional = dictionary.apply(withPartial(assembled.provisional))
+            finalized = assembled.finalized,
+            provisional = withPartial(assembled.provisional)
         )
     }
 
-    fun liveText(): LivePreview {
-        val split = LiveDictationText.split(previewSegments())
-        return LivePreview(
-            finalized = dictionary.apply(split.finalized),
-            provisional = dictionary.apply(withPartial(split.provisional))
-        )
-    }
+    // Via do motor no aparelho: mesmo contrato do LiveDictationText.split + apply, só que o stable
+    // fica memoizado no merger e o tail com parcial é curto (1 apply por tick).
+    fun liveText(): LivePreview = previewMerger.live(previewSegments(), partialState.value)
 
     // No motor local o pedaço em fechamento leva milissegundos e não tem texto próprio: o que está
     // sendo dito aparece pelo parcial, sem a marca de "transcrevendo".
@@ -283,6 +295,8 @@ class DictationPipeline(
         active = localSession ?: cloud
         segmentsState.value = emptyList()
         partialState.value = ""
+        // Nada do ditado anterior pode sobrar nos caches da prévia incremental.
+        previewMerger.reset()
         engineInterruption = null
         sessionCapReached = false
         windowsState.value = emptyList()
@@ -422,6 +436,8 @@ class DictationPipeline(
             } else {
                 dictionary.suggestFrom(final.text)
                 val latencyMs = mark.elapsedNow().inWholeMilliseconds
+                // P59: o texto pronto na barra de revisão é o ponto de medida da latência de revisão.
+                latencyStats.record(LatencyStatsStore.METRIC_REVIEW_READY, latencyMs)
                 log(
                     "dictation_ready",
                     mapOf(
@@ -468,6 +484,9 @@ class DictationPipeline(
             }
             val outcome = completed(ready.text, insertion, ready.warning, ready.latencyMs, failedWindows = null)
             publish(outcome)
+            // Correção aprendida do campo (Item 1): o texto da barra acabou de entrar no campo. Aqui
+            // não há wholeDictationBeforeCursor — o diff no fim decide sozinho o que é aprendível.
+            scheduleCorrectionCapture(ready.text, sessionToken)
             return outcome
         }
         val outcome = insert(ready.text, ready.warning, ready.latencyMs)
@@ -553,8 +572,12 @@ class DictationPipeline(
         directPlan = directPlan.copy(contiguous = false)
         dictationSplitAcrossFields = true
         if (status is DictationPipelineStatus.Ready) {
-            val outcome = completed(resumed.typed, directDelivery(resumed.typed), status.warning, status.latencyMs, failedWindows = null)
+            val insertion = directDelivery(resumed.typed)
+            val outcome = completed(resumed.typed, insertion, status.warning, status.latencyMs, failedWindows = null)
             publish(outcome)
+            // Correção aprendida do campo (Item 1): o pendente acabou de entrar. "Inserir aqui" pode
+            // ter escrito noutro campo; o diff no fim decide sozinho o que é aprendível.
+            scheduleCorrectionCapture(resumed.typed, sessionToken)
             return outcome
         }
         advanceDirect()
@@ -749,13 +772,33 @@ class DictationPipeline(
                 DictationPipelineStatus.Ready(progress.pending, warningFor(failures), latencyMs, progress.pausedReason)
             }
             progress.typed.isBlank() && failsWithoutText(failures) -> noTextOutcome(failures)
-            else -> completed(
-                progress.typed,
-                directDelivery(progress.typed),
-                warningFor(failures),
-                latencyMs,
-                failedWindows = failures?.failedCount ?: 0
-            )
+            else -> {
+                val insertion = directDelivery(progress.typed)
+                // P59: latência do ditado direto, do toque de parar até o texto final no campo,
+                // separada por motor.
+                latencyStats.record(
+                    if (sessionEngine == TranscriptionEngine.Local) {
+                        LatencyStatsStore.METRIC_FINALIZE_LOCAL
+                    } else {
+                        LatencyStatsStore.METRIC_FINALIZE_CLOUD
+                    },
+                    latencyMs
+                )
+                val outcome = completed(
+                    progress.typed,
+                    insertion,
+                    warningFor(failures),
+                    latencyMs,
+                    failedWindows = failures?.failedCount ?: 0
+                )
+                // Correção aprendida do campo (Item 1): com o ditado inteiro entregue e no campo, é
+                // agora que o usuário vê o resultado e conserta a palavra. A captura fica com o token
+                // desta sessão e o diff conservador decide o que vale regra.
+                if (insertion.success && wholeDictationBeforeCursor()) {
+                    scheduleCorrectionCapture(progress.typed, sessionToken)
+                }
+                outcome
+            }
         }
     }
 
@@ -835,19 +878,27 @@ class DictationPipeline(
 
     // O vocabulário do usuário vale no texto final também (N2): a transcrição da nuvem pode escrever um
     // termo aprovado de outro jeito.
-    private suspend fun runFinalPass(draft: String, apiKey: String): FinalPass.Result =
-        when (
-            val result = finalPass.run(
-                draft = draft,
-                windows = windowsState.value,
-                apiKey = apiKey,
-                transcriptionModel = TranscriptionModels.selected(preferences, config),
-                formatting = CloudModels.formatting(preferences.read())
-            )
-        ) {
+    private suspend fun runFinalPass(draft: String, apiKey: String): FinalPass.Result {
+        // P59: a duração da passada final é medida aqui fora — o FinalPass não sabe do store. O tempo
+        // é o da passada em si; o apply do vocabulário não entra na conta.
+        val mark = timeSource.markNow()
+        val result = finalPass.run(
+            draft = draft,
+            windows = windowsState.value,
+            apiKey = apiKey,
+            transcriptionModel = TranscriptionModels.selected(preferences, config),
+            formatting = CloudModels.formatting(preferences.read())
+        )
+        val elapsedMs = mark.elapsedNow().inWholeMilliseconds
+        val withVocabulary = when (result) {
             is FinalPass.Result.Final -> FinalPass.Result.Final(dictionary.apply(result.text))
             is FinalPass.Result.Kept -> result
         }
+        if (withVocabulary is FinalPass.Result.Final) {
+            latencyStats.record(LatencyStatsStore.METRIC_FINAL_PASS, elapsedMs)
+        }
+        return withVocabulary
+    }
 
     private fun skipFinalPass(reason: String) {
         log("final_pass_skipped", mapOf("reason" to reason))
@@ -940,6 +991,31 @@ class DictationPipeline(
         } else {
             TextInsertionResult(success = true, route = DIRECT_ROUTE, message = "digitado no campo")
         }
+
+    // Correção aprendida do campo (Item 1 da revisão do motor, 2026-10-01): logo depois do fim do
+    // ditado o usuário vê o resultado e conserta a palavra errada; depois dessa janela curta o campo
+    // segue a vida dele e nada mais se atribui ao FlowVoice. A comparação é o que o campo tem antes
+    // do cursor contra o que o app escreveu, e o CorrectionDiff decide conservadoramente o que vira
+    // regra. Um ditado novo (token) ou a sessão ainda ocupada cancelam a captura. O eventLog não
+    // carrega texto (P135): só a contagem; o par vai ao transcriptTextLog.
+    private fun scheduleCorrectionCapture(expected: String, token: Int) {
+        if (expected.isBlank()) return
+        if (token != sessionToken) return
+        scope.launch {
+            delay(correctionCaptureMs)
+            if (token != sessionToken || statusState.value.isBusy) return@launch
+            val tail = inserter.readBeforeCursor(expected.length + DictationFieldTail.SLACK) ?: return@launch
+            val pairs = CorrectionDiff.learnable(expected, tail)
+            pairs.forEach { dictionary.learnCorrection(it.wrong, it.right) }
+            if (pairs.isNotEmpty()) {
+                log("correction_learned", mapOf("pairs" to pairs.size.toString()))
+                transcriptTextLog.log(
+                    "correction_learned",
+                    mapOf("pares" to pairs.joinToString("; ") { "${it.wrong}->${it.right}" })
+                )
+            }
+        }
+    }
 
     // Depois do aviso de timeout do microfone do Início, a sessão pedida por aquele toque não pode
     // seguir gravando: se abrir em até graceMs, é cancelada. Roda no escopo do pipeline, que não
@@ -1077,6 +1153,7 @@ class DictationPipeline(
             buildMap {
                 put("chars", text.length.toString())
                 put("inserted", insertion.success.toString())
+                latencyMs?.let { put("latencyMs", it.toString()) }
                 if (failedWindows != null) put("failedWindows", failedWindows.toString())
             }
         )
@@ -1084,11 +1161,11 @@ class DictationPipeline(
     }
 
     private suspend fun reviseFinalText(segments: List<TranscriptionSegment>): String {
-        val assembled = LivePreviewAssembler.assemble(
-            segments = segments,
-            sessionComplete = true
-        )
-        return finalPassText(dictionary.apply(assembled.finalized))
+        // A revisão final usa a mesma dobra incremental da prévia: o vocabulário do usuário já é
+        // aplicado dentro do merger, então não se aplica de novo aqui (era apply(assemble(...)) —
+        // aplicar duas vezes gastaria o dobro no texto inteiro).
+        val assembled = previewMerger.preview(segments, sessionComplete = true)
+        return finalPassText(assembled.finalized)
     }
 
     private fun modelLabel(): String =
@@ -1133,6 +1210,10 @@ class DictationPipeline(
     }
 
     companion object {
+        // Janela curta de correção logo após o fim do ditado (Item 1 da revisão do motor
+        // 2026-10-01): o usuário conserta a palavra quando vê o resultado; depois disso o campo
+        // segue a vida dele e não se atribui nada ao FlowVoice.
+        const val CORRECTION_CAPTURE_MS = 6_000L
         // Teto de duração do ditado no aparelho: o microfone nunca fica aberto indefinidamente. Dez
         // minutos cobrem uma evolução longa e são mais que os ~4–6 min do teto da nuvem.
         val LOCAL_SESSION_CAP = 10.minutes

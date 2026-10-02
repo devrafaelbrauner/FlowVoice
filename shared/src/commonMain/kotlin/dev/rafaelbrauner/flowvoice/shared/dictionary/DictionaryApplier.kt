@@ -11,6 +11,10 @@ import kotlin.math.abs
 // vocabulário de antes trocava palavra por palavra e só quando o texto já trazia o termo inteiro com
 // outro caixa, então não alcançava nenhum dos três.
 //
+// Antes da fonética vale a regra que o usuário ensinou explicitamente, errado → correto: a troca
+// apontada por ele decide sobre qualquer casamento por som (Item 1 da revisão do motor). A regra é
+// janela de 1, palavra inteira, e nunca toca token com dígito.
+//
 // Aqui o termo é procurado por som, em janelas de uma a N palavras, e o casamento é estreito de
 // propósito: o risco é reescrever o que o usuário falou de verdade.
 //  1. o esqueleto de consoantes tem de ser idêntico — vogal e semivogal o modelo troca, consoante
@@ -22,19 +26,35 @@ import kotlin.math.abs
 //  5. nada com dígito é tocado, nem no texto nem no termo: número, dose e unidade ficam como foram
 //     ditados.
 object DictionaryApplier {
-    fun apply(text: String, approved: Collection<String>): String {
-        if (text.isBlank() || approved.isEmpty()) return text
+    fun apply(
+        text: String,
+        approved: Collection<String>,
+        corrections: Collection<CorrectionPair> = emptyList()
+    ): String {
+        if (text.isBlank()) return text
         val terms = approved.mapNotNull(Term::of)
-        if (terms.isEmpty()) return text
+        val rules = corrections.mapNotNull(CorrectionRule::of)
+        if (terms.isEmpty() && rules.isEmpty()) return text
         val words = WORD.findAll(text).map { it.range }.toList()
         if (words.isEmpty()) return text
-        val maxWindow = minOf(terms.maxOf { it.words } + 1, MAX_WINDOW_WORDS)
+        // Sem termo não há janela de som para computar; a regra é sempre janela 1.
+        val maxWindow = if (terms.isEmpty()) 0 else minOf(terms.maxOf { it.words } + 1, MAX_WINDOW_WORDS)
 
         val result = StringBuilder()
         var copied = 0
         var index = 0
         while (index < words.size) {
-            val hit = matchAt(text, words, index, terms, maxWindow)
+            // Regra primeiro, na mesma posição: dentro da janela de 1 ela vence termo exato e som.
+            val rule = if (rules.isEmpty()) null else ruleAt(text, words, index, rules)
+            if (rule != null) {
+                val range = words[index]
+                result.append(text, copied, range.first)
+                result.append(rule.replacementFor(text.substring(range.first, range.last + 1)))
+                copied = range.last + 1
+                index++
+                continue
+            }
+            val hit = if (terms.isEmpty()) null else matchAt(text, words, index, terms, maxWindow)
             if (hit == null) {
                 index++
                 continue
@@ -68,6 +88,20 @@ object DictionaryApplier {
             if (term != null) return Hit(term, size)
         }
         return null
+    }
+
+    // A regra casa a palavra inteira do token, sem caixa. Token com dígito nunca é tocado, a mesma
+    // proteção da janela de som: número, dose e unidade ficam como foram ditados.
+    private fun ruleAt(
+        text: String,
+        words: List<IntRange>,
+        index: Int,
+        rules: List<CorrectionRule>
+    ): CorrectionRule? {
+        val range = words[index]
+        if (range.any { text[it].isDigit() }) return null
+        val word = text.substring(range.first, range.last + 1)
+        return rules.firstOrNull { it.wrong == word.lowercase() }
     }
 
     // Uma janela só existe se as palavras estiverem separadas apenas por espaço: pontuação no meio
@@ -149,6 +183,28 @@ object DictionaryApplier {
                 val key = PtBrSound.key(surface)
                 if (key.isEmpty()) return null
                 return Term(surface, key, WORD.findAll(surface).count())
+            }
+        }
+    }
+
+    // Regra errado→correto ensinada. O casamento é a chave em minúsculas, exata e palavra inteira,
+    // sem cair na fonética. A caixa da palavra casada é preservada como nos termos: "Caza" vira
+    // "Casa" (início de frase é do texto, não da regra), e palavra minúscula recebe o `right` tal
+    // como o usuário o ensinou.
+    private class CorrectionRule(val wrong: String, val right: String) {
+        fun replacementFor(word: String): String =
+            if (word.first().isUpperCase() && right.first().isLowerCase()) {
+                right.replaceFirstChar { it.uppercaseChar() }
+            } else {
+                right
+            }
+
+        companion object {
+            fun of(pair: CorrectionPair): CorrectionRule? {
+                val key = pair.wrong.trim().lowercase()
+                val right = pair.right.trim()
+                if (key.isEmpty() || right.isEmpty()) return null
+                return CorrectionRule(key, right)
             }
         }
     }

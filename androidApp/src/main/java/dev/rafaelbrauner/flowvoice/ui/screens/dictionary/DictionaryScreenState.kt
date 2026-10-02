@@ -10,6 +10,10 @@ class DictionaryScreenState(private val dictionary: PersonalDictionary) {
         private set
     var approved by mutableStateOf(dictionary.approved().map { it.surface })
         private set
+    // Regras errado→correto aprendidas quando o usuário editou a saída do modelo: a tela lista e
+    // permite esquecer, espelhando pendentes/aprovados.
+    var corrections by mutableStateOf(dictionary.corrections())
+        private set
     var draft by mutableStateOf("")
         private set
 
@@ -19,6 +23,14 @@ class DictionaryScreenState(private val dictionary: PersonalDictionary) {
     fun refresh() {
         pending = dictionary.pending().map { it.surface }
         approved = dictionary.approved().map { it.surface }
+        corrections = dictionary.corrections()
+    }
+
+    // Esquecer derruba só a regra: o termo certo segue aprovado no vocabulário (contrato do
+    // dicionário), então approved não muda aqui além do que refresh conferir.
+    fun forgetCorrection(wrong: String) {
+        dictionary.forgetCorrection(wrong)
+        refresh()
     }
 
     fun approve(surface: String) {

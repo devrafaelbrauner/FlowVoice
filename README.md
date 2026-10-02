@@ -205,6 +205,11 @@ Em **Ajustes → Motor de transcrição**:
   - Os padrões são os únicos sem erro que muda sentido na medição (afebril/febril, número, remédio trocado)
     com a melhor nota. Com eles: ~4,2 s do toque de parar ao texto final num ditado de 20 s (medido do Mac)
     e ≈ US$ 0,0049 por minuto de ditado na passada final.
+- **Memória de correções:** consertou uma palavra no campo logo depois do ditado ("caza" → "casa")? Se a troca
+  for 1:1 de palavras de 4+ letras, o par entra em Ajustes → Dicionário ("Correções aprendidas", dá para
+  esquecer), o termo certo é aprovado e a regra substitui a palavra errada nas próximas transcrições, com
+  precedência sobre o casamento por som. O Diagnóstico mostra p50/p95 do fim do ditado (por motor, barra de
+  revisão e passada final), agora persistidos.
 - "Apagar modelo" volta o motor para a nuvem.
 
 ## Ditando
