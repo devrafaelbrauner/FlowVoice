@@ -4,6 +4,16 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/)
 e [Versionamento Semântico](https://semver.org/lang/pt-BR/). As fases citadas
 estão em [`docs/tasks/`](docs/tasks/README.md).
 
+## [0.8.1] - 2026-10-02
+
+- **Rota travada morre antes do prazo do ditado** (S26, 2026-10-02 03:10–03:19): duas tentativas de ditado
+  ficaram sem resposta — três janelas `unresolved` até o prazo de 15 s, passada final `demorou` e o catálogo
+  de modelos falhando duas vezes, com o benchmark 6/6 `ok` onze minutos depois: conexões abertas e zero
+  bytes, degradação da rede do aparelho. O socket timeout de leitura desce de 30 s para 12 s: a janela falha
+  com o kind de rede antes do prazo e o aviso sai no fim do ditado, em vez do usuário esperar em
+  "Transcrevendo" sem nada. `requestTimeout` segue em 30 s — respostas lentas e saudáveis da passada final
+  têm leitura contínua e não encostam no silêncio de 12 s.
+
 ## [0.8.0] - 2026-10-01
 
 - **Aprendizado de correção (errado→correto)**: quando uma palavra consertada no campo logo depois do ditado

@@ -14,8 +14,8 @@ android {
         applicationId = "dev.rafaelbrauner.flowvoice"
         minSdk = 24
         targetSdk = 36
-        versionCode = 18
-        versionName = "0.8.0"
+        versionCode = 19
+        versionName = "0.8.1"
         // O motor no aparelho é nativo (sherpa-onnx, ~27 MB por arquitetura). Só arm64-v8a: é a do S26 e
         // a dos emuladores deste projeto (AVDs arm64 no Mac com Apple Silicon). O x86_64 somaria 30,8 MB
         // ao APK sem ninguém que o use; armeabi-v7a e x86, mais ~50 MB.
